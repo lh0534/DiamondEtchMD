@@ -1,0 +1,68 @@
+"""
+lammps/config.py — generator for config.lmp, the per-condition parameter file.
+
+config.lmp is included at the top of head.lmp and defines all LAMMPS variables
+that vary between simulation conditions: box size, energy, temperature, species
+type, surface flags (reconstruct, H/O terminate), and timing parameters.
+"""
+
+from ..orientations import ORIENT
+from ..species import SPECIES
+from ..spec import SimSpec
+
+
+def get_config_lmp(spec: SimSpec) -> str:
+    """Generate the contents of config.lmp for the given SimSpec."""
+    species = SPECIES[spec.species]
+
+    # For 001: reconstruction is a config.lmp flag (small atomic displacement)
+    # For 111/113: reconstruction is structural (encoded in make_surf.lmp), so the flag is false
+    recon_flag = "true" if (spec.orientation == "001" and spec.reconstruction == "2x1") else "false"
+    h_flag      = "true" if spec.termination == "H"       else "false"
+    o_flag      = "true" if spec.termination == "O"       else "false"
+    o_eth_flag  = "true" if spec.termination == "O_ether" else "false"
+
+    return (
+        f"# simtool.py generated config\n"
+        f"# orientation={spec.orientation}  reconstruction={spec.reconstruction}"
+        f"  termination={spec.termination}\n"
+        f"# species={spec.species}  energy={spec.energy}eV  angle={spec.angle}deg"
+        f"  T={spec.temperature}K\n"
+        f"\n"
+        f"variable    ML equal {spec.ml}            # atoms per monolayer\n"
+        f"variable    end_fluence equal {spec.fluence}   # in ML\n"
+        f"\n"
+        f"variable    energ equal {spec.energy}     # incident particle energy (eV)\n"
+        f"variable    angl equal {spec.angle}       # incident particle angle (deg from normal)\n"
+        f"variable    T equal {spec.temperature}    # substrate temperature (K)\n"
+        f"variable    pot string REAX\n"
+        f"\n"
+        f"variable    use_starting_data_file equal false\n"
+        f"variable    starting_data_file string data.truncated\n"
+        f"\n"
+        f'if "${{pot}} == REAX" then &\n'
+        f'"variable    lat_a file lat_a.txt"\n'
+        f"\n"
+        f"variable    x equal {spec.box_x}\n"
+        f"variable    y equal {spec.box_y}\n"
+        f"variable    lat_top equal {spec.box_depth}\n"
+        f"variable    z equal ${{lat_top}}+5\n"
+        f"\n"
+        f"variable    reconstruct equal {recon_flag}\n"
+        f"variable    H_terminate equal {h_flag}\n"
+        f"variable    O_terminate equal {o_flag}\n"
+        f"variable    O_ether_terminate equal {o_eth_flag}\n"
+        f"\n"
+        f"variable    i_above equal {species['i_above']}    # Å above surface to inject particle\n"
+        f"variable    impact_time equal {spec.impact_time}\n"
+        f"variable    thermalization_time equal {spec.thermalization_time}\n"
+        f"\n"
+        f"variable    M_C equal 12.011\n"
+        f"variable    M_H equal 1.00784\n"
+        f"variable    M_O equal 16.0\n"
+        f"variable    M_incident equal ${{{species['mass_var']}}}\n"
+        f"variable    incident_type_index equal {species['type_index']}  # {spec.species}\n"
+        f"\n"
+        f"variable    seed_adjust equal 0\n"
+        f"variable    simdepo equal 1\n"
+    )
