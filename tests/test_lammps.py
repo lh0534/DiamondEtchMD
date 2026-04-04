@@ -17,7 +17,7 @@ from diamond_etch_md.orientations import ORIENT
 
 # ─── fixtures ────────────────────────────────────────────────────────────────
 
-def make_spec(orientation="001", energy=0.5, temperature=300.0, ml=81,
+def make_spec(orientation="100", energy=0.5, temperature=300.0, ml=81,
               box_x=9, box_y=9, box_depth=3, species="O",
               reconstruction="bare", termination="bare",
               name="test_job", **kw):
@@ -71,13 +71,13 @@ def test_config_contains_box_x_and_y():
 
 
 def test_config_recon_flag_001_2x1():
-    spec = make_spec(orientation="001", reconstruction="2x1", ml=81)
+    spec = make_spec(orientation="100", reconstruction="2x1", ml=81)
     cfg = get_config_lmp(spec)
     assert "variable    reconstruct equal true" in cfg
 
 
 def test_config_recon_flag_001_bare():
-    spec = make_spec(orientation="001", reconstruction="bare", ml=81)
+    spec = make_spec(orientation="100", reconstruction="bare", ml=81)
     cfg = get_config_lmp(spec)
     assert "variable    reconstruct equal false" in cfg
 
@@ -134,9 +134,9 @@ def test_config_orientation_comment():
 @pytest.mark.parametrize("orientation", list(ORIENT.keys()))
 def test_head_contains_lattice_cmd(orientation):
     """head.lmp must embed the orientation-specific lattice command."""
-    ml_map = {"001": 81, "111": 90, "113": 108}
-    bx_map = {"001": 9,  "111": 5,  "113": 9}
-    by_map = {"001": 9,  "111": 9,  "113": 3}
+    ml_map = {"100": 81, "111": 90, "113": 108}
+    bx_map = {"100": 9,  "111": 5,  "113": 9}
+    by_map = {"100": 9,  "111": 9,  "113": 3}
     spec = make_spec(orientation=orientation,
                      ml=ml_map[orientation],
                      box_x=bx_map[orientation],
@@ -151,9 +151,9 @@ def test_head_contains_lattice_cmd(orientation):
 @pytest.mark.parametrize("orientation", list(ORIENT.keys()))
 def test_head_contains_bottom_expr(orientation):
     """head.lmp must embed the orientation-specific bottom expression."""
-    ml_map = {"001": 81, "111": 90, "113": 108}
-    bx_map = {"001": 9,  "111": 5,  "113": 9}
-    by_map = {"001": 9,  "111": 9,  "113": 3}
+    ml_map = {"100": 81, "111": 90, "113": 108}
+    bx_map = {"100": 9,  "111": 5,  "113": 9}
+    by_map = {"100": 9,  "111": 9,  "113": 3}
     spec = make_spec(orientation=orientation,
                      ml=ml_map[orientation],
                      box_x=bx_map[orientation],
@@ -166,7 +166,7 @@ def test_head_contains_bottom_expr(orientation):
 
 
 def test_head_001_lattice_specific_content():
-    spec = make_spec(orientation="001", ml=81)
+    spec = make_spec(orientation="100", ml=81)
     head = get_head_lmp(spec)
     assert "orient z 0 0 1" in head
     assert "orient x 1 1 0" in head

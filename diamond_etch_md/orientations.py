@@ -24,7 +24,7 @@ Each entry in ORIENT contains:
 """
 
 ORIENT = {
-    "001": {
+    "100": {
         "lattice_cmd": (
             "lattice    diamond ${lat_a}"
             " orient z 0 0 1 orient x 1 1 0 orient y -1 1 0"
@@ -33,9 +33,13 @@ ORIENT = {
         "bottom_expr": "$(zlo/(v_lat_a))",
         "default_box": (9, 9, 3),
         "ml_factor":   1,
-        # single file; reconstruction/termination controlled by config.lmp variables
+        # single file handles all cases; reconstruction (bare/2x1) and termination
+        # (bare/H/O/O_ether) are controlled by config.lmp flag variables.
+        # 2x1: displaces alternating surface dimer rows along [110]/[-1-10].
+        # O_ether: bridges O between adjacent surface C atoms (ether geometry).
         "make_surf": {
-            "*": "radicals/make_surf.lmp",
+            "bare": "package:lammps/templates/make_surf_100.lmp",
+            "2x1":  "package:lammps/templates/make_surf_100.lmp",
         },
     },
     "111": {

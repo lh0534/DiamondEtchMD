@@ -1,0 +1,137 @@
+package kokkos neigh/qeq full neigh half newton on
+units		real
+include     config.lmp
+if "${pot} == COMB3" then &
+"atom_style charge" &
+elif "${pot} == REAX" &
+"atom_style charge" &
+else &
+"atom_style atomic"
+
+boundary	p p m
+
+variable    bottom equal -5/8 # edge is in the gap between layers to avoid flop issues
+print       'BOTTOM ${bottom}'
+
+# Create the entire simulation space "big box" with 3 types of atoms
+lattice    diamond ${lat_a} orient z 0 0 1 orient x 1 1 0 orient y -1 1 0 spacing $(1/sqrt(2)) $(1/sqrt(2)) 1 origin 0 0 0
+region     bbox block 0 ${x} 0 ${y} ${bottom} ${z} units lattice
+create_box 3 bbox
+
+# Create diamond cubic lattice in a subregion of bbox
+region	        lbox block  -1e-6 ${x} -1e-6 ${y} ${bottom} ${lat_top} units lattice
+variable        sublat equal ${bottom}+1/2 # 2 layers == half a unit cell
+region          anchor block INF INF INF INF ${bottom} ${sublat} units lattice # anchor bottom 2 layers
+
+if "${use_starting_data_file}" then &
+    "read_data       ${starting_data_file} add merge" &
+    "group carbon type 1" &
+    "variable        n_lat_0  equal $(count(carbon)) # n_lat_0 is the starting number of carbon" &
+else &
+    "create_atoms    1 region lbox" &
+    "variable        n_lat_0  equal $(8*v_x*v_y*v_lat_top) # 8 times the number of unit cells should be it"
+
+if "${pot} == REAX" then &
+"set group all charge 0.0"
+print 'N_LAT_0 ${n_lat_0}'
+
+# Groups
+group 	anchor region anchor
+group	insert empty
+group 	mobile subtract all anchor
+group   carbon type 1
+
+# Particle masses
+mass        1 ${M_C}
+mass        2 ${M_H}
+mass        3 ${M_O}
+
+# Potential
+if "${pot} == REAX" then &
+"pair_style reaxff NULL" &
+"pair_coeff * * ffield.reax C H O" &
+"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"
+
+change_box all x final 0 ${x} y final 0 ${y} z final ${bottom} ${z}
+delete_atoms overlap $(sqrt(3)/8) all all
+
+minimize 1.0e-5 1.0e-6 1000 10000
+reset_timestep  0 time 0.0
+
+# thermo 1
+# reconstruction
+if "${reconstruct} && !${use_starting_data_file}" then &
+"variable row0 atom (round((x)/(${lat_a}/sqrt(2)))%2==0)&&(z>(${lat_top}*${lat_a}-2*${lat_a}/8))" &
+"variable row1 atom (round((x)/(${lat_a}/sqrt(2)))%2==1)&&(z>(${lat_top}*${lat_a}-2*${lat_a}/8))" &
+"group row0 variable row0" &
+"group row1 variable row1" &
+"displace_atoms row0 move 0.1 0.1 0 units lattice" &
+"displace_atoms row1 move -0.1 -0.1 0 units lattice" &
+"variable row0 delete" &
+"group row0 delete" &
+"variable row1 delete" &
+"group row1 delete"
+
+minimize 1.0e-5 1.0e-6 1000 10000
+reset_timestep  0 time 0.0
+
+if "${H_terminate} && !${use_starting_data_file}" then &
+"variable term_top equal ${lat_top}+1/8" &
+"variable term_bottom equal ${lat_top}" &
+"region term block 0 ${x} 0 ${y} ${term_bottom} ${term_top} units lattice" &
+"create_atoms 2 region term" &
+"group H type 2" &
+"displace_atoms H move $(1/4) $(1/4) 0 units lattice" &
+"group H delete"
+
+if "${O_terminate} && !${use_starting_data_file}" then &
+"variable term_top equal ${lat_top}+1/8" &
+"variable term_bottom equal ${lat_top}" &
+"region term block 0 ${x} 0 ${y} ${term_bottom} ${term_top} units lattice" &
+"create_atoms 3 region term" &
+"group O type 3" &
+"displace_atoms O move 0.0 0.0 $(1/4) units lattice" &
+"group O delete"
+
+if "${O_ether_terminate} && !${use_starting_data_file}" then &
+"variable term_top equal ${lat_top}+1/8" &
+"variable term_bottom equal ${lat_top}" &
+"region term block 0 ${x} 0 ${y} ${term_bottom} ${term_top} units lattice" &
+"create_atoms 3 region term" &
+"group O type 3" &
+"displace_atoms O move -0.5 0.0 $(1/4) units lattice" &
+"group O delete"
+
+# if "!${use_starting_data_file}" then &
+# "fix freeze anchor setforce 0 0 0" &
+# "minimize 1.0e-5 1.0e-6 1000 10000" &
+# "print reterm_done" &
+# "unfix freeze"
+
+minimize 1.0e-5 1.0e-6 1000 10000
+reset_timestep  0 time 0.0
+write_data      001_2x1_0K.dat nofix nocoeff
+
+
+# initial thermalization w/ nose-hoover since it's easy
+if "!${use_starting_data_file}" then &
+"thermo          1000" &
+"thermo_style    custom step time temp" &
+"compute     	 mtemp mobile temp" &
+"compute_modify  mtemp dynamic/dof yes" &
+"thermo_modify   temp mtemp" &
+"thermo_modify   lost warn flush yes" &
+"velocity        mobile create ${T} 459087" &
+"fix             1 mobile nvt temp $T $T $(100*dt)" &
+"timestep        1" &
+"run             10000" &
+"unfix           1" &
+"reset_timestep  0 time 0.0 # pretend this never happened"
+
+# write initial values
+write_data      001_2x1_${T}K.dat nofix nocoeff
+write_data      data_files/0.data nofix nocoeff
+write_dump      all custom dumps/dump.dump id type x y z vx vy vz modify sort id
+
+print "0 ${n_lat_0} 0 0" append ncarbon.txt
+print "0 ${bottom} ${n_lat_0}" append bottom_tracker.txt

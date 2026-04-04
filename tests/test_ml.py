@@ -21,11 +21,11 @@ from diamond_etch_md.orientations import ORIENT
 
 @pytest.mark.parametrize("orientation, box_x, box_y, expected", [
     # 001  ml_factor=1
-    ("001", 9,  9,  81),
-    ("001", 5,  5,  25),
-    ("001", 10, 10, 100),
-    ("001", 6,  8,  48),
-    ("001", 1,  1,  1),
+    ("100", 9,  9,  81),
+    ("100", 5,  5,  25),
+    ("100", 10, 10, 100),
+    ("100", 6,  8,  48),
+    ("100", 1,  1,  1),
     # 111  ml_factor=2
     ("111", 5,  9,  90),
     ("111", 9,  9,  162),

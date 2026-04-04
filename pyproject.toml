@@ -17,7 +17,7 @@ where = ["."]
 include = ["diamond_etch_md*"]
 
 [tool.setuptools.package-data]
-diamond_etch_md = ["lammps/templates/*.lmp"]
+diamond_etch_md = ["lammps/templates/*.lmp", "lammps/templates/*.reax", "lammps/templates/*.txt", "lammps/templates/*.sh"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

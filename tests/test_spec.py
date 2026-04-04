@@ -15,8 +15,8 @@ from diamond_etch_md.spec import SimSpec, compute_ml, validate
 # ─── ML computation ──────────────────────────────────────────────────────────
 
 def test_ml_001_9x9():
-    """001 orientation, 9×9 box → ML = 1*9*9 = 81."""
-    assert compute_ml("001", 9, 9) == 81
+    """100 orientation, 9×9 box → ML = 1*9*9 = 81."""
+    assert compute_ml("100", 9, 9) == 81
 
 
 def test_ml_111_5x9():
@@ -38,7 +38,7 @@ def test_validate_bad_orientation():
 
 
 def test_validate_bad_species():
-    spec = SimSpec(orientation="001", species="Ar", ml=81)
+    spec = SimSpec(orientation="100", species="Ar", ml=81)
     with pytest.raises(SystemExit):
         validate(spec)
 
@@ -58,27 +58,27 @@ def test_validate_bad_reconstruction_113():
 
 
 def test_validate_bad_termination():
-    spec = SimSpec(orientation="001", termination="fluorine", ml=81)
+    spec = SimSpec(orientation="100", termination="fluorine", ml=81)
     with pytest.raises(SystemExit):
         validate(spec)
 
 
 def test_validate_ml_zero():
     """ml=0 should fail (must be > 0)."""
-    spec = SimSpec(orientation="001", ml=0)
+    spec = SimSpec(orientation="100", ml=0)
     with pytest.raises(SystemExit):
         validate(spec)
 
 
 def test_validate_ml_negative():
-    spec = SimSpec(orientation="001", ml=-5)
+    spec = SimSpec(orientation="100", ml=-5)
     with pytest.raises(SystemExit):
         validate(spec)
 
 
 def test_validate_001_wildcard_any_reconstruction():
-    """001 uses '*' wildcard, so any reconstruction value should be accepted."""
-    spec = SimSpec(orientation="001", reconstruction="2x1", ml=81)
+    """100 uses '*' wildcard, so any reconstruction value should be accepted."""
+    spec = SimSpec(orientation="100", reconstruction="2x1", ml=81)
     validate(spec)  # should not raise
 
 
@@ -98,7 +98,7 @@ def test_validate_113_valid_reconstructions():
 
 def test_simspec_defaults():
     s = SimSpec()
-    assert s.orientation == "001"
+    assert s.orientation == "100"
     assert s.reconstruction == "bare"
     assert s.termination == "bare"
     assert s.temperature == 300.0

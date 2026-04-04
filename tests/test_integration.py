@@ -31,11 +31,11 @@ def fake_dfiles(tmp_path):
 
 def test_make_sim_creates_expected_files(tmp_path, fake_dfiles):
     spec = SimSpec(
-        orientation="001",
+        orientation="100",
         species="O",
         energy=0.5,
         temperature=300.0,
-        ml=compute_ml("001", 9, 9),
+        ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=3,
         name="smoke_test",
     )
@@ -52,11 +52,11 @@ def test_make_sim_creates_expected_files(tmp_path, fake_dfiles):
 
 def test_make_sim_config_matches_spec(tmp_path, fake_dfiles):
     spec = SimSpec(
-        orientation="001",
+        orientation="100",
         species="H",
         energy=1.5,
         temperature=600.0,
-        ml=compute_ml("001", 9, 9),
+        ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=3,
         name="config_check",
     )
@@ -71,7 +71,7 @@ def test_make_sim_config_matches_spec(tmp_path, fake_dfiles):
 
 def test_make_sim_submit_matches_spec(tmp_path, fake_dfiles):
     spec = SimSpec(
-        orientation="001",
+        orientation="100",
         species="O",
         energy=0.5,
         temperature=300.0,

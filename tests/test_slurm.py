@@ -28,11 +28,11 @@ pytestmark = pytest.mark.slurm
 def sim_dir(tmp_path):
     """Build a real simulation directory using the live dfiles tree."""
     spec = SimSpec(
-        orientation="001",
+        orientation="100",
         species="O",
         energy=0.5,
         temperature=300.0,
-        ml=compute_ml("001", 9, 9),
+        ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=3,
         fluence=1,
         wall_hours=1,

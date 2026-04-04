@@ -17,7 +17,7 @@ def get_config_lmp(spec: SimSpec) -> str:
 
     # For 001: reconstruction is a config.lmp flag (small atomic displacement)
     # For 111/113: reconstruction is structural (encoded in make_surf.lmp), so the flag is false
-    recon_flag = "true" if (spec.orientation == "001" and spec.reconstruction == "2x1") else "false"
+    recon_flag = "true" if (spec.orientation == "100" and spec.reconstruction == "2x1") else "false"
     h_flag      = "true" if spec.termination == "H"       else "false"
     o_flag      = "true" if spec.termination == "O"       else "false"
     o_eth_flag  = "true" if spec.termination == "O_ether" else "false"

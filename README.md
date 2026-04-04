@@ -1,6 +1,6 @@
 # DiamondEtchMD
 
-Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics simulations of diamond surface etching. Supports radical (O, H) and ion bombardment of C(001), C(111), and C(113) surfaces on Princeton's Della GPU cluster.
+Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics simulations of diamond surface etching. Supports radical (O, H) and ion bombardment of C(100), C(111), and C(113) surfaces on Princeton's Della GPU cluster.
 
 ## Installation
 
@@ -17,15 +17,15 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 from pathlib import Path
 
 spec = SimSpec(
-    orientation  = "001",
+    orientation  = "100",
     species      = "O",
     energy       = 0.5,       # eV
     temperature  = 300.0,     # K
-    ml           = compute_ml("001", 9, 9),  # 81
+    ml           = compute_ml("100", 9, 9),  # 81
     box_x=9, box_y=9, box_depth=3,
     fluence      = 50,        # monolayers
     wall_hours   = 24,
-    name         = "001_O_0.5eV_300K",
+    name         = "100_O_0.5eV_300K",
 )
 
 make_sim(spec, Path("my_sim"), dfiles_root=Path("/path/to/dfiles"))
@@ -39,8 +39,19 @@ sbatch my_sim/submit
 
 Or use the CLI:
 ```bash
-diamond-etch-md --orientation 001 --species O --energy 0.5 --temperature 300 my_sim
+# C(100) — bare surface, O radical at 0.5 eV
+diamond-etch-md --orientation 100 --species O --energy 0.5 --temperature 300 my_sim
+
+# C(100) — 2×1 reconstructed, O-ether terminated
+diamond-etch-md --orientation 100 --reconstruction 2x1 --termination O_ether --energy 0.5 100_2x1_Oether
+
+# C(100) — 2×1 reconstructed, H-terminated
+diamond-etch-md --orientation 100 --reconstruction 2x1 --termination H --energy 0.5 100_2x1_H
+
+# C(111) — Pandey chain reconstruction
 diamond-etch-md --orientation 111 --reconstruction 2x1_pandey --energy 1.0 111_pandey
+
+# C(113) — O-terminated, angled incidence
 diamond-etch-md --orientation 113 --termination O --angle 15 --energy 0.2 113_O_15deg
 ```
 
@@ -66,9 +77,9 @@ diamond_etch_md/
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `orientation` | str | `"001"` | Crystal surface: `"001"`, `"111"`, or `"113"` |
+| `orientation` | str | `"100"` | Crystal surface: `"100"`, `"111"`, or `"113"` |
 | `reconstruction` | str | `"bare"` | Surface reconstruction (see below) |
-| `termination` | str | `"bare"` | Chemical termination: `bare`, `H`, `O`, `O_ether` |
+| `termination` | str | `"bare"` | Chemical termination: `bare`, `H`, `O`, `O_ether` (ether-bridge O between adjacent surface C) |
 | `temperature` | float | `300.0` | Substrate temperature (K) |
 | `species` | str | `"O"` | Incident species: `"O"` or `"H"` |
 | `energy` | float | `0.5` | Incident particle energy (eV) |
@@ -85,11 +96,13 @@ diamond_etch_md/
 
 ### Reconstructions by orientation
 
-| Orientation | Valid reconstructions |
-|---|---|
-| `001` | `bare`, `2x1` (controlled via `config.lmp` flag) |
-| `111` | `bare` / `1x1`, `2x1_single`, `2x1_pandey` |
-| `113` | `bare`, `O` |
+| Orientation | Valid reconstructions | Implementation |
+|---|---|---|
+| `100` | `bare`, `2x1` | Single template; `reconstruct` flag in `config.lmp` displaces alternating dimer rows along [110]/[−1−10] |
+| `111` | `bare` / `1x1`, `2x1_single`, `2x1_pandey` | Separate `make_surf.lmp` per reconstruction in `dfiles/111/` |
+| `113` | `bare`, `O` | Separate `make_surf.lmp` per reconstruction in `dfiles/113/` |
+
+`reconstruction` and `termination` are independent for C(100): any reconstruction can be combined with any termination (`bare`, `H`, `O`, `O_ether`).
 
 ### Atoms per monolayer (`ml`)
 
@@ -97,7 +110,7 @@ diamond_etch_md/
 
 | Orientation | `ml_factor` | Example (default box) |
 |---|---|---|
-| `001` | 1 | 9×9 → 81 |
+| `100` | 1 | 9×9 → 81 |
 | `111` | 2 | 5×9 → 90 |
 | `113` | 4 | 9×3 → 108 |
 
@@ -126,7 +139,7 @@ y = etch_yield(records, ml=81)
 
 # Etch depth vs impact number (in monolayers)
 nc = parse_ncarbon("my_sim/ncarbon.txt")
-depths = etch_depth(nc, ml=81, box_x=9, box_y=9, orientation="001")
+depths = etch_depth(nc, ml=81, box_x=9, box_y=9, orientation="100")
 ```
 
 ### `etch_products.txt` format
@@ -163,7 +176,7 @@ dfiles/
   lat_a.txt            Equilibrium lattice constant for the chosen potential
   lmp_env.sh           Module load script
   radicals/
-    make_surf.lmp      Surface builder for 001 (all reconstructions via config flags)
+    make_surf.lmp      Surface builder for 100 (all reconstructions via config flags)
     sweep.lmp          Cluster detection and ejection sweep
     thermalize.lmp     NVT thermalisation block
     addfix.lmp         Carbon replenishment block

@@ -152,7 +152,7 @@ def test_parse_ncarbon_skips_comments(tmp_path):
 def test_etch_depth_basic(ncarbon_file):
     records = parse_ncarbon(ncarbon_file)
     # n0=648; impacts: 648, 647, 630; ML=81
-    depths = etch_depth(records, ml=81, box_x=9, box_y=9, orientation="001")
+    depths = etch_depth(records, ml=81, box_x=9, box_y=9, orientation="100")
     assert len(depths) == 3
     assert depths[0] == pytest.approx(0.0)
     assert depths[1] == pytest.approx(1 / 81)
@@ -160,18 +160,18 @@ def test_etch_depth_basic(ncarbon_file):
 
 
 def test_etch_depth_empty():
-    assert etch_depth([], ml=81, box_x=9, box_y=9, orientation="001") == []
+    assert etch_depth([], ml=81, box_x=9, box_y=9, orientation="100") == []
 
 
 def test_etch_depth_no_etching(tmp_path):
     p = tmp_path / "nc.txt"
     p.write_text("1 100 0 0\n2 100 0 0\n3 100 0 0\n")
     records = parse_ncarbon(p)
-    depths = etch_depth(records, ml=10, box_x=5, box_y=2, orientation="001")
+    depths = etch_depth(records, ml=10, box_x=5, box_y=2, orientation="100")
     assert all(d == pytest.approx(0.0) for d in depths)
 
 
 def test_etch_depth_monotone_decrease(ncarbon_file):
     records = parse_ncarbon(ncarbon_file)
-    depths = etch_depth(records, ml=81, box_x=9, box_y=9, orientation="001")
+    depths = etch_depth(records, ml=81, box_x=9, box_y=9, orientation="100")
     assert depths == sorted(depths)

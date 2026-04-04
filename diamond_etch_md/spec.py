@@ -12,7 +12,7 @@ from .species import SPECIES
 
 @dataclass
 class SimSpec:
-    orientation:         str   = "001"
+    orientation:         str   = "100"
     reconstruction:      str   = "bare"   # bare, 2x1 (001); bare/1x1/2x1_single/2x1_pandey (111); bare/O (113)
     termination:         str   = "bare"   # bare, H, O, O_ether
     temperature:         float = 300.0    # K

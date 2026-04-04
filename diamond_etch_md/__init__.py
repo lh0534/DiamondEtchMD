@@ -1,7 +1,7 @@
 """
 DiamondEtchMD — LAMMPS simulation setup and analysis for diamond surface etching.
 
-Supports radical (O, H) and ion bombardment of diamond C(001), C(111), and C(113)
+Supports radical (O, H) and ion bombardment of diamond C(100), C(111), and C(113)
 surfaces using the ReaxFF potential within the LAMMPS radicals framework.
 """
 

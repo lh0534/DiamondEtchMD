@@ -78,7 +78,7 @@ def etch_depth(
     box_y:
         Lateral box size in y lattice units (unused; reserved for future Å conversion).
     orientation:
-        Surface orientation string ('001', '111', or '113') (unused; reserved for
+        Surface orientation string ('100', '111', or '113') (unused; reserved for
         future layer-density conversion).
 
     Returns

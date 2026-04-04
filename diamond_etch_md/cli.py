@@ -9,7 +9,7 @@ Usage:
     diamond-etch-md [options] <outdir>
 
 Examples:
-    diamond-etch-md --orientation 001 --energy 0.5 --temperature 300 my_sim
+    diamond-etch-md --orientation 100 --energy 0.5 --temperature 300 my_sim
     diamond-etch-md --orientation 111 --reconstruction 2x1_pandey --energy 1.0 111_pandey
     diamond-etch-md --orientation 113 --termination O --angle 15 --energy 0.2 113_O_15deg
 """
@@ -41,14 +41,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     surf = p.add_argument_group("surface")
     surf.add_argument(
-        "--orientation", default="001", choices=list(ORIENT),
-        help="Crystal surface orientation (default: 001)",
+        "--orientation", default="100", choices=list(ORIENT),
+        help="Crystal surface orientation (default: 100)",
     )
     surf.add_argument(
         "--reconstruction", default="bare",
         help=(
             "Surface reconstruction. "
-            "001: bare, 2x1.  "
+            "100: bare, 2x1.  "
             "111: bare/1x1, 2x1_single, 2x1_pandey.  "
             "113: bare, O.  "
             "(default: bare)"
@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sim.add_argument(
         "--ml", type=int, default=0,
-        help="Atoms per monolayer (default: orientation-specific: 001→81, 111→90, 113→108)",
+        help="Atoms per monolayer (default: orientation-specific: 100→81, 111→90, 113→108)",
     )
     sim.add_argument(
         "--box-x", type=int, default=0, dest="box_x", metavar="N",

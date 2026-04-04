@@ -29,13 +29,13 @@ def get_make_surf_source(spec: SimSpec, dfiles_root: Path) -> Path:
         stored in ORIENT[...]["make_surf"].
     """
     ms = ORIENT[spec.orientation]["make_surf"]
-    if "*" in ms:
-        rel = ms["*"]
-    elif spec.orientation == "113" and spec.termination == "O" and spec.reconstruction == "bare":
+    if spec.orientation == "113" and spec.termination == "O" and spec.reconstruction == "bare":
         # O-terminated 113: prefer the O_terminated make_surf if available
         rel = ms.get("O", ms["bare"])
     else:
         rel = ms.get(spec.reconstruction, ms[next(iter(ms))])
+    if rel.startswith("package:"):
+        return Path(__file__).parent / rel[len("package:"):]
     return dfiles_root / rel
 
 
@@ -76,11 +76,11 @@ def make_sim(spec: SimSpec, outdir: Path, dfiles_root: Path) -> None:
         if not dst.exists():
             dst.symlink_to(templates / fname)
 
-    # symlink shared data files from dfiles/
+    # symlink shared data files from package templates
     for fname in ("ffield.reax", "lat_a.txt", "lmp_env.sh"):
         dst = outdir / fname
         if not dst.exists():
-            dst.symlink_to(dfiles_root / fname)
+            dst.symlink_to(templates / fname)
 
     print(f"Simulation created at: {outdir}")
     print(f"  surface:    {spec.orientation}  reconstruction={spec.reconstruction}  termination={spec.termination}")
