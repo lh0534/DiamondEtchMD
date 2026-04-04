@@ -2,8 +2,8 @@
 builder.py — assemble a complete simulation directory from a SimSpec.
 
 `make_sim` writes config.lmp, head.lmp, make_surf.lmp, and the SLURM submit
-script into `outdir`, then creates symlinks to shared LAMMPS scripts and data
-files from the `dfiles/` tree.
+script into `outdir`, then creates symlinks to shared LAMMPS scripts from the
+package's lammps/templates/ directory and to data files from the `dfiles/` tree.
 """
 
 import shutil
@@ -69,12 +69,12 @@ def make_sim(spec: SimSpec, outdir: Path, dfiles_root: Path) -> None:
     submit.write_text(get_submit_script(spec))
     submit.chmod(0o755)
 
-    # symlink shared LAMMPS scripts from dfiles/radicals/
-    rad = dfiles_root / "radicals"
+    # symlink shared LAMMPS scripts from package templates
+    templates = Path(__file__).parent / "lammps" / "templates"
     for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp"):
         dst = outdir / fname
         if not dst.exists():
-            dst.symlink_to(rad / fname)
+            dst.symlink_to(templates / fname)
 
     # symlink shared data files from dfiles/
     for fname in ("ffield.reax", "lat_a.txt", "lmp_env.sh"):
