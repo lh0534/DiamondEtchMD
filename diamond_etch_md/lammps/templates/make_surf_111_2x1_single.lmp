@@ -1,12 +1,7 @@
 package kokkos neigh/qeq full neigh half newton on
 units		real
 include     config.lmp
-if "${pot} == COMB3" then &
-"atom_style charge" &
-elif "${pot} == REAX" &
-"atom_style charge" &
-else &
-"atom_style atomic"
+atom_style charge
 
 boundary	p p m
 
@@ -14,8 +9,11 @@ variable    bottom equal -5/8 # edge is in the gap between layers to avoid flop 
 print       'BOTTOM ${bottom}'
 
 # Create the entire simulation space "big box" with 3 types of atoms
-lattice    diamond ${lat_a} orient z 0 0 1 orient x 1 1 0 orient y -1 1 0 spacing $(1/sqrt(2)) $(1/sqrt(2)) 1 origin 0 0 0
-region     bbox block 0 ${x} 0 ${y} ${bottom} ${z} units lattice
+lattice    diamond ${lat_a} orient z 1 1 1 orient x 2 -1 -1 orient y 0 1 -1 spacing $(3/sqrt(6)) $(1/sqrt(2)) $(sqrt(3)) origin 0 0 $(1*sqrt(3)/4)
+variable   lat_ax equal ${lat_a}*(3/sqrt(6))
+variable   lat_ay equal ${lat_a}*(1/sqrt(2))
+variable   lat_az equal ${lat_a}*(sqrt(3))
+region     bbox block 0 $(v_x*2) 0 $(v_y*2) ${bottom} $(v_z) units lattice
 create_box 3 bbox
 
 # Create diamond cubic lattice in a subregion of bbox
@@ -29,10 +27,9 @@ if "${use_starting_data_file}" then &
     "variable        n_lat_0  equal $(count(carbon)) # n_lat_0 is the starting number of carbon" &
 else &
     "create_atoms    1 region lbox" &
-    "variable        n_lat_0  equal $(8*v_x*v_y*v_lat_top) # 8 times the number of unit cells should be it"
+    "variable        n_lat_0  equal $(12*v_x*v_y*v_lat_top) # 12 times the number of unit cells for 111"
 
-if "${pot} == REAX" then &
-"set group all charge 0.0"
+set group all charge 0.0
 print 'N_LAT_0 ${n_lat_0}'
 
 # Groups
@@ -47,62 +44,46 @@ mass        2 ${M_H}
 mass        3 ${M_O}
 
 # Potential
-if "${pot} == REAX" then &
-"pair_style reaxff NULL" &
-"pair_coeff * * ffield.reax C H O" &
-"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"
+pair_style reaxff NULL
+pair_coeff * * ffield.reax C H O
+fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff
 
-change_box all x final 0 ${x} y final 0 ${y} z final ${bottom} ${z}
+change_box all x final 0 $(v_x) y final 0 $(v_y) z final ${bottom} $(v_z)
 delete_atoms overlap $(sqrt(3)/8) all all
 
-minimize 1.0e-5 1.0e-6 1000 10000
-reset_timestep  0 time 0.0
-
-# thermo 1
-# reconstruction
-if "${reconstruct} && !${use_starting_data_file}" then &
-"variable row0 atom (round((x)/(${lat_a}/sqrt(2)))%2==0)&&(z>(${lat_top}*${lat_a}-2*${lat_a}/8))" &
-"variable row1 atom (round((x)/(${lat_a}/sqrt(2)))%2==1)&&(z>(${lat_top}*${lat_a}-2*${lat_a}/8))" &
+# 2x1 Single-Chain reconstruction: delete dangling top-layer atoms, displace second layer
+if "!${use_starting_data_file}" then &
+"variable row0 atom (round(x/${lat_ax}*2)%2==0)&&(z>((${lat_top}-1/4)*${lat_az}))" &
+"variable row1 atom (round(x/${lat_ax}*2)%2==1)&&(z>((${lat_top}-1/4)*${lat_az}))" &
 "group row0 variable row0" &
 "group row1 variable row1" &
-"displace_atoms row0 move 0.1 0.1 0 units lattice" &
-"displace_atoms row1 move -0.1 -0.1 0 units lattice" &
+"delete_atoms group row0" &
+"delete_atoms group row1" &
+"group row0 clear" &
+"group row1 clear" &
+"variable row0 atom (round(x/${lat_ax}*2)%2==0)&&(z>((${lat_top}-1/2)*${lat_az}))&&(z<((${lat_top}-1/4)*${lat_az}))" &
+"variable row1 atom (round(x/${lat_ax}*2)%2==1)&&(z>((${lat_top}-1/2)*${lat_az}))&&(z<((${lat_top}-1/4)*${lat_az}))" &
+"group row0 variable row0" &
+"group row1 variable row1" &
+"displace_atoms row0 move 0.1 0 0 units lattice" &
+"displace_atoms row1 move -0.1 0 0 units lattice" &
 "variable row0 delete" &
 "group row0 delete" &
 "variable row1 delete" &
 "group row1 delete"
 
-minimize 1.0e-5 1.0e-6 1000 10000
-reset_timestep  0 time 0.0
-
 if "${O_terminate} && !${use_starting_data_file}" then &
-"variable term_top equal ${lat_top}+1/8" &
-"variable term_bottom equal ${lat_top}" &
+"variable term_top equal ${lat_top}+3/8" &
+"variable term_bottom equal ${lat_top}+1/8" &
 "region term block 0 ${x} 0 ${y} ${term_bottom} ${term_top} units lattice" &
 "create_atoms 3 region term" &
 "group O type 3" &
 "displace_atoms O move 0.0 0.0 $(1/4) units lattice" &
 "group O delete"
 
-if "${O_ether_terminate} && !${use_starting_data_file}" then &
-"variable term_top equal ${lat_top}+1/8" &
-"variable term_bottom equal ${lat_top}" &
-"region term block 0 ${x} 0 ${y} ${term_bottom} ${term_top} units lattice" &
-"create_atoms 3 region term" &
-"group O type 3" &
-"displace_atoms O move -0.5 0.0 $(1/4) units lattice" &
-"group O delete"
-
-# if "!${use_starting_data_file}" then &
-# "fix freeze anchor setforce 0 0 0" &
-# "minimize 1.0e-5 1.0e-6 1000 10000" &
-# "print reterm_done" &
-# "unfix freeze"
-
 minimize 1.0e-5 1.0e-6 1000 10000
 reset_timestep  0 time 0.0
-write_data      001_2x1_0K.dat nofix nocoeff
-
+write_data      111_2x1SC_0K.dat nofix nocoeff
 
 # initial thermalization w/ nose-hoover since it's easy
 if "!${use_starting_data_file}" then &
@@ -120,7 +101,7 @@ if "!${use_starting_data_file}" then &
 "reset_timestep  0 time 0.0 # pretend this never happened"
 
 # write initial values
-write_data      001_2x1_${T}K.dat nofix nocoeff
+write_data      111_2x1SC_${T}K.dat nofix nocoeff
 write_data      data_files/0.data nofix nocoeff
 write_dump      all custom dumps/dump.dump id type x y z vx vy vz modify sort id
 

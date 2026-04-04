@@ -2,16 +2,17 @@
 cli.py — command-line interface for DiamondEtchMD.
 
 Generates a simulation directory (config.lmp, head.lmp, make_surf.lmp, submit,
-and symlinks to shared scripts) based on the radicals framework, supporting
-001, 111, and 113 surface orientations.
+and symlinks to shared scripts) from surface and bombardment parameters.
 
 Usage:
     diamond-etch-md [options] <outdir>
 
 Examples:
-    diamond-etch-md --orientation 100 --energy 0.5 --temperature 300 my_sim
-    diamond-etch-md --orientation 111 --reconstruction 2x1_pandey --energy 1.0 111_pandey
-    diamond-etch-md --orientation 113 --termination O --angle 15 --energy 0.2 113_O_15deg
+    diamond-etch-md --orientation 100 --reconstruction bare_1x1 --energy 0.5 my_sim
+    diamond-etch-md --orientation 100 --reconstruction bare_2x1 --termination O_ether --energy 0.5 my_sim
+    diamond-etch-md --orientation 111 --reconstruction bare_2x1_pandey --energy 1.0 my_sim
+    diamond-etch-md --orientation 111 --reconstruction bare_2x1_pandey --termination O_2x1_pandey --energy 1.0 my_sim
+    diamond-etch-md --orientation 113 --termination O --energy 0.2 my_sim
 """
 
 import argparse
@@ -22,10 +23,12 @@ from .species import SPECIES
 from .spec import SimSpec, compute_ml, validate
 from .builder import make_sim
 
-# Auto-detect dfiles_root: this file lives at
-#   jack_reax/DiamondEtchMD/diamond_etch_md/cli.py
-# three parents up → jack_reax/; then add dfiles/
-_DEFAULT_DFILES = Path(__file__).parents[3] / "dfiles"
+# Default reconstruction per orientation (used when --reconstruction is omitted)
+_DEFAULT_RECONSTRUCTION = {
+    "100": "bare_1x1",
+    "111": "bare_1x1",
+    "113": "bare",
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,10 +37,6 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("outdir", help="Output directory for the simulation")
-    p.add_argument(
-        "--dfiles", type=Path, default=_DEFAULT_DFILES, metavar="DIR",
-        help=f"Path to the dfiles/ directory (default: {_DEFAULT_DFILES})",
-    )
 
     surf = p.add_argument_group("surface")
     surf.add_argument(
@@ -45,19 +44,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Crystal surface orientation (default: 100)",
     )
     surf.add_argument(
-        "--reconstruction", default="bare",
+        "--reconstruction", default="",
         help=(
-            "Surface reconstruction. "
-            "100: bare, 2x1.  "
-            "111: bare/1x1, 2x1_single, 2x1_pandey.  "
-            "113: bare, O.  "
-            "(default: bare)"
+            "Surface reconstruction (default: bare_1x1 for 100/111, bare for 113).\n"
+            "  100: bare_1x1, bare_2x1\n"
+            "  111: bare_1x1, bare_2x1_single, bare_2x1_pandey\n"
+            "  113: bare"
         ),
     )
     surf.add_argument(
         "--termination", default="bare",
-        choices=["bare", "H", "O", "O_ether"],
-        help="Surface chemical termination (default: bare)",
+        help=(
+            "Surface chemical termination (default: bare).\n"
+            "  100: bare, O, O_ether\n"
+            "  111: bare, O_1x1, O_2x1_single, O_2x1_pandey\n"
+            "  113: bare, O"
+        ),
     )
     surf.add_argument(
         "--temperature", type=float, default=300.0, metavar="K",
@@ -85,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sim.add_argument(
         "--ml", type=int, default=0,
-        help="Atoms per monolayer (default: orientation-specific: 100→81, 111→90, 113→108)",
+        help="Atoms per monolayer (default: auto-computed: 100→81, 111→90, 113→108)",
     )
     sim.add_argument(
         "--box-x", type=int, default=0, dest="box_x", metavar="N",
@@ -118,28 +120,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--name", default="",
         help="SLURM job name (default: auto-generated from orientation/species/energy/T)",
     )
+    job.add_argument(
+        "--account", default="dgraves",
+        help="SLURM account to charge (default: dgraves)",
+    )
+    job.add_argument(
+        "--email", default="",
+        help="Email address for SLURM END/FAIL notifications (default: none)",
+    )
 
     return p
 
 
 def main():
     args = build_parser().parse_args()
-    dfiles_root: Path = args.dfiles
 
     orient_cfg = ORIENT[args.orientation]
     dx, dy, dz = orient_cfg["default_box"]
 
-    # Resolve box dimensions first so ML can be computed from them
     box_x = args.box_x or dx
     box_y = args.box_y or dy
 
-    # ML = ml_factor * x * y  (derived analytically, confirmed empirically for all orientations)
+    reconstruction = args.reconstruction or _DEFAULT_RECONSTRUCTION[args.orientation]
+
     computed_ml = compute_ml(args.orientation, box_x, box_y)
     ml = args.ml if args.ml else computed_ml
 
     spec = SimSpec(
         orientation         = args.orientation,
-        reconstruction      = args.reconstruction,
+        reconstruction      = reconstruction,
         termination         = args.termination,
         temperature         = args.temperature,
         species             = args.species,
@@ -153,13 +162,15 @@ def main():
         impact_time         = args.impact_time,
         thermalization_time = args.thermalization_time,
         wall_hours          = args.wall_hours,
+        account             = args.account,
+        email               = args.email,
         name                = args.name or (
             f"{args.orientation}_{args.species}_{args.energy}eV_{int(args.temperature)}K"
         ),
     )
 
-    validate(spec, dfiles_root)
-    make_sim(spec, Path(args.outdir), dfiles_root)
+    validate(spec)
+    make_sim(spec, Path(args.outdir))
 
 
 if __name__ == "__main__":

@@ -3,24 +3,33 @@ orientations.py — registry of supported diamond surface orientations.
 
 Each entry in ORIENT contains:
 
-  lattice_cmd  : LAMMPS lattice command matching the make_surf.lmp for this orientation
-  bottom_expr  : LAMMPS expression to convert zlo (Å) to lattice z-units for the anchor region
-  default_box  : (x, y, lat_top) in lattice units — sensible starting points
-  ml_factor    : ML = ml_factor * x * y  (derived from volume ratio and crystallographic plane count)
+  lattice_cmd       : LAMMPS lattice command matching the make_surf template
+  bottom_expr       : LAMMPS expression to convert zlo (Å) to lattice z-units
+  default_box       : (x, y, lat_top) in lattice units — sensible starting points
+  ml_factor         : ML = ml_factor * x * y
+  make_surf         : maps reconstruction key → package-bundled template path
+  valid_terminations: maps reconstruction key → set of allowed termination strings
 
-  Derivation: atoms/LAMMPS-unit-cell = 8 * spacing_x * spacing_y * spacing_z
-              diamond planes per z-unit = FCC planes * 2 (diamond splits each FCC plane)
-              ml_factor = atoms_per_cell / planes_per_z_unit
+ML factor derivation: atoms/LAMMPS-unit-cell = 8 * spacing_x * spacing_y * spacing_z
+                      diamond planes per z-unit = FCC planes * 2
+                      ml_factor = atoms_per_cell / planes_per_z_unit
 
-  001: 4 atoms/cell, 4 planes/z-unit → ml_factor = 1   (verified: 9×9 box → ML=81)
-  111: 12 atoms/cell, 6 planes/z-unit → ml_factor = 2  (verified: 5×9 box → ML=90)
-  113: 20 atoms/cell, 5 planes/z-unit → ml_factor = 4  (verified: 9×3 box → ML=108,
-       confirmed by O-terminated surface having exactly 108 more atoms than bare)
+  100: 4 atoms/cell, 4 planes/z-unit → ml_factor = 1   (verified: 9×9 → 81)
+  111: 12 atoms/cell, 6 planes/z-unit → ml_factor = 2  (verified: 5×9 → 90)
+  113: 20 atoms/cell, 5 planes/z-unit → ml_factor = 4  (verified: 9×3 → 108)
 
-  make_surf    : maps reconstruction key → source make_surf.lmp path as a STRING relative
-                 to the dfiles/ root.  "*" means one file handles all cases via config.lmp
-                 variables.  Paths are kept as strings (not Path objects) to avoid coupling
-                 to absolute filesystem paths at import time.
+Reconstruction naming convention: <termination>_<periodicity>
+  bare_1x1, bare_2x1            (100)
+  bare_1x1, bare_2x1_single,
+  bare_2x1_pandey               (111)
+  bare                          (113)
+
+Termination naming convention:
+  bare                          all orientations
+  O, O_ether                    100 only
+  O_1x1, O_2x1_single,
+  O_2x1_pandey                  111 only (reconstruction is implied by termination name)
+  O                             113
 """
 
 ORIENT = {
@@ -33,13 +42,15 @@ ORIENT = {
         "bottom_expr": "$(zlo/(v_lat_a))",
         "default_box": (9, 9, 3),
         "ml_factor":   1,
-        # single file handles all cases; reconstruction (bare/2x1) and termination
-        # (bare/H/O/O_ether) are controlled by config.lmp flag variables.
-        # 2x1: displaces alternating surface dimer rows along [110]/[-1-10].
-        # O_ether: bridges O between adjacent surface C atoms (ether geometry).
+        # single template; reconstruction (bare_1x1/bare_2x1) controlled by
+        # the `reconstruct` config flag; termination via O_terminate/O_ether_terminate.
         "make_surf": {
-            "bare": "package:lammps/templates/make_surf_100.lmp",
-            "2x1":  "package:lammps/templates/make_surf_100.lmp",
+            "bare_1x1": "package:lammps/templates/make_surf_100.lmp",
+            "bare_2x1": "package:lammps/templates/make_surf_100.lmp",
+        },
+        "valid_terminations": {
+            "bare_1x1": {"bare", "O", "O_ether"},
+            "bare_2x1": {"bare", "O", "O_ether"},
         },
     },
     "111": {
@@ -52,11 +63,17 @@ ORIENT = {
         "bottom_expr": "$(zlo/(v_lat_a*sqrt(3)))",
         "default_box": (5, 9, 3),
         "ml_factor":   2,
+        # separate template per reconstruction; O termination handled via
+        # O_terminate config flag within each template.
         "make_surf": {
-            "bare":       "111/bare_surf/1x1_non-reconstructed/make_surf.lmp",
-            "1x1":        "111/bare_surf/1x1_non-reconstructed/make_surf.lmp",
-            "2x1_single": "111/bare_surf/2x1_Single_Chains/make_surf.lmp",
-            "2x1_pandey": "111/bare_surf/2x1_Pandey_Chains/make_surf.lmp",
+            "bare_1x1":        "package:lammps/templates/make_surf_111_1x1.lmp",
+            "bare_2x1_single": "package:lammps/templates/make_surf_111_2x1_single.lmp",
+            "bare_2x1_pandey": "package:lammps/templates/make_surf_111_2x1_pandey.lmp",
+        },
+        "valid_terminations": {
+            "bare_1x1":        {"bare", "O_1x1"},
+            "bare_2x1_single": {"bare", "O_2x1_single"},
+            "bare_2x1_pandey": {"bare", "O_2x1_pandey"},
         },
     },
     "113": {
@@ -69,8 +86,10 @@ ORIENT = {
         "default_box": (9, 3, 3),
         "ml_factor":   4,
         "make_surf": {
-            "bare": "113/bare_surf/make_surf.lmp",
-            "O":    "113/O_terminated/make_surf.lmp",
+            "bare": "package:lammps/templates/make_surf_113.lmp",
+        },
+        "valid_terminations": {
+            "bare": {"bare", "O"},
         },
     },
 }

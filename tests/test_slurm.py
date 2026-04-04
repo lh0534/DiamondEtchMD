@@ -19,16 +19,15 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from diamond_etch_md import SimSpec, compute_ml, make_sim
 from diamond_etch_md.spec import validate
 
-DFILES = Path(__file__).parents[2] / "dfiles"
-
 pytestmark = pytest.mark.slurm
 
 
 @pytest.fixture
 def sim_dir(tmp_path):
-    """Build a real simulation directory using the live dfiles tree."""
+    """Build a real simulation directory using bundled templates."""
     spec = SimSpec(
         orientation="100",
+        reconstruction="bare_1x1",
         species="O",
         energy=0.5,
         temperature=300.0,
@@ -38,9 +37,9 @@ def sim_dir(tmp_path):
         wall_hours=1,
         name="demd-test",
     )
-    validate(spec, DFILES)
+    validate(spec)
     outdir = tmp_path / "demd-test"
-    make_sim(spec, outdir, DFILES)
+    make_sim(spec, outdir)
     return outdir
 
 

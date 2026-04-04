@@ -14,6 +14,11 @@ from ..spec import SimSpec
 
 def get_submit_script(spec: SimSpec) -> str:
     """Generate the contents of the SLURM submit script for the given SimSpec."""
+    mail_lines = (
+        f"#SBATCH --mail-type=END,FAIL\n"
+        f"#SBATCH --mail-user={spec.email}\n"
+    ) if spec.email else ""
+
     return (
         f"#!/bin/bash\n"
         f"#SBATCH --job-name={spec.name}\n"
@@ -25,9 +30,8 @@ def get_submit_script(spec: SimSpec) -> str:
         f"#SBATCH --time={spec.wall_hours}:00:00\n"
         f"#SBATCH --dependency=singleton\n"
         f"#SBATCH --nice=2\n"
-        f"#SBATCH --account=azp\n"
-        f"#SBATCH --mail-type=END,FAIL\n"
-        f"#SBATCH --mail-user=lhoff@princeton.edu\n"
+        f"#SBATCH --account={spec.account}\n"
+        f"{mail_lines}"
         f"\n"
         f"module purge\n"
         f"module load lammps/kokkos/gpu_della9_2022\n"
