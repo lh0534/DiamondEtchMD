@@ -1,10 +1,10 @@
 """
-example_all_options.py — full SimSpec example showing every available option.
+example_all_options.py — full SimSpec examples showing every available option.
 
 Run from the DiamondEtchMD directory:
     python example_all_options.py
 
-The generated simulation directory will be created at OUTDIR below.
+Generates three simulation directories (one per ion species) under examples/.
 All surface templates and force-field files are bundled with the package;
 no external data directory is needed.
 """
@@ -12,14 +12,13 @@ no external data directory is needed.
 from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim
 
-# Output directory for the generated simulation
-OUTDIR = Path("my_sim_full_example")
+OUTDIR = Path("examples")
 
 # ---------------------------------------------------------------------------
-# Build the spec with every option explicitly set
+# Example 1: O radical bombardment — low energy, O-ether terminated 2×1 surface
 # ---------------------------------------------------------------------------
 
-spec = SimSpec(
+spec_O = SimSpec(
     # --- surface ---
     orientation    = "100",        # "100", "111", or "113"
 
@@ -38,7 +37,7 @@ spec = SimSpec(
     temperature    = 300.0,        # substrate temperature (K)
 
     # --- bombardment ---
-    species        = "O",          # "O"
+    species        = "O",          # single oxygen atom (O⁺ ion or O radical)
     energy         = 0.5,          # incident particle energy (eV)
     angle          = 0.0,          # incidence angle from surface normal (degrees)
 
@@ -64,11 +63,69 @@ spec = SimSpec(
     name           = "100_bare_2x1_Oether_O_0.5eV_300K",  # job name (auto-generated if "")
 )
 
+make_sim(spec_O, OUTDIR / "O_radical")
+
 # ---------------------------------------------------------------------------
-# Generate the simulation directory
+# Example 2: Ar+ ion bombardment — high energy sputtering
 # ---------------------------------------------------------------------------
 
-make_sim(spec, OUTDIR)
+spec_Ar = SimSpec(
+    orientation    = "100",
+    reconstruction = "bare_1x1",
+    termination    = "bare",       # typically bare for physical sputtering
+    temperature    = 300.0,
 
-# To submit:
-#   sbatch my_sim_full_example/submit
+    species        = "Ar",         # argon ion — uses hybrid ReaxFF+ZBL pair style;
+                                   # Ar is inert and deleted after each impact
+    energy         = 100.0,        # eV — Ar sputtering is typically 20–200 eV
+    angle          = 0.0,
+
+    fluence        = 50,
+    ml             = compute_ml("100", 9, 9),
+    box_x          = 9,
+    box_y          = 9,
+    box_depth      = 10,           # deeper slab needed for high-energy Ar
+
+    impact_time         = 2000.0,
+    thermalization_time = 500.0,
+    wall_hours     = 24,
+    account        = "dgraves",
+    name           = "100_bare_Ar_100eV_300K",
+)
+
+make_sim(spec_Ar, OUTDIR / "Ar_sputtering")
+
+# ---------------------------------------------------------------------------
+# Example 3: O2+ ion bombardment — dimer injection
+# ---------------------------------------------------------------------------
+
+spec_O2 = SimSpec(
+    orientation    = "111",
+    reconstruction = "bare_2x1_pandey",
+    termination    = "bare",
+    temperature    = 300.0,
+
+    species        = "O2",         # oxygen dimer — injected as a LAMMPS molecule;
+                                   # energy is the TOTAL dimer KE (each atom gets half)
+    energy         = 50.0,         # 50 eV total → 25 eV per O atom
+    angle          = 0.0,
+
+    fluence        = 50,
+    ml             = compute_ml("111", 5, 9),
+    box_x          = 5,
+    box_y          = 9,
+    box_depth      = 6,
+
+    impact_time         = 2000.0,
+    thermalization_time = 500.0,
+    wall_hours     = 24,
+    account        = "dgraves",
+    name           = "111_pandey_O2_50eV_300K",
+)
+
+make_sim(spec_O2, OUTDIR / "O2_bombardment")
+
+# To submit any of these:
+#   sbatch examples/O_radical/submit
+#   sbatch examples/Ar_sputtering/submit
+#   sbatch examples/O2_bombardment/submit

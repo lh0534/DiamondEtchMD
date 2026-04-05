@@ -34,7 +34,7 @@ def test_validate_bad_orientation():
 
 
 def test_validate_bad_species():
-    spec = SimSpec(orientation="100", reconstruction="bare_1x1", species="Ar", ml=81)
+    spec = SimSpec(orientation="100", reconstruction="bare_1x1", species="Xe", ml=81)
     with pytest.raises(SystemExit):
         validate(spec)
 
@@ -152,6 +152,16 @@ def test_simspec_defaults():
     assert s.name == ""
     assert s.account == "dgraves"
     assert s.email == ""
+
+
+def test_validate_species_Ar():
+    spec = SimSpec(orientation="100", reconstruction="bare_1x1", species="Ar", ml=81)
+    validate(spec)
+
+
+def test_validate_species_O2():
+    spec = SimSpec(orientation="100", reconstruction="bare_1x1", species="O2", ml=81)
+    validate(spec)
 
 
 def test_simspec_custom_fields():

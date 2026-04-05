@@ -111,6 +111,60 @@ def test_make_sim_111_O_termination(tmp_path):
     assert "variable    O_terminate equal true" in cfg
 
 
+def test_make_sim_Ar(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        reconstruction="bare_1x1",
+        species="Ar",
+        energy=100.0,
+        temperature=300.0,
+        ml=compute_ml("100", 9, 9),
+        box_x=9, box_y=9, box_depth=3,
+        name="Ar_test",
+    )
+    outdir = tmp_path / "sim"
+    make_sim(spec, outdir)
+
+    head = (outdir / "head.lmp").read_text()
+    assert "hybrid reaxff" in head
+    assert "zbl" in head
+    assert "delete_atoms group IonRemove" in head
+
+    cfg = (outdir / "config.lmp").read_text()
+    assert "incident_type_index equal 4" in cfg
+    assert "M_Ar equal 39.948" in cfg
+
+    # O2.molecule should NOT be present for Ar
+    assert not (outdir / "O2.molecule").exists()
+
+
+def test_make_sim_O2(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        reconstruction="bare_1x1",
+        species="O2",
+        energy=100.0,
+        temperature=300.0,
+        ml=compute_ml("100", 9, 9),
+        box_x=9, box_y=9, box_depth=3,
+        name="O2_test",
+    )
+    outdir = tmp_path / "sim"
+    make_sim(spec, outdir)
+
+    head = (outdir / "head.lmp").read_text()
+    assert "molecule O2 O2.molecule" in head
+    assert "mol O2" in head
+    # no ZBL for O2
+    assert "zbl" not in head
+
+    cfg = (outdir / "config.lmp").read_text()
+    assert "energ equal 50.0" in cfg  # energy halved for O2
+
+    # O2.molecule should be present
+    assert (outdir / "O2.molecule").exists()
+
+
 def test_make_sim_113(tmp_path):
     spec = SimSpec(
         orientation="113",

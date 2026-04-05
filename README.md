@@ -1,6 +1,6 @@
 # DiamondEtchMD
 
-Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics simulations of diamond surface etching. Supports O radical and ion bombardment of C(100), C(111), and C(113) surfaces. All surface templates and force-field files are bundled with the package.
+Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics simulations of diamond surface etching. Supports O, O₂, and Ar ion bombardment of C(100), C(111), and C(113) surfaces. All surface templates and force-field files are bundled with the package.
 
 ## Installation
 
@@ -58,6 +58,12 @@ diamond-etch-md --orientation 111 --reconstruction bare_2x1_pandey --termination
 
 # C(113) — O-terminated, angled incidence
 diamond-etch-md --orientation 113 --termination O --angle 15 --energy 0.2 my_sim
+
+# Ar+ bombardment at 100 eV
+diamond-etch-md --species Ar --energy 100 --box-depth 10 my_sim
+
+# O2+ bombardment at 50 eV (25 eV per atom internally)
+diamond-etch-md --species O2 --energy 50 my_sim
 ```
 
 ## Package layout
@@ -66,7 +72,7 @@ diamond-etch-md --orientation 113 --termination O --angle 15 --energy 0.2 my_sim
 diamond_etch_md/
   spec.py          SimSpec dataclass, compute_ml(), validate()
   orientations.py  ORIENT registry — lattice commands, ML factors, make_surf paths
-  species.py       SPECIES registry — atom type indices, injection heights
+  species.py       SPECIES registry — atom types, injection heights, ZBL/molecule flags
   builder.py       make_sim() — writes config/head/submit, copies make_surf, symlinks
   cli.py           diamond-etch-md entry point
   lammps/
@@ -79,6 +85,7 @@ diamond_etch_md/
       make_surf_111_2x1_single.lmp C(111) 2×1 single chains
       make_surf_111_2x1_pandey.lmp C(111) 2×1 Pandey chains
       make_surf_113.lmp           C(113)
+      O2.molecule                 O₂ dimer definition for molecule injection
       sweep.lmp, thermalize.lmp, addfix.lmp, ffield.reax, lat_a.txt, lmp_env.sh
   analysis/
     etch_products.py  parse_etch_products(), etch_yield()
@@ -93,7 +100,7 @@ diamond_etch_md/
 | `reconstruction` | str | `"bare_1x1"` | Surface reconstruction (see table below) |
 | `termination` | str | `"bare"` | Chemical termination (see table below) |
 | `temperature` | float | `300.0` | Substrate temperature (K) |
-| `species` | str | `"O"` | Incident species: `"O"` |
+| `species` | str | `"O"` | Incident species: `"O"`, `"Ar"`, `"O2"` |
 | `energy` | float | `0.5` | Incident particle energy (eV) |
 | `angle` | float | `0.0` | Incidence angle from surface normal (degrees) |
 | `fluence` | int | `50` | Total fluence (monolayers) |
@@ -152,6 +159,23 @@ mobile region above the fixed anchor layer. Empirical guidance:
 | 200 eV | 12 |
 
 For low-energy radicals (< 1 eV) the default of 3 is sufficient.
+
+### Ion species
+
+| Species | Description | Force field | Notes |
+|---|---|---|---|
+| `O` | Single oxygen atom (O⁺ ion or O radical) | ReaxFF (C-H-O) | Default species |
+| `Ar` | Argon ion (Ar⁺) | ReaxFF + ZBL hybrid | Inert; removed after each impact |
+| `O2` | Oxygen dimer (O₂⁺) | ReaxFF (C-H-O) | Injected as molecule; energy is per-dimer (halved per atom internally) |
+
+**Ar** uses a hybrid ReaxFF + ZBL (Ziegler-Biersack-Littmark) pair style for
+short-range nuclear repulsion. QEQ charges are only computed for non-Ar atoms.
+Ar atoms are deleted after each impact since they do not participate in chemistry.
+
+**O₂** is injected as a LAMMPS molecule (two O atoms at 1.2 Å separation).
+The user-specified `energy` is the total dimer kinetic energy; each atom receives
+half. The `O2.molecule` file is bundled with the package and automatically
+symlinked into the simulation directory.
 
 ## Analysis
 

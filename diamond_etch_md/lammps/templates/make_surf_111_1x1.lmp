@@ -8,13 +8,13 @@ boundary	p p m
 variable    bottom equal -5/8 # edge is in the gap between layers to avoid flop issues
 print       'BOTTOM ${bottom}'
 
-# Create the entire simulation space "big box" with 3 types of atoms
+# Create the entire simulation space "big box" with 4 types of atoms (C, H, O, Ar)
 lattice    diamond ${lat_a} orient z 1 1 1 orient x 2 -1 -1 orient y 0 1 -1 spacing $(3/sqrt(6)) $(1/sqrt(2)) $(sqrt(3)) origin 0 0 $(1*sqrt(3)/4)
 variable   lat_ax equal ${lat_a}*(3/sqrt(6))
 variable   lat_ay equal ${lat_a}*(1/sqrt(2))
 variable   lat_az equal ${lat_a}*(sqrt(3))
 region     bbox block 0 $(v_x*2) 0 $(v_y*2) ${bottom} $(v_z) units lattice
-create_box 3 bbox
+create_box 4 bbox
 
 # Create diamond cubic lattice in a subregion of bbox
 region	        lbox block  -1e-6 ${x} -1e-6 ${y} ${bottom} ${lat_top} units lattice
@@ -42,10 +42,11 @@ group   carbon type 1
 mass        1 ${M_C}
 mass        2 ${M_H}
 mass        3 ${M_O}
+mass        4 ${M_Ar}
 
 # Potential
 pair_style reaxff NULL
-pair_coeff * * ffield.reax C H O
+pair_coeff * * ffield.reax C H O NULL
 fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff
 
 change_box all x final 0 $(v_x) y final 0 $(v_y) z final ${bottom} $(v_z)

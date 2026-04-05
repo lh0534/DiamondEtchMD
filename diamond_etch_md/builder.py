@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 from .orientations import ORIENT
+from .species import SPECIES
 from .spec import SimSpec
 from .lammps.config import get_config_lmp
 from .lammps.head import get_head_lmp
@@ -58,6 +59,13 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
         dst = outdir / fname
         if not dst.exists():
             dst.symlink_to(_TEMPLATES / fname)
+
+    # symlink molecule file if the species requires one (e.g. O2.molecule)
+    species_cfg = SPECIES[spec.species]
+    if species_cfg["molecule_file"]:
+        mol_dst = outdir / species_cfg["molecule_file"]
+        if not mol_dst.exists():
+            mol_dst.symlink_to(_TEMPLATES / species_cfg["molecule_file"])
 
     print(f"Simulation created at: {outdir}")
     print(f"  surface:     {spec.orientation}  reconstruction={spec.reconstruction}  termination={spec.termination}")

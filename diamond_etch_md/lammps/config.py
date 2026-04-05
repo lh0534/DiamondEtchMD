@@ -24,6 +24,9 @@ def get_config_lmp(spec: SimSpec) -> str:
     o_flag        = "true" if spec.termination in _O_TERMINATE else "false"
     o_eth_flag    = "true" if spec.termination == "O_ether"    else "false"
 
+    # O2 energy is split across 2 atoms; user specifies total dimer energy
+    energy_per_atom = spec.energy / species["energy_divisor"]
+
     return (
         f"# DiamondEtchMD generated config\n"
         f"# orientation={spec.orientation}  reconstruction={spec.reconstruction}"
@@ -34,7 +37,7 @@ def get_config_lmp(spec: SimSpec) -> str:
         f"variable    ML equal {spec.ml}            # atoms per monolayer\n"
         f"variable    end_fluence equal {spec.fluence}   # in ML\n"
         f"\n"
-        f"variable    energ equal {spec.energy}     # incident particle energy (eV)\n"
+        f"variable    energ equal {energy_per_atom}     # incident energy per atom (eV)\n"
         f"variable    angl equal {spec.angle}       # incident particle angle (deg from normal)\n"
         f"variable    T equal {spec.temperature}    # substrate temperature (K)\n"
         f"variable    pot string REAX\n"
@@ -61,6 +64,7 @@ def get_config_lmp(spec: SimSpec) -> str:
         f"variable    M_C equal 12.011\n"
         f"variable    M_H equal 1.00784\n"
         f"variable    M_O equal 16.0\n"
+        f"variable    M_Ar equal 39.948\n"
         f"variable    M_incident equal ${{{species['mass_var']}}}\n"
         f"variable    incident_type_index equal {species['type_index']}  # {spec.species}\n"
         f"\n"

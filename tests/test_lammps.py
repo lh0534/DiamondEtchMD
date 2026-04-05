@@ -113,6 +113,26 @@ def test_config_species_O_type_index():
     assert "incident_type_index equal 3" in cfg
 
 
+def test_config_species_Ar_type_index():
+    cfg = get_config_lmp(make_spec(species="Ar", ml=81))
+    assert "incident_type_index equal 4" in cfg
+
+
+def test_config_species_O2_energy_halving():
+    cfg = get_config_lmp(make_spec(species="O2", energy=100.0, ml=81))
+    assert "energ equal 50.0" in cfg
+
+
+def test_config_species_O_energy_no_halving():
+    cfg = get_config_lmp(make_spec(species="O", energy=100.0, ml=81))
+    assert "energ equal 100.0" in cfg
+
+
+def test_config_contains_M_Ar():
+    cfg = get_config_lmp(make_spec(ml=81))
+    assert "M_Ar equal 39.948" in cfg
+
+
 def test_config_orientation_comment():
     cfg = get_config_lmp(make_spec(orientation="113", reconstruction="bare",
                                    ml=108, box_x=9, box_y=3))
@@ -180,6 +200,74 @@ def test_head_contains_loop_structure():
 def test_head_contains_ncarbon_output():
     head = get_head_lmp(make_spec(ml=81))
     assert "ncarbon.txt" in head
+
+
+def test_head_Ar_hybrid_pair_style():
+    head = get_head_lmp(make_spec(species="Ar", ml=81))
+    assert "pair_style  hybrid reaxff" in head
+    assert "zbl 5.0 6.0" in head
+
+
+def test_head_Ar_zbl_pair_coeffs():
+    head = get_head_lmp(make_spec(species="Ar", ml=81))
+    assert "pair_coeff 1 4 zbl 6.0 18.0" in head
+    assert "pair_coeff 4 4 zbl 18.0 18.0" in head
+
+
+def test_head_Ar_qeq_nonargon():
+    head = get_head_lmp(make_spec(species="Ar", ml=81))
+    assert "fix reax_qeq nonargon" in head
+    assert "fix reax_qeq all" not in head
+
+
+def test_head_Ar_remove_after_impact():
+    head = get_head_lmp(make_spec(species="Ar", ml=81))
+    assert "delete_atoms group IonRemove" in head
+
+
+def test_head_Ar_nonargon_regroup_in_loop():
+    head = get_head_lmp(make_spec(species="Ar", ml=81))
+    # nonargon group should appear after "group insert clear" in the loop
+    assert "group nonargon type 1 2 3" in head
+
+
+def test_head_Ar_four_masses():
+    head = get_head_lmp(make_spec(species="Ar", ml=81))
+    assert "mass        4 ${M_Ar}" in head
+
+
+def test_head_O2_molecule_declaration():
+    head = get_head_lmp(make_spec(species="O2", ml=81))
+    assert "molecule O2 O2.molecule" in head
+
+
+def test_head_O2_deposit_mol():
+    head = get_head_lmp(make_spec(species="O2", ml=81))
+    assert "mol O2" in head
+    # type should be 0 for molecule injection
+    assert "deposit 1 0 " in head
+
+
+def test_head_O_no_zbl():
+    head = get_head_lmp(make_spec(species="O", ml=81))
+    assert "hybrid" not in head
+    assert "zbl" not in head
+
+
+def test_head_O_no_molecule():
+    head = get_head_lmp(make_spec(species="O", ml=81))
+    assert "molecule O2" not in head
+    assert "mol O2" not in head
+
+
+def test_head_O_qeq_all():
+    head = get_head_lmp(make_spec(species="O", ml=81))
+    assert "fix reax_qeq all" in head
+
+
+def test_head_O_no_removal():
+    head = get_head_lmp(make_spec(species="O", ml=81))
+    assert "IonRemove" not in head
 
 
 # ─── submit script tests ─────────────────────────────────────────────────────

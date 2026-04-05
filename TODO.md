@@ -42,15 +42,13 @@ Planned features and known gaps, roughly ordered by expected impact.
 
 ## Ion bombardment species
 
-- [ ] **O₂ ion** — add `"O2"` to the `SPECIES` registry.  Requires a LAMMPS molecule
-  file (like `O2.molecule` in `dfiles/RIE/`) and an updated injection routine in
-  `sweep.lmp` / `addfix.lmp` to insert the dimer rather than a single atom.  The
-  C-H-O ReaxFF potential already supports O-O bonds; no force-field change needed.
+- [x] **O₂ ion** — `"O2"` added to SPECIES.  Molecule file `O2.molecule` bundled in
+  templates; `head.lmp` uses `fix deposit ... mol O2`; config.lmp halves energy
+  per atom automatically.
 
-- [ ] **Ar ion** — add `"Ar"` to `SPECIES`.  Requires extending the force field to
-  4 atom types (C-H-O-Ar with ZBL) and updating `make_surf.lmp` `create_box` calls to
-  `create_box 4 bbox`.  The `ffield.reax` in `dfiles/RIE/` already includes Ar/ZBL
-  parameters and can be used as the template.
+- [x] **Ar ion** — `"Ar"` added to SPECIES.  All templates now use 4 atom types
+  (`create_box 4`).  `head.lmp` emits hybrid ReaxFF+ZBL pair style, QEQ on
+  non-Ar atoms, and post-impact Ar removal.
 
 ---
 
