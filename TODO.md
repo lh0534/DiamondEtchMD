@@ -6,10 +6,10 @@ Planned features and known gaps, roughly ordered by expected impact.
 
 ## Submit script
 
-- [ ] **Auto re-submit** — after the job finishes, detect whether the target fluence has
-  been reached (compare `ncarbon.txt` last line to `end_fluence`) and re-queue with
-  `sbatch --dependency=afterok:$SLURM_JOB_ID $0` if not done.  Should be idempotent
-  and respect the wall-hour limit so a re-queued job doesn't start with 30 s left.
+- [x] **Auto re-submit** — after LAMMPS exits cleanly, the submit script reads
+  `n_complete` from `ncarbon.txt` and compares to `end_fluence * ML`. If incomplete,
+  re-queues with `sbatch "$0"`. Skips re-submit on LAMMPS failure. Also exits early
+  (before running LAMMPS) if already complete, making the script idempotent.
 
 - [ ] **Selectable LAMMPS module** — add a `lammps_module` field to `SimSpec` (default
   `"lammps/kokkos/gpu_della9_2022"`) and emit `module load ${lammps_module}` in the

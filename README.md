@@ -210,12 +210,24 @@ impact#  n_carbon  n_hydrogen  n_oxygen
 
 ## Examples
 
-[`example_all_options.py`](example_all_options.py) — a fully annotated Python script
-showing every `SimSpec` field with valid values and descriptions. Run it to generate a
-sample simulation directory:
+[`example_all_options.py`](example_all_options.py) — generates all three ion species
+(O, Ar, O₂) in one shot with full annotations on every field.
+
+The [`examples/`](examples/) directory has focused single-case scripts:
+
+| File | What it demonstrates |
+|---|---|
+| [`O_radical_100.py`](examples/O_radical_100.py) | Low-energy O radical on 2×1 O-ether terminated C(100) |
+| [`Ar_sputtering_100.py`](examples/Ar_sputtering_100.py) | Ar⁺ physical sputtering of bare C(100) at 100 eV |
+| [`O2_bombardment_111.py`](examples/O2_bombardment_111.py) | O₂⁺ dimer injection on C(111) Pandey chain |
+| [`O_terminated_111_pandey.py`](examples/O_terminated_111_pandey.py) | 111 reconstruction/termination coupling |
+| [`O_etching_113.py`](examples/O_etching_113.py) | C(113) surface with O termination |
+| [`angled_Ar_100.py`](examples/angled_Ar_100.py) | 45° off-normal Ar⁺ incidence |
+| [`high_energy_O_100.py`](examples/high_energy_O_100.py) | 200 eV O⁺ with deep slab (box_depth guidance) |
 
 ```bash
-python example_all_options.py
+python examples/O_radical_100.py
+sbatch O_radical_100/submit
 ```
 
 ## Running tests

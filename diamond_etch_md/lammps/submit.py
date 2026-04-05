@@ -7,6 +7,8 @@ The generated script:
   - detects the resume state from ncarbon.txt and the latest restart snapshot
   - launches lmp with all required -var arguments
   - uses --dependency=singleton for automatic serialization of re-queued jobs
+  - after LAMMPS exits, checks whether the target fluence has been reached and
+    re-queues the same script if not done (auto re-submit)
 """
 
 from ..spec import SimSpec
@@ -52,6 +54,16 @@ def get_submit_script(spec: SimSpec) -> str:
         f"data_file=$(ls -t data_files/*.data | head -1)\n"
         f"log_file=log$(echo \"$(ls | grep -c .lammps)+1\" | bc).lammps\n"
         f"event_count=$(ls dumps/event_dump_*.dump 2>/dev/null | wc -l)\n"
+        f"\n"
+        f"# Check if simulation is already complete\n"
+        f"ML=$(grep 'ML equal' config.lmp | awk '{{print $4}}')\n"
+        f"end_fluence=$(grep 'end_fluence equal' config.lmp | awk '{{print $4}}')\n"
+        f"end_c=$(( end_fluence * ML ))\n"
+        f"if [ \"$n_complete\" -ge \"$end_c\" ]; then\n"
+        f"    echo \"Simulation already complete: $n_complete / $end_c impacts done.\"\n"
+        f"    exit 0\n"
+        f"fi\n"
+        f"\n"
         f"srun lmp -k on g 1 -sf kk \\\n"
         f"    -var data_file $data_file \\\n"
         f"    -var n_complete $n_complete \\\n"
@@ -62,4 +74,23 @@ def get_submit_script(spec: SimSpec) -> str:
         f"    -screen none \\\n"
         f"    -nocite \\\n"
         f"    -in head.lmp\n"
+        f"lmp_exit=$?\n"
+        f"\n"
+        f"# ── Auto re-submit ──────────────────────────────────────────────────\n"
+        f"# Re-queue this script if LAMMPS exited cleanly and the target fluence\n"
+        f"# has not been reached.  Uses the same submit script ($0) so the next\n"
+        f"# job picks up from the latest ncarbon.txt / data_files snapshot.\n"
+        f"if [ $lmp_exit -ne 0 ]; then\n"
+        f"    echo \"LAMMPS exited with code $lmp_exit — not re-submitting.\"\n"
+        f"    exit $lmp_exit\n"
+        f"fi\n"
+        f"\n"
+        f"n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $1}}')\n"
+        f"n_complete=${{n_complete:-0}}\n"
+        f"if [ \"$n_complete\" -lt \"$end_c\" ]; then\n"
+        f"    echo \"Progress: $n_complete / $end_c impacts. Re-submitting...\"\n"
+        f"    sbatch \"$0\"\n"
+        f"else\n"
+        f"    echo \"Simulation complete: $n_complete / $end_c impacts.\"\n"
+        f"fi\n"
     )

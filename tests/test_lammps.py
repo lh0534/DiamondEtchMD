@@ -331,3 +331,37 @@ def test_submit_contains_make_surf_call():
 def test_submit_creates_dirs():
     sub = get_submit_script(make_spec())
     assert "mkdir -p dumps data_files" in sub
+
+
+# ─── auto re-submit tests ───────────────────────────────────────────────────
+
+def test_submit_captures_lmp_exit_code():
+    sub = get_submit_script(make_spec())
+    assert "lmp_exit=$?" in sub
+
+
+def test_submit_skips_resubmit_on_lmp_failure():
+    sub = get_submit_script(make_spec())
+    assert "if [ $lmp_exit -ne 0 ]" in sub
+    assert "not re-submitting" in sub
+
+
+def test_submit_reads_end_c_from_config():
+    sub = get_submit_script(make_spec())
+    assert "ML=$(grep 'ML equal' config.lmp" in sub
+    assert "end_fluence=$(grep 'end_fluence equal' config.lmp" in sub
+    assert "end_c=$(( end_fluence * ML ))" in sub
+
+
+def test_submit_resubmits_if_incomplete():
+    sub = get_submit_script(make_spec())
+    assert 'sbatch "$0"' in sub
+
+
+def test_submit_skips_lammps_if_already_complete():
+    sub = get_submit_script(make_spec())
+    assert "Simulation already complete" in sub
+    # The early-exit check should come before srun lmp
+    already_idx = sub.index("Simulation already complete")
+    srun_idx = sub.index("srun lmp -k on g 1")
+    assert already_idx < srun_idx
