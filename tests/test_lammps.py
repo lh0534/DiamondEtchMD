@@ -313,9 +313,15 @@ def test_submit_contains_singleton_dependency():
     assert "#SBATCH --dependency=singleton" in sub
 
 
-def test_submit_contains_lammps_module():
+def test_submit_contains_default_lammps_module():
     sub = get_submit_script(make_spec())
     assert "module load lammps/kokkos/gpu_della9_2022" in sub
+
+
+def test_submit_custom_lammps_module():
+    sub = get_submit_script(make_spec(lammps_module="lammps/kokkos/gpu_della10_2024"))
+    assert "module load lammps/kokkos/gpu_della10_2024" in sub
+    assert "gpu_della9_2022" not in sub
 
 
 def test_submit_contains_head_lmp_call():

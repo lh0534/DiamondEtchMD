@@ -11,9 +11,8 @@ Planned features and known gaps, roughly ordered by expected impact.
   re-queues with `sbatch "$0"`. Skips re-submit on LAMMPS failure. Also exits early
   (before running LAMMPS) if already complete, making the script idempotent.
 
-- [ ] **Selectable LAMMPS module** — add a `lammps_module` field to `SimSpec` (default
-  `"lammps/kokkos/gpu_della9_2022"`) and emit `module load ${lammps_module}` in the
-  submit script.  Expose as `--lammps-module` in the CLI.
+- [x] **Selectable LAMMPS module** — `lammps_module` field on `SimSpec` (default
+  `"lammps/kokkos/gpu_della9_2022"`), emitted in submit script. CLI: `--lammps-module`.
 
 - [ ] **Flexible resource selection** — add fields (and CLI flags) for:
   - `ntasks` (default 1) — MPI ranks

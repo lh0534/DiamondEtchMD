@@ -36,7 +36,7 @@ def get_submit_script(spec: SimSpec) -> str:
         f"{mail_lines}"
         f"\n"
         f"module purge\n"
-        f"module load lammps/kokkos/gpu_della9_2022\n"
+        f"module load {spec.lammps_module}\n"
         f"\n"
         f"mkdir -p dumps data_files\n"
         f"\n"

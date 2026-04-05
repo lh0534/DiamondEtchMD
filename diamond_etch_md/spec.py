@@ -34,6 +34,7 @@ class SimSpec:
     name:                str   = ""
     account:             str   = "dgraves"
     email:               str   = ""    # empty = no mail directives
+    lammps_module:       str   = "lammps/kokkos/gpu_della9_2022"
 
 
 def compute_ml(orientation: str, box_x: int, box_y: int) -> int:

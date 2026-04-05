@@ -128,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--email", default="",
         help="Email address for SLURM END/FAIL notifications (default: none)",
     )
+    job.add_argument(
+        "--lammps-module", default="lammps/kokkos/gpu_della9_2022",
+        dest="lammps_module",
+        help="LAMMPS module to load in submit script (default: lammps/kokkos/gpu_della9_2022)",
+    )
 
     return p
 
@@ -164,6 +169,7 @@ def main():
         wall_hours          = args.wall_hours,
         account             = args.account,
         email               = args.email,
+        lammps_module       = args.lammps_module,
         name                = args.name or (
             f"{args.orientation}_{args.species}_{args.energy}eV_{int(args.temperature)}K"
         ),

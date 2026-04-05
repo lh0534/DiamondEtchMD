@@ -1,0 +1,33 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+LAMMPS (23 Jun 2022)
+KOKKOS mode is enabled (src/KOKKOS/kokkos.cpp:105)
+  will use up to 1 GPU(s) per node
+WARNING: When using a single thread, the Kokkos Serial backend (i.e. Makefile.kokkos_mpi_only) gives better performance than the OpenMP backend (src/KOKKOS/kokkos.cpp:217)
+  using 1 OpenMP thread(s) per MPI task
+Lattice spacing in x,y,z = 2.5211094 3.5653872 2.5211094
+Created orthogonal box = (0 0 -1.5756934) to (22.689985 32.088485 25.211094)
+  1 by 1 by 1 MPI processor grid
+Created 1935 atoms
+  using lattice units in orthogonal box = (0 0 -1.5756934) to (22.689985 32.088485 25.211094)
+  create_atoms CPU = 0.005 seconds
+Setting atom values ...
+  1935 settings made for charge
+162 atoms in group anchor
+0 atoms in group insert
+1773 atoms in group mobile
+1935 atoms in group carbon
+N_LAT_0 1935
+Box x: 9  y: 9  lat_top: 5
+Reading potential file ffield.reax with DATE: 2011-02-18
+WARNING: Changed valency_val to valency_boc for X (src/REAXFF/reaxff_ffield.cpp:296)
+Changing box ...
+  orthogonal box = (0 0 -1.5756934) to (22.689985 32.088485 25.211094)
+  orthogonal box = (0 0 -1.5756934) to (22.689985 32.088485 25.211094)
+  orthogonal box = (0 0 -1.5756934) to (22.689985 32.088485 25.211094)
+System init for delete_atoms ...
+ERROR: All pair coeffs are not set (src/pair.cpp:249)
+Last command: delete_atoms overlap $(sqrt(3)/8) all all
+srun: error: della-l04g13: task 0: Exited with exit code 1
+srun: Terminating StepId=6591609.0

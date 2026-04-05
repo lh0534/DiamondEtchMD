@@ -152,6 +152,7 @@ def test_simspec_defaults():
     assert s.name == ""
     assert s.account == "dgraves"
     assert s.email == ""
+    assert s.lammps_module == "lammps/kokkos/gpu_della9_2022"
 
 
 def test_validate_species_Ar():
