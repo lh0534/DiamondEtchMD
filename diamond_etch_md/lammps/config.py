@@ -10,27 +10,22 @@ from ..orientations import ORIENT
 from ..species import SPECIES
 from ..spec import SimSpec
 
-# Terminations that set O_terminate=true
-_O_TERMINATE = {"O", "O_1x1", "O_2x1_single", "O_2x1_pandey"}
-
 
 def get_config_lmp(spec: SimSpec) -> str:
     """Generate the contents of config.lmp for the given SimSpec."""
     species = SPECIES[spec.species]
+    surf = ORIENT[spec.orientation]["surfaces"][spec.surface]
 
-    # reconstruct flag: only used by the 100 template (bare_2x1 triggers it).
-    # 111 templates apply their own reconstruction unconditionally; 113 has none.
-    recon_flag    = "true" if (spec.orientation == "100" and spec.reconstruction == "bare_2x1") else "false"
-    o_flag        = "true" if spec.termination in _O_TERMINATE else "false"
-    o_eth_flag    = "true" if spec.termination == "O_ether"    else "false"
+    recon_flag = "true" if surf["reconstruct"]   else "false"
+    o_flag     = "true" if surf["O_terminate"]   else "false"
+    o_eth_flag = "true" if surf["O_ether"]       else "false"
 
     # O2 energy is split across 2 atoms; user specifies total dimer energy
     energy_per_atom = spec.energy / species["energy_divisor"]
 
     return (
         f"# DiamondEtchMD generated config\n"
-        f"# orientation={spec.orientation}  reconstruction={spec.reconstruction}"
-        f"  termination={spec.termination}\n"
+        f"# orientation={spec.orientation}  surface={spec.surface}\n"
         f"# species={spec.species}  energy={spec.energy}eV  angle={spec.angle}deg"
         f"  T={spec.temperature}K\n"
         f"\n"

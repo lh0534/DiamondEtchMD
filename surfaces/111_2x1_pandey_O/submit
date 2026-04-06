@@ -1,0 +1,70 @@
+#!/bin/bash
+#SBATCH --job-name=111_2x1_pandey_O
+#SBATCH --nodes=1
+#SBATCH --mem=16G
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:1
+#SBATCH --time=1:00:00
+#SBATCH --dependency=singleton
+#SBATCH --nice=2
+#SBATCH --account=dgraves
+
+module purge
+module load lammps/kokkos/gpu_della9_2022
+
+mkdir -p dumps data_files
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OMP_PROC_BIND=spread
+export OMP_PLACES=threads
+
+if [ ! -f data_files/0.data ]; then
+    srun lmp -log log_make_surf.lammps -k on g 1 -sf kk -in make_surf.lmp
+fi
+
+n_lat_0=$(grep ' atoms' data_files/0.data | awk '{print $1}')
+n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $1}')
+n_complete=${n_complete:-0}
+data_file=$(ls -t data_files/*.data | head -1)
+log_file=log$(echo "$(ls | grep -c .lammps)+1" | bc).lammps
+event_count=$(ls dumps/event_dump_*.dump 2>/dev/null | wc -l)
+
+# Check if simulation is already complete
+ML=$(grep 'ML equal' config.lmp | awk '{print $4}')
+end_fluence=$(grep 'end_fluence equal' config.lmp | awk '{print $4}')
+end_c=$(( end_fluence * ML ))
+if [ "$n_complete" -ge "$end_c" ]; then
+    echo "Simulation already complete: $n_complete / $end_c impacts done."
+    exit 0
+fi
+
+srun lmp -k on g 1 -sf kk \
+    -var data_file $data_file \
+    -var n_complete $n_complete \
+    -var log_file $log_file \
+    -var n_events $event_count \
+    -var n_lat_0 $n_lat_0 \
+    -log $log_file \
+    -screen none \
+    -nocite \
+    -in head.lmp
+lmp_exit=$?
+
+# ── Auto re-submit ──────────────────────────────────────────────────
+# Re-queue this script if LAMMPS exited cleanly and the target fluence
+# has not been reached.  Uses the same submit script ($0) so the next
+# job picks up from the latest ncarbon.txt / data_files snapshot.
+if [ $lmp_exit -ne 0 ]; then
+    echo "LAMMPS exited with code $lmp_exit — not re-submitting."
+    exit $lmp_exit
+fi
+
+n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $1}')
+n_complete=${n_complete:-0}
+if [ "$n_complete" -lt "$end_c" ]; then
+    echo "Progress: $n_complete / $end_c impacts. Re-submitting..."
+    sbatch "$0"
+else
+    echo "Simulation complete: $n_complete / $end_c impacts."
+fi

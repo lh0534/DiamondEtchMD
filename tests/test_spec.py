@@ -17,6 +17,10 @@ def test_ml_100_9x9():
     assert compute_ml("100", 9, 9) == 81
 
 
+def test_ml_110_4x6():
+    assert compute_ml("110", 4, 6) == 96
+
+
 def test_ml_111_5x9():
     assert compute_ml("111", 5, 9) == 90
 
@@ -34,46 +38,31 @@ def test_validate_bad_orientation():
 
 
 def test_validate_bad_species():
-    spec = SimSpec(orientation="100", reconstruction="bare_1x1", species="Xe", ml=81)
+    spec = SimSpec(orientation="100", surface="1x1", species="Xe", ml=81)
     with pytest.raises(SystemExit):
         validate(spec)
 
 
-def test_validate_bad_reconstruction_100():
-    spec = SimSpec(orientation="100", reconstruction="nonexistent", ml=81)
+def test_validate_bad_surface_100():
+    spec = SimSpec(orientation="100", surface="nonexistent", ml=81)
     with pytest.raises(SystemExit):
         validate(spec)
 
 
-def test_validate_bad_reconstruction_111():
-    spec = SimSpec(orientation="111", reconstruction="nonexistent", ml=90)
+def test_validate_bad_surface_111():
+    spec = SimSpec(orientation="111", surface="nonexistent", ml=90)
     with pytest.raises(SystemExit):
         validate(spec)
 
 
-def test_validate_bad_reconstruction_113():
-    spec = SimSpec(orientation="113", reconstruction="nonexistent", ml=108)
+def test_validate_bad_surface_113():
+    spec = SimSpec(orientation="113", surface="nonexistent", ml=108)
     with pytest.raises(SystemExit):
         validate(spec)
 
 
-def test_validate_bad_termination_100():
-    spec = SimSpec(orientation="100", reconstruction="bare_1x1", termination="fluorine", ml=81)
-    with pytest.raises(SystemExit):
-        validate(spec)
-
-
-def test_validate_bad_termination_H_dropped():
-    """H termination has been removed; should fail validation."""
-    spec = SimSpec(orientation="100", reconstruction="bare_1x1", termination="H", ml=81)
-    with pytest.raises(SystemExit):
-        validate(spec)
-
-
-def test_validate_mismatched_termination_111():
-    """O_2x1_pandey termination is not valid with bare_1x1 reconstruction."""
-    spec = SimSpec(orientation="111", reconstruction="bare_1x1",
-                   termination="O_2x1_pandey", ml=90)
+def test_validate_O_ether_not_valid_for_111():
+    spec = SimSpec(orientation="111", surface="O_ether", ml=90)
     with pytest.raises(SystemExit):
         validate(spec)
 
@@ -92,42 +81,42 @@ def test_validate_ml_negative():
 
 # ─── validate() success paths ────────────────────────────────────────────────
 
-def test_validate_100_valid_reconstructions():
-    for recon in ("bare_1x1", "bare_2x1"):
-        spec = SimSpec(orientation="100", reconstruction=recon, ml=81)
+def test_validate_100_surfaces():
+    for surf in ("1x1", "2x1", "2x1_O", "O_ether"):
+        spec = SimSpec(orientation="100", surface=surf, ml=81)
         validate(spec)
 
 
-def test_validate_100_valid_terminations():
-    for term in ("bare", "O", "O_ether"):
-        spec = SimSpec(orientation="100", reconstruction="bare_1x1",
-                       termination=term, ml=81)
+def test_validate_110_surfaces():
+    for surf in ("", "O"):
+        spec = SimSpec(orientation="110", surface=surf, ml=96,
+                       box_x=4, box_y=6, box_depth=5)
         validate(spec)
 
 
-def test_validate_111_valid_reconstructions():
-    for recon in ("bare_1x1", "bare_2x1_single", "bare_2x1_pandey"):
-        spec = SimSpec(orientation="111", reconstruction=recon, ml=90)
+def test_validate_111_surfaces():
+    for surf in ("1x1", "2x1_single", "2x1_pandey",
+                 "1x1_O", "2x1_single_O", "2x1_pandey_O"):
+        spec = SimSpec(orientation="111", surface=surf, ml=90,
+                       box_x=5, box_y=9)
         validate(spec)
 
 
-def test_validate_111_valid_O_terminations():
-    pairs = [
-        ("bare_1x1",        "O_1x1"),
-        ("bare_2x1_single", "O_2x1_single"),
-        ("bare_2x1_pandey", "O_2x1_pandey"),
-    ]
-    for recon, term in pairs:
-        spec = SimSpec(orientation="111", reconstruction=recon,
-                       termination=term, ml=90)
+def test_validate_113_surfaces():
+    for surf in ("", "O"):
+        spec = SimSpec(orientation="113", surface=surf, ml=108,
+                       box_x=9, box_y=3)
         validate(spec)
 
 
-def test_validate_113_valid():
-    for term in ("bare", "O"):
-        spec = SimSpec(orientation="113", reconstruction="bare",
-                       termination=term, ml=108)
-        validate(spec)
+def test_validate_species_Ar():
+    spec = SimSpec(orientation="100", surface="1x1", species="Ar", ml=81)
+    validate(spec)
+
+
+def test_validate_species_O2():
+    spec = SimSpec(orientation="100", surface="1x1", species="O2", ml=81)
+    validate(spec)
 
 
 # ─── SimSpec defaults ─────────────────────────────────────────────────────────
@@ -135,8 +124,7 @@ def test_validate_113_valid():
 def test_simspec_defaults():
     s = SimSpec()
     assert s.orientation == "100"
-    assert s.reconstruction == "bare_1x1"
-    assert s.termination == "bare"
+    assert s.surface == "1x1"
     assert s.temperature == 300.0
     assert s.species == "O"
     assert s.energy == 0.5
@@ -155,21 +143,10 @@ def test_simspec_defaults():
     assert s.lammps_module == "lammps/kokkos/gpu_della9_2022"
 
 
-def test_validate_species_Ar():
-    spec = SimSpec(orientation="100", reconstruction="bare_1x1", species="Ar", ml=81)
-    validate(spec)
-
-
-def test_validate_species_O2():
-    spec = SimSpec(orientation="100", reconstruction="bare_1x1", species="O2", ml=81)
-    validate(spec)
-
-
 def test_simspec_custom_fields():
     s = SimSpec(
         orientation="113",
-        reconstruction="bare",
-        termination="O",
+        surface="O",
         temperature=500.0,
         species="O",
         energy=2.0,
@@ -187,6 +164,7 @@ def test_simspec_custom_fields():
         email="user@example.com",
     )
     assert s.orientation == "113"
+    assert s.surface == "O"
     assert s.energy == 2.0
     assert s.ml == 108
     assert s.name == "test_job"

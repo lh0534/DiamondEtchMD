@@ -19,8 +19,7 @@ from diamond_etch_md.orientations import ORIENT
 
 def make_spec(orientation="100", energy=0.5, temperature=300.0, ml=81,
               box_x=9, box_y=9, box_depth=3, species="O",
-              reconstruction="bare_1x1", termination="bare",
-              name="test_job", **kw):
+              surface="1x1", name="test_job", **kw):
     return SimSpec(
         orientation=orientation,
         energy=energy,
@@ -30,8 +29,7 @@ def make_spec(orientation="100", energy=0.5, temperature=300.0, ml=81,
         box_y=box_y,
         box_depth=box_depth,
         species=species,
-        reconstruction=reconstruction,
-        termination=termination,
+        surface=surface,
         name=name,
         **kw,
     )
@@ -55,7 +53,7 @@ def test_config_contains_ml():
 
 
 def test_config_ml_113():
-    cfg = get_config_lmp(make_spec(orientation="113", reconstruction="bare",
+    cfg = get_config_lmp(make_spec(orientation="113", surface="",
                                    ml=108, box_x=9, box_y=3))
     assert "variable    ML equal 108" in cfg
 
@@ -66,44 +64,43 @@ def test_config_contains_box_x_and_y():
     assert "variable    y equal 4" in cfg
 
 
-def test_config_recon_flag_100_bare_2x1():
-    cfg = get_config_lmp(make_spec(orientation="100", reconstruction="bare_2x1", ml=81))
+def test_config_recon_flag_100_2x1():
+    cfg = get_config_lmp(make_spec(orientation="100", surface="2x1", ml=81))
     assert "variable    reconstruct equal true" in cfg
 
 
-def test_config_recon_flag_100_bare_1x1():
-    cfg = get_config_lmp(make_spec(orientation="100", reconstruction="bare_1x1", ml=81))
+def test_config_recon_flag_100_1x1():
+    cfg = get_config_lmp(make_spec(orientation="100", surface="1x1", ml=81))
     assert "variable    reconstruct equal false" in cfg
 
 
 def test_config_recon_flag_111_always_false():
     """For 111, reconstruction is in the template; flag is always false."""
-    cfg = get_config_lmp(make_spec(orientation="111", reconstruction="bare_2x1_pandey",
+    cfg = get_config_lmp(make_spec(orientation="111", surface="2x1_pandey",
                                    ml=90, box_x=5, box_y=9))
     assert "variable    reconstruct equal false" in cfg
 
 
-def test_config_o_termination_flag():
-    cfg = get_config_lmp(make_spec(termination="O", ml=81))
+def test_config_o_terminate_flag():
+    cfg = get_config_lmp(make_spec(surface="2x1_O", ml=81))
     assert "variable    O_terminate equal true" in cfg
     assert "variable    O_ether_terminate equal false" in cfg
 
 
-def test_config_o_ether_termination_flag():
-    cfg = get_config_lmp(make_spec(termination="O_ether", ml=81))
+def test_config_o_ether_flag():
+    cfg = get_config_lmp(make_spec(surface="O_ether", ml=81))
     assert "variable    O_ether_terminate equal true" in cfg
-    assert "variable    O_terminate equal false" in cfg
 
 
-def test_config_o_1x1_termination_flag():
-    """111 O_1x1 termination should set O_terminate=true."""
-    cfg = get_config_lmp(make_spec(orientation="111", reconstruction="bare_1x1",
-                                   termination="O_1x1", ml=90, box_x=5, box_y=9))
+def test_config_111_O_flag():
+    """111 O-terminated surface should set O_terminate=true."""
+    cfg = get_config_lmp(make_spec(orientation="111", surface="1x1_O",
+                                   ml=90, box_x=5, box_y=9))
     assert "variable    O_terminate equal true" in cfg
 
 
-def test_config_bare_termination_all_flags_false():
-    cfg = get_config_lmp(make_spec(termination="bare", ml=81))
+def test_config_unterminated_all_flags_false():
+    cfg = get_config_lmp(make_spec(surface="1x1", ml=81))
     assert "variable    O_terminate equal false" in cfg
     assert "variable    O_ether_terminate equal false" in cfg
 
@@ -134,32 +131,32 @@ def test_config_contains_M_Ar():
 
 
 def test_config_orientation_comment():
-    cfg = get_config_lmp(make_spec(orientation="113", reconstruction="bare",
+    cfg = get_config_lmp(make_spec(orientation="113", surface="",
                                    ml=108, box_x=9, box_y=3))
     assert "orientation=113" in cfg
 
 
 # ─── head.lmp tests ───────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("orientation,recon,ml,bx,by", [
-    ("100", "bare_1x1", 81, 9, 9),
-    ("111", "bare_1x1", 90, 5, 9),
-    ("113", "bare",    108, 9, 3),
+@pytest.mark.parametrize("orientation,surface,ml,bx,by", [
+    ("100", "1x1",      81, 9, 9),
+    ("111", "1x1",      90, 5, 9),
+    ("113", "",         108, 9, 3),
 ])
-def test_head_contains_lattice_cmd(orientation, recon, ml, bx, by):
-    spec = make_spec(orientation=orientation, reconstruction=recon,
+def test_head_contains_lattice_cmd(orientation, surface, ml, bx, by):
+    spec = make_spec(orientation=orientation, surface=surface,
                      ml=ml, box_x=bx, box_y=by)
     head = get_head_lmp(spec)
     assert ORIENT[orientation]["lattice_cmd"] in head
 
 
-@pytest.mark.parametrize("orientation,recon,ml,bx,by", [
-    ("100", "bare_1x1", 81, 9, 9),
-    ("111", "bare_1x1", 90, 5, 9),
-    ("113", "bare",    108, 9, 3),
+@pytest.mark.parametrize("orientation,surface,ml,bx,by", [
+    ("100", "1x1",      81, 9, 9),
+    ("111", "1x1",      90, 5, 9),
+    ("113", "",         108, 9, 3),
 ])
-def test_head_contains_bottom_expr(orientation, recon, ml, bx, by):
-    spec = make_spec(orientation=orientation, reconstruction=recon,
+def test_head_contains_bottom_expr(orientation, surface, ml, bx, by):
+    spec = make_spec(orientation=orientation, surface=surface,
                      ml=ml, box_x=bx, box_y=by)
     head = get_head_lmp(spec)
     assert ORIENT[orientation]["bottom_expr"] in head
@@ -172,14 +169,14 @@ def test_head_100_lattice_content():
 
 
 def test_head_111_lattice_content():
-    head = get_head_lmp(make_spec(orientation="111", reconstruction="bare_1x1",
+    head = get_head_lmp(make_spec(orientation="111", surface="1x1",
                                   ml=90, box_x=5, box_y=9))
     assert "orient z 1 1 1" in head
     assert "orient x 2 -1 -1" in head
 
 
 def test_head_113_lattice_content():
-    head = get_head_lmp(make_spec(orientation="113", reconstruction="bare",
+    head = get_head_lmp(make_spec(orientation="113", surface="",
                                   ml=108, box_x=9, box_y=3))
     assert "orient z 1 1 3" in head
     assert "orient x -1 1 0" in head
@@ -227,7 +224,6 @@ def test_head_Ar_remove_after_impact():
 
 def test_head_Ar_nonargon_regroup_in_loop():
     head = get_head_lmp(make_spec(species="Ar", ml=81))
-    # nonargon group should appear after "group insert clear" in the loop
     assert "group nonargon type 1 2 3" in head
 
 
@@ -244,7 +240,6 @@ def test_head_O2_molecule_declaration():
 def test_head_O2_deposit_mol():
     head = get_head_lmp(make_spec(species="O2", ml=81))
     assert "mol O2" in head
-    # type should be 0 for molecule injection
     assert "deposit 1 0 " in head
 
 
@@ -367,7 +362,6 @@ def test_submit_resubmits_if_incomplete():
 def test_submit_skips_lammps_if_already_complete():
     sub = get_submit_script(make_spec())
     assert "Simulation already complete" in sub
-    # The early-exit check should come before srun lmp
     already_idx = sub.index("Simulation already complete")
     srun_idx = sub.index("srun lmp -k on g 1")
     assert already_idx < srun_idx

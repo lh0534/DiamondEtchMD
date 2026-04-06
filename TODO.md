@@ -66,11 +66,8 @@ Planned features and known gaps, roughly ordered by expected impact.
 
 ## Surface orientations
 
-- [ ] **C(110) orientation** — add `"110"` to `ORIENT` in `orientations.py`.
-  This is higher-touch than 100/111/113:
-  - Derive the correct LAMMPS `lattice` orient/spacing for the (110) plane.
-  - Write a `make_surf_110.lmp` template (bare surface + H/O/O_ether terminations).
-  - Determine valid reconstructions (e.g. bare, 1×2 missing-row); the 1×2 requires
-    removing every other surface row, which is not a simple atom displacement.
-  - Compute `ml_factor` analytically and verify empirically.
-  - Add integration tests analogous to the existing 100/111/113 tests.
+- [x] **C(110) orientation** — added `"110"` to `ORIENT`.  Lattice: z=[110],
+  x=[-110], y=[001], spacing `2/sqrt(2), 1, 3/sqrt(2)`.  ml_factor=4
+  (verified: 4×6 → 96).  Default box (4,6,5).  Bare + O terminations.
+  - [ ] **1×2 missing-row reconstruction** — would require deleting every other
+    surface row, which is higher-touch than displacement-based reconstructions.

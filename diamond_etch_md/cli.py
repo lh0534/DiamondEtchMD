@@ -8,11 +8,13 @@ Usage:
     diamond-etch-md [options] <outdir>
 
 Examples:
-    diamond-etch-md --orientation 100 --reconstruction bare_1x1 --energy 0.5 my_sim
-    diamond-etch-md --orientation 100 --reconstruction bare_2x1 --termination O_ether --energy 0.5 my_sim
-    diamond-etch-md --orientation 111 --reconstruction bare_2x1_pandey --energy 1.0 my_sim
-    diamond-etch-md --orientation 111 --reconstruction bare_2x1_pandey --termination O_2x1_pandey --energy 1.0 my_sim
-    diamond-etch-md --orientation 113 --termination O --energy 0.2 my_sim
+    diamond-etch-md --orientation 100 --surface 1x1 --energy 0.5 my_sim
+    diamond-etch-md --orientation 100 --surface 2x1_O --energy 0.5 my_sim
+    diamond-etch-md --orientation 100 --surface O_ether --energy 0.5 my_sim
+    diamond-etch-md --orientation 111 --surface 2x1_pandey --energy 1.0 my_sim
+    diamond-etch-md --orientation 111 --surface 2x1_pandey_O --energy 1.0 my_sim
+    diamond-etch-md --species Ar --energy 100 --box-depth 10 my_sim
+    diamond-etch-md --species O2 --energy 50 my_sim
 """
 
 import argparse
@@ -23,11 +25,12 @@ from .species import SPECIES
 from .spec import SimSpec, compute_ml, validate
 from .builder import make_sim
 
-# Default reconstruction per orientation (used when --reconstruction is omitted)
-_DEFAULT_RECONSTRUCTION = {
-    "100": "bare_1x1",
-    "111": "bare_1x1",
-    "113": "bare",
+# Default surface per orientation (used when --surface is omitted)
+_DEFAULT_SURFACE = {
+    "100": "1x1",
+    "110": "",
+    "111": "1x1",
+    "113": "",
 }
 
 
@@ -44,21 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Crystal surface orientation (default: 100)",
     )
     surf.add_argument(
-        "--reconstruction", default="",
+        "--surface", default=None,
         help=(
-            "Surface reconstruction (default: bare_1x1 for 100/111, bare for 113).\n"
-            "  100: bare_1x1, bare_2x1\n"
-            "  111: bare_1x1, bare_2x1_single, bare_2x1_pandey\n"
-            "  113: bare"
-        ),
-    )
-    surf.add_argument(
-        "--termination", default="bare",
-        help=(
-            "Surface chemical termination (default: bare).\n"
-            "  100: bare, O, O_ether\n"
-            "  111: bare, O_1x1, O_2x1_single, O_2x1_pandey\n"
-            "  113: bare, O"
+            "Surface state (reconstruction + termination). Default: 1x1 for 100/111.\n"
+            "  100: 1x1, 2x1, 2x1_O, O_ether\n"
+            "  110: O  (or omit for unterminated)\n"
+            "  111: 1x1, 2x1_single, 2x1_pandey, 1x1_O, 2x1_single_O, 2x1_pandey_O\n"
+            "  113: O  (or omit for unterminated)"
         ),
     )
     surf.add_argument(
@@ -146,15 +141,14 @@ def main():
     box_x = args.box_x or dx
     box_y = args.box_y or dy
 
-    reconstruction = args.reconstruction or _DEFAULT_RECONSTRUCTION[args.orientation]
+    surface = args.surface if args.surface is not None else _DEFAULT_SURFACE[args.orientation]
 
     computed_ml = compute_ml(args.orientation, box_x, box_y)
     ml = args.ml if args.ml else computed_ml
 
     spec = SimSpec(
         orientation         = args.orientation,
-        reconstruction      = reconstruction,
-        termination         = args.termination,
+        surface             = surface,
         temperature         = args.temperature,
         species             = args.species,
         energy              = args.energy,

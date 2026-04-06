@@ -18,8 +18,8 @@ from pathlib import Path
 
 spec = SimSpec(
     orientation    = "100",
-    reconstruction = "bare_1x1",
-    termination    = "bare",
+    reconstruction = "1x1",
+    termination    = "",           # unterminated
     species        = "O",
     energy         = 0.5,       # eV
     temperature    = 300.0,     # K
@@ -27,7 +27,7 @@ spec = SimSpec(
     box_x=9, box_y=9, box_depth=3,
     fluence        = 50,        # monolayers
     wall_hours     = 24,
-    name           = "100_bare_1x1_O_0.5eV_300K",
+    name           = "100_1x1_O_0.5eV_300K",
 )
 
 make_sim(spec, Path("my_sim"))
@@ -41,20 +41,20 @@ sbatch my_sim/submit
 
 Or use the CLI:
 ```bash
-# C(100) — bare 1×1 surface, O radical at 0.5 eV
-diamond-etch-md --orientation 100 --reconstruction bare_1x1 --energy 0.5 my_sim
+# C(100) — 1×1 surface, O radical at 0.5 eV
+diamond-etch-md --orientation 100 --reconstruction 1x1 --energy 0.5 my_sim
 
-# C(100) — 2×1 reconstructed, O-ether terminated
-diamond-etch-md --orientation 100 --reconstruction bare_2x1 --termination O_ether --energy 0.5 my_sim
+# C(100) — 2×1 reconstructed, O terminated
+diamond-etch-md --orientation 100 --reconstruction 2x1 --termination O --energy 0.5 my_sim
 
-# C(100) — 2×1 reconstructed, ketone-O terminated
-diamond-etch-md --orientation 100 --reconstruction bare_2x1 --termination O --energy 0.5 my_sim
+# C(100) — O-ether surface state
+diamond-etch-md --orientation 100 --reconstruction O_ether --energy 0.5 my_sim
 
-# C(111) — Pandey chain reconstruction, bare
-diamond-etch-md --orientation 111 --reconstruction bare_2x1_pandey --energy 1.0 my_sim
+# C(111) — Pandey chain reconstruction
+diamond-etch-md --orientation 111 --reconstruction 2x1_pandey --energy 1.0 my_sim
 
-# C(111) — Pandey chain reconstruction, O-terminated
-diamond-etch-md --orientation 111 --reconstruction bare_2x1_pandey --termination O_2x1_pandey --energy 1.0 my_sim
+# C(111) — Pandey chain, O-terminated
+diamond-etch-md --orientation 111 --reconstruction 2x1_pandey --termination O --energy 1.0 my_sim
 
 # C(113) — O-terminated, angled incidence
 diamond-etch-md --orientation 113 --termination O --angle 15 --energy 0.2 my_sim
@@ -97,8 +97,8 @@ diamond_etch_md/
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `orientation` | str | `"100"` | Crystal surface: `"100"`, `"111"`, or `"113"` |
-| `reconstruction` | str | `"bare_1x1"` | Surface reconstruction (see table below) |
-| `termination` | str | `"bare"` | Chemical termination (see table below) |
+| `reconstruction` | str | `"1x1"` | Surface reconstruction (see table below) |
+| `termination` | str | `""` | Chemical termination; empty = unterminated (see table below) |
 | `temperature` | float | `300.0` | Substrate temperature (K) |
 | `species` | str | `"O"` | Incident species: `"O"`, `"Ar"`, `"O2"` |
 | `energy` | float | `0.5` | Incident particle energy (eV) |
@@ -119,20 +119,27 @@ diamond_etch_md/
 
 | Orientation | Reconstruction | Valid terminations |
 |---|---|---|
-| `100` | `bare_1x1` | `bare`, `O`, `O_ether` |
-| `100` | `bare_2x1` | `bare`, `O`, `O_ether` |
-| `111` | `bare_1x1` | `bare`, `O_1x1` |
-| `111` | `bare_2x1_single` | `bare`, `O_2x1_single` |
-| `111` | `bare_2x1_pandey` | `bare`, `O_2x1_pandey` |
-| `113` | `bare` | `bare`, `O` |
+| `100` | `1x1` | (unterminated only) |
+| `100` | `2x1` | `O` |
+| `100` | `O_ether` | (standalone surface state) |
+| `110` | `""` | (unterminated) |
+| `110` | `O` | (O-terminated) |
+| `111` | `1x1` | `O` |
+| `111` | `2x1_single` | `O` |
+| `111` | `2x1_pandey` | `O` |
+| `113` | `bare` | (unterminated only) |
+| `113` | `O` | (standalone O-terminated) |
+
+Termination is optional — omit it (or pass `""`) for an unterminated surface.
+`O_ether` on C(100) is specified as a reconstruction, not a termination — it
+represents its own surface state (ether-bridged O between adjacent C atoms).
 
 **C(100):** reconstruction and termination are independent. A single template
-handles all cases: `bare_2x1` triggers dimer-row displacements along [110]/[−1−10];
-`O` places ketone O atop surface C; `O_ether` bridges O between adjacent C atoms.
+handles all cases: `2x1` triggers dimer-row displacements along [110]/[−1−10];
+`O` places ketone O atop surface C. `O_ether` is a standalone reconstruction.
 
-**C(111):** each reconstruction has its own template. O termination names embed
-the reconstruction (`O_1x1`, `O_2x1_single`, `O_2x1_pandey`) to make valid
-combinations unambiguous. O atoms are placed atop surface C along [111].
+**C(111):** each reconstruction has its own template. O termination is simply
+`"O"` for all reconstructions — the template determines the O placement geometry.
 
 **C(113):** no reconstruction; `O` places O atop surface C.
 

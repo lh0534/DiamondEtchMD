@@ -27,7 +27,7 @@ def sim_dir(tmp_path):
     """Build a real simulation directory using bundled templates."""
     spec = SimSpec(
         orientation="100",
-        reconstruction="bare_1x1",
+        surface="1x1",
         species="O",
         energy=0.5,
         temperature=300.0,

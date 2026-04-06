@@ -14,8 +14,8 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 
 spec = SimSpec(
     orientation    = "100",
-    reconstruction = "bare_1x1",
-    termination    = "bare",
+    surface         = "1x1",
+    
     temperature    = 300.0,
 
     species        = "Ar",

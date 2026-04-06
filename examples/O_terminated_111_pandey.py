@@ -1,15 +1,11 @@
 """
 O radical etching of C(111) Pandey-chain reconstructed, O-terminated surface.
 
-Demonstrates the reconstruction/termination coupling on 111 surfaces:
-each reconstruction has its own O termination name that encodes which
-reconstruction it belongs to. For Pandey chains, the termination is
-"O_2x1_pandey" (not just "O").
+On 111 surfaces, O termination is specified as just "O" regardless of the
+reconstruction. The reconstruction field determines which template runs
+(each has its own O placement code).
 
-Valid 111 combinations:
-    bare_1x1        -> bare, O_1x1
-    bare_2x1_single -> bare, O_2x1_single
-    bare_2x1_pandey -> bare, O_2x1_pandey
+Valid 111 reconstructions: 1x1, 2x1_single, 2x1_pandey
 
     python examples/O_terminated_111_pandey.py
     sbatch O_terminated_111_pandey/submit
@@ -20,8 +16,7 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 
 spec = SimSpec(
     orientation    = "111",
-    reconstruction = "bare_2x1_pandey",
-    termination    = "O_2x1_pandey",   # must match the reconstruction
+    surface         = "2x1_pandey_O",
     temperature    = 300.0,
 
     species        = "O",

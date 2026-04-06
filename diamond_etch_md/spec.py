@@ -13,12 +13,12 @@ from .species import SPECIES
 @dataclass
 class SimSpec:
     orientation:         str   = "100"
-    reconstruction:      str   = "bare_1x1"  # bare_1x1, bare_2x1 (100)
-                                              # bare_1x1, bare_2x1_single, bare_2x1_pandey (111)
-                                              # bare (113)
-    termination:         str   = "bare"       # bare, O, O_ether (100)
-                                              # bare, O_1x1, O_2x1_single, O_2x1_pandey (111)
-                                              # bare, O (113)
+    surface:             str   = "1x1"       # surface state (reconstruction + termination)
+                                              # 100: 1x1, 2x1, 2x1_O, O_ether
+                                              # 110: "", O
+                                              # 111: 1x1, 2x1_single, 2x1_pandey,
+                                              #      1x1_O, 2x1_single_O, 2x1_pandey_O
+                                              # 113: "", O
     temperature:         float = 300.0    # K
     species:             str   = "O"
     energy:              float = 0.5      # eV
@@ -41,11 +41,6 @@ def compute_ml(orientation: str, box_x: int, box_y: int) -> int:
     """Return the atoms-per-monolayer count for a given orientation and box size.
 
     Formula: ML = ml_factor * box_x * box_y
-
-    ML factors (analytically derived, empirically verified):
-      100 → 1  (verified: 9×9 → 81)
-      111 → 2  (verified: 5×9 → 90)
-      113 → 4  (verified: 9×3 → 108)
     """
     return ORIENT[orientation]["ml_factor"] * box_x * box_y
 
@@ -58,19 +53,11 @@ def validate(spec: SimSpec) -> None:
         sys.exit(f"Unknown species '{spec.species}'. Choose from: {list(SPECIES)}")
 
     orient_cfg = ORIENT[spec.orientation]
-    valid_reconstructions = list(orient_cfg["make_surf"])
-    if spec.reconstruction not in orient_cfg["make_surf"]:
+    valid_surfaces = list(orient_cfg["surfaces"])
+    if spec.surface not in orient_cfg["surfaces"]:
         sys.exit(
-            f"Reconstruction '{spec.reconstruction}' not valid for {spec.orientation}. "
-            f"Choose from: {valid_reconstructions}"
-        )
-
-    valid_terms = orient_cfg["valid_terminations"][spec.reconstruction]
-    if spec.termination not in valid_terms:
-        sys.exit(
-            f"Termination '{spec.termination}' not valid for "
-            f"{spec.orientation} / {spec.reconstruction}. "
-            f"Choose from: {sorted(valid_terms)}"
+            f"Surface '{spec.surface}' not valid for {spec.orientation}. "
+            f"Choose from: {valid_surfaces}"
         )
 
     if spec.ml <= 0:

@@ -1,9 +1,9 @@
 """
-O radical etching of C(113) with O termination.
+O radical etching of O-terminated C(113) surface.
 
-The 113 surface has no reconstructions (only "bare"). It uses a higher
-ml_factor (4) than 100 or 111, so a 9x3 box already has 108 atoms per
-monolayer. Default box dimensions are (9, 3, 3) for this orientation.
+The 113 surface has two options: "" (unterminated, default) and "O"
+(O-terminated). There are no geometric reconstructions — it's purely
+about surface chemistry.
 
     python examples/O_etching_113.py
     sbatch O_etching_113/submit
@@ -14,8 +14,8 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 
 spec = SimSpec(
     orientation    = "113",
-    reconstruction = "bare",       # only option for 113
-    termination    = "O",
+    surface         = "O",          # O-terminated surface state
+    
     temperature    = 300.0,
 
     species        = "O",

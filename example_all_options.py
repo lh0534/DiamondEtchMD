@@ -15,29 +15,25 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 OUTDIR = Path("examples")
 
 # ---------------------------------------------------------------------------
-# Example 1: O radical bombardment — low energy, O-ether terminated 2×1 surface
+# Example 1: O radical bombardment — 2x1 reconstructed + O terminated C(100)
 # ---------------------------------------------------------------------------
 
 spec_O = SimSpec(
     # --- surface ---
-    orientation    = "100",        # "100", "111", or "113"
+    orientation    = "100",        # "100", "110", "111", or "113"
 
-    reconstruction = "bare_2x1",   # 100: "bare_1x1", "bare_2x1"
-                                   # 111: "bare_1x1", "bare_2x1_single", "bare_2x1_pandey"
-                                   # 113: "bare"
-
-    termination    = "O_ether",    # 100: "bare", "O", "O_ether"
-                                   # 111: "bare", "O_1x1", "O_2x1_single", "O_2x1_pandey"
-                                   # 113: "bare", "O"
-                                   # termination must be valid for the chosen reconstruction:
-                                   #   bare_1x1  → bare, O_1x1        (111)
-                                   #   bare_2x1_single → bare, O_2x1_single  (111)
-                                   #   bare_2x1_pandey → bare, O_2x1_pandey  (111)
+    surface        = "2x1_O",     # 100: 1x1, 2x1, 2x1_O, O_ether
+                                   # 110: "", O
+                                   # 111: 1x1, 2x1_single, 2x1_pandey,
+                                   #      1x1_O, 2x1_single_O, 2x1_pandey_O
+                                   # 113: "", O
 
     temperature    = 300.0,        # substrate temperature (K)
 
     # --- bombardment ---
-    species        = "O",          # single oxygen atom (O⁺ ion or O radical)
+    species        = "O",          # "O", "Ar", or "O2"
+                                   # Ar: uses hybrid ReaxFF+ZBL; inert, removed after each impact
+                                   # O2: injected as dimer; energy is per-dimer (halved per atom)
     energy         = 0.5,          # incident particle energy (eV)
     angle          = 0.0,          # incidence angle from surface normal (degrees)
 
@@ -60,7 +56,7 @@ spec_O = SimSpec(
     wall_hours     = 24,           # wall-clock limit (hours)
     account        = "dgraves",    # Della account to charge
     email          = "",           # email for END/FAIL notifications; "" = no mail
-    name           = "100_bare_2x1_Oether_O_0.5eV_300K",  # job name (auto-generated if "")
+    name           = "100_2x1_O_0.5eV_300K",  # job name (auto-generated if "")
 )
 
 make_sim(spec_O, OUTDIR / "O_radical")
@@ -71,8 +67,7 @@ make_sim(spec_O, OUTDIR / "O_radical")
 
 spec_Ar = SimSpec(
     orientation    = "100",
-    reconstruction = "bare_1x1",
-    termination    = "bare",       # typically bare for physical sputtering
+    surface        = "1x1",        # unterminated for physical sputtering
     temperature    = 300.0,
 
     species        = "Ar",         # argon ion — uses hybrid ReaxFF+ZBL pair style;
@@ -90,7 +85,7 @@ spec_Ar = SimSpec(
     thermalization_time = 500.0,
     wall_hours     = 24,
     account        = "dgraves",
-    name           = "100_bare_Ar_100eV_300K",
+    name           = "100_1x1_Ar_100eV_300K",
 )
 
 make_sim(spec_Ar, OUTDIR / "Ar_sputtering")
@@ -101,8 +96,7 @@ make_sim(spec_Ar, OUTDIR / "Ar_sputtering")
 
 spec_O2 = SimSpec(
     orientation    = "111",
-    reconstruction = "bare_2x1_pandey",
-    termination    = "bare",
+    surface        = "2x1_pandey",
     temperature    = 300.0,
 
     species        = "O2",         # oxygen dimer — injected as a LAMMPS molecule;

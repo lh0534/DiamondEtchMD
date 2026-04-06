@@ -22,24 +22,16 @@ _TEMPLATES = Path(__file__).parent / "lammps" / "templates"
 
 def get_make_surf_source(spec: SimSpec) -> Path:
     """Return the absolute Path to the make_surf.lmp template for this spec."""
-    rel = ORIENT[spec.orientation]["make_surf"][spec.reconstruction]
+    rel = ORIENT[spec.orientation]["surfaces"][spec.surface]["template"]
     assert rel.startswith("package:"), f"unexpected make_surf path: {rel}"
     return Path(__file__).parent / rel[len("package:"):]
 
 
 def make_sim(spec: SimSpec, outdir: Path) -> None:
-    """Create a complete simulation directory for the given spec.
-
-    Parameters
-    ----------
-    spec:
-        Fully-populated and validated SimSpec.
-    outdir:
-        Destination directory (created if it does not exist).
-    """
+    """Create a complete simulation directory for the given spec."""
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # make_surf.lmp — copied from the package template for this orientation/reconstruction
+    # make_surf.lmp — copied from the package template for this surface
     shutil.copy(get_make_surf_source(spec), outdir / "make_surf.lmp")
 
     # head.lmp — generated with orientation-specific lattice and bottom
@@ -67,8 +59,9 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
         if not mol_dst.exists():
             mol_dst.symlink_to(_TEMPLATES / species_cfg["molecule_file"])
 
+    surface_label = spec.surface if spec.surface else "(unterminated)"
     print(f"Simulation created at: {outdir}")
-    print(f"  surface:     {spec.orientation}  reconstruction={spec.reconstruction}  termination={spec.termination}")
+    print(f"  surface:     {spec.orientation}  {surface_label}")
     print(f"  bombardment: {spec.species} at {spec.energy} eV, angle={spec.angle}\u00b0, T={spec.temperature} K")
     print(f"  box:         {spec.box_x}\u00d7{spec.box_y}\u00d7{spec.box_depth} lattice units,  ML={spec.ml}")
     print(f"  fluence:     {spec.fluence} ML  ({spec.fluence * spec.ml} total impacts)")
