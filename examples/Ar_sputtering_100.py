@@ -1,12 +1,10 @@
 """
-Ar+ physical sputtering of bare C(100).
+Ar+ physical sputtering of C(100) 1x1 surface.
 
 Argon ions are chemically inert — they transfer kinetic energy to the surface
-and are deleted after each impact. Uses a hybrid ReaxFF + ZBL pair style for
-the short-range nuclear repulsion between Ar and C/H/O atoms.
+and are deleted after each impact. Uses a hybrid ReaxFF + ZBL pair style.
 
-Typical Ar sputtering energies: 20–200 eV. Higher energies need a deeper slab
-(box_depth) so the ion stops within the mobile region.
+Typical Ar sputtering energies: 20-200 eV. Higher energies need a deeper slab.
 
     python examples/Ar_sputtering_100.py
     sbatch Ar_sputtering_100/submit
@@ -17,8 +15,7 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 
 spec = SimSpec(
     orientation    = "100",
-    surface         = "1x1",
-                # no termination (bare surface for physical sputtering)
+    surface        = "1x1",
     temperature    = 300.0,
 
     species        = "Ar",
@@ -35,7 +32,7 @@ spec = SimSpec(
     thermalization_time = 500.0,
     wall_hours     = 24,
     account        = "dgraves",
-    name           = "100_bare_Ar_100eV",
+    name           = "100_1x1_Ar_100eV",
 )
 
 make_sim(spec, Path("Ar_sputtering_100"))

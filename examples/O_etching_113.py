@@ -1,9 +1,7 @@
 """
 O radical etching of O-terminated C(113) surface.
 
-The 113 surface has two options: "" (unterminated, default) and "O"
-(O-terminated). There are no geometric reconstructions — it's purely
-about surface chemistry.
+C(113) surface keys: "" (unterminated) and "O" (O-terminated).
 
     python examples/O_etching_113.py
     sbatch O_etching_113/submit
@@ -14,8 +12,7 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 
 spec = SimSpec(
     orientation    = "113",
-    surface         = "O",          # O-terminated surface state
-    
+    surface        = "O",
     temperature    = 300.0,
 
     species        = "O",

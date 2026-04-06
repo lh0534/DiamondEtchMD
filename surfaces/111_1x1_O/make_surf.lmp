@@ -54,13 +54,10 @@ delete_atoms overlap $(sqrt(3)/8) all all
 # no reconstruction — 1x1 surface
 
 if "${O_terminate} && !${use_starting_data_file}" then &
-"variable term_top equal ${lat_top}+3/8" &
-"variable term_bottom equal ${lat_top}+1/8" &
+"variable term_top equal ${lat_top}+(1/8/${lat_az})" &
+"variable term_bottom equal ${lat_top}" &
 "region term block 0 ${x} 0 ${y} ${term_bottom} ${term_top} units lattice" &
 "create_atoms 3 region term" &
-"group O type 3" &
-"displace_atoms O move 0.0 0.0 $(1/4) units lattice" &
-"group O delete"
 
 minimize 1.0e-5 1.0e-6 1000 10000
 reset_timestep  0 time 0.0

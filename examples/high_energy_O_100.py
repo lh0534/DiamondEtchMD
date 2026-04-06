@@ -1,5 +1,5 @@
 """
-High-energy O+ ion bombardment of bare C(100).
+High-energy O+ ion bombardment of C(100) 1x1 surface.
 
 At higher energies the ion penetrates deeper into the lattice, so box_depth
 must be increased. Empirical guidance:
@@ -17,8 +17,7 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 
 spec = SimSpec(
     orientation    = "100",
-    surface         = "1x1",
-                # no termination (bare surface)
+    surface        = "1x1",
     temperature    = 300.0,
 
     species        = "O",
@@ -35,7 +34,7 @@ spec = SimSpec(
     thermalization_time = 500.0,
     wall_hours     = 24,
     account        = "dgraves",
-    name           = "100_bare_O_200eV",
+    name           = "100_1x1_O_200eV",
 )
 
 make_sim(spec, Path("high_energy_O_100"))

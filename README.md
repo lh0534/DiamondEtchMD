@@ -1,6 +1,6 @@
 # DiamondEtchMD
 
-Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics simulations of diamond surface etching. Supports O, O₂, and Ar ion bombardment of C(100), C(111), and C(113) surfaces. All surface templates and force-field files are bundled with the package.
+Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics simulations of diamond surface etching. Supports O, O₂, and Ar ion bombardment of C(100), C(110), C(111), and C(113) surfaces. All surface templates and force-field files are bundled with the package.
 
 ## Installation
 
@@ -18,8 +18,7 @@ from pathlib import Path
 
 spec = SimSpec(
     orientation    = "100",
-    reconstruction = "1x1",
-    termination    = "",           # unterminated
+    surface        = "1x1",
     species        = "O",
     energy         = 0.5,       # eV
     temperature    = 300.0,     # K
@@ -42,22 +41,22 @@ sbatch my_sim/submit
 Or use the CLI:
 ```bash
 # C(100) — 1×1 surface, O radical at 0.5 eV
-diamond-etch-md --orientation 100 --reconstruction 1x1 --energy 0.5 my_sim
+diamond-etch-md --orientation 100 --surface 1x1 --energy 0.5 my_sim
 
-# C(100) — 2×1 reconstructed, O terminated
-diamond-etch-md --orientation 100 --reconstruction 2x1 --termination O --energy 0.5 my_sim
+# C(100) — 2×1 reconstructed + O terminated
+diamond-etch-md --orientation 100 --surface 2x1_O --energy 0.5 my_sim
 
-# C(100) — O-ether surface state
-diamond-etch-md --orientation 100 --reconstruction O_ether --energy 0.5 my_sim
+# C(100) — O-ether surface
+diamond-etch-md --orientation 100 --surface O_ether --energy 0.5 my_sim
 
-# C(111) — Pandey chain reconstruction
-diamond-etch-md --orientation 111 --reconstruction 2x1_pandey --energy 1.0 my_sim
+# C(111) — Pandey chain
+diamond-etch-md --orientation 111 --surface 2x1_pandey --energy 1.0 my_sim
 
 # C(111) — Pandey chain, O-terminated
-diamond-etch-md --orientation 111 --reconstruction 2x1_pandey --termination O --energy 1.0 my_sim
+diamond-etch-md --orientation 111 --surface 2x1_pandey_O --energy 1.0 my_sim
 
-# C(113) — O-terminated, angled incidence
-diamond-etch-md --orientation 113 --termination O --angle 15 --energy 0.2 my_sim
+# C(113) — O-terminated
+diamond-etch-md --orientation 113 --surface O --energy 0.2 my_sim
 
 # Ar+ bombardment at 100 eV
 diamond-etch-md --species Ar --energy 100 --box-depth 10 my_sim
@@ -71,7 +70,7 @@ diamond-etch-md --species O2 --energy 50 my_sim
 ```
 diamond_etch_md/
   spec.py          SimSpec dataclass, compute_ml(), validate()
-  orientations.py  ORIENT registry — lattice commands, ML factors, make_surf paths
+  orientations.py  ORIENT registry — lattice commands, ML factors, surface definitions
   species.py       SPECIES registry — atom types, injection heights, ZBL/molecule flags
   builder.py       make_sim() — writes config/head/submit, copies make_surf, symlinks
   cli.py           diamond-etch-md entry point
@@ -80,7 +79,8 @@ diamond_etch_md/
     head.py           get_head_lmp()      — main driver script (per-impact loop)
     submit.py         get_submit_script() — SLURM batch script
     templates/
-      make_surf_100.lmp           C(100) all reconstructions + terminations
+      make_surf_100.lmp            C(100) all surfaces
+      make_surf_110.lmp            C(110)
       make_surf_111_1x1.lmp       C(111) 1×1
       make_surf_111_2x1_single.lmp C(111) 2×1 single chains
       make_surf_111_2x1_pandey.lmp C(111) 2×1 Pandey chains
@@ -96,9 +96,8 @@ diamond_etch_md/
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `orientation` | str | `"100"` | Crystal surface: `"100"`, `"111"`, or `"113"` |
-| `reconstruction` | str | `"1x1"` | Surface reconstruction (see table below) |
-| `termination` | str | `""` | Chemical termination; empty = unterminated (see table below) |
+| `orientation` | str | `"100"` | Crystal surface: `"100"`, `"110"`, `"111"`, or `"113"` |
+| `surface` | str | `"1x1"` | Surface state — reconstruction + termination (see table below) |
 | `temperature` | float | `300.0` | Substrate temperature (K) |
 | `species` | str | `"O"` | Incident species: `"O"`, `"Ar"`, `"O2"` |
 | `energy` | float | `0.5` | Incident particle energy (eV) |
@@ -114,34 +113,29 @@ diamond_etch_md/
 | `name` | str | `""` | SLURM job name (auto-generated if empty) |
 | `account` | str | `"dgraves"` | SLURM account to charge |
 | `email` | str | `""` | Email for END/FAIL notifications; empty = no mail |
+| `lammps_module` | str | `"lammps/kokkos/gpu_della9_2022"` | LAMMPS module for submit script |
 
-### Reconstructions and valid terminations
+### Surface states
 
-| Orientation | Reconstruction | Valid terminations |
+The `surface` field is a single key that encodes both the geometric reconstruction
+and the chemical termination of the surface.
+
+| Orientation | Surface key | Description |
 |---|---|---|
-| `100` | `1x1` | (unterminated only) |
-| `100` | `2x1` | `O` |
-| `100` | `O_ether` | (standalone surface state) |
-| `110` | `""` | (unterminated) |
-| `110` | `O` | (O-terminated) |
-| `111` | `1x1` | `O` |
-| `111` | `2x1_single` | `O` |
-| `111` | `2x1_pandey` | `O` |
-| `113` | `bare` | (unterminated only) |
-| `113` | `O` | (standalone O-terminated) |
-
-Termination is optional — omit it (or pass `""`) for an unterminated surface.
-`O_ether` on C(100) is specified as a reconstruction, not a termination — it
-represents its own surface state (ether-bridged O between adjacent C atoms).
-
-**C(100):** reconstruction and termination are independent. A single template
-handles all cases: `2x1` triggers dimer-row displacements along [110]/[−1−10];
-`O` places ketone O atop surface C. `O_ether` is a standalone reconstruction.
-
-**C(111):** each reconstruction has its own template. O termination is simply
-`"O"` for all reconstructions — the template determines the O placement geometry.
-
-**C(113):** no reconstruction; `O` places O atop surface C.
+| `100` | `1x1` | Unreconstructed |
+| `100` | `2x1` | 2×1 dimer-row reconstruction |
+| `100` | `2x1_O` | 2×1 + ketone O atop surface C |
+| `100` | `O_ether` | O bridging between adjacent surface C |
+| `110` | `""` | Unterminated (default) |
+| `110` | `O` | O-terminated |
+| `111` | `1x1` | Unreconstructed |
+| `111` | `2x1_single` | 2×1 single-chain |
+| `111` | `2x1_pandey` | 2×1 Pandey chain |
+| `111` | `1x1_O` | 1×1 + O |
+| `111` | `2x1_single_O` | 2×1 single-chain + O |
+| `111` | `2x1_pandey_O` | 2×1 Pandey chain + O |
+| `113` | `""` | Unterminated (default) |
+| `113` | `O` | O-terminated |
 
 ### Atoms per monolayer (`ml`)
 
@@ -150,6 +144,7 @@ handles all cases: `2x1` triggers dimer-row displacements along [110]/[−1−10
 | Orientation | `ml_factor` | Example (default box) |
 |---|---|---|
 | `100` | 1 | 9×9 → 81 |
+| `110` | 4 | 4×6 → 96 |
 | `111` | 2 | 5×9 → 90 |
 | `113` | 4 | 9×3 → 108 |
 
@@ -224,11 +219,11 @@ The [`examples/`](examples/) directory has focused single-case scripts:
 
 | File | What it demonstrates |
 |---|---|
-| [`O_radical_100.py`](examples/O_radical_100.py) | Low-energy O radical on 2×1 O-ether terminated C(100) |
-| [`Ar_sputtering_100.py`](examples/Ar_sputtering_100.py) | Ar⁺ physical sputtering of bare C(100) at 100 eV |
-| [`O2_bombardment_111.py`](examples/O2_bombardment_111.py) | O₂⁺ dimer injection on C(111) Pandey chain |
-| [`O_terminated_111_pandey.py`](examples/O_terminated_111_pandey.py) | 111 reconstruction/termination coupling |
-| [`O_etching_113.py`](examples/O_etching_113.py) | C(113) surface with O termination |
+| [`O_radical_100.py`](examples/O_radical_100.py) | O radical on C(100) O-ether surface |
+| [`Ar_sputtering_100.py`](examples/Ar_sputtering_100.py) | Ar⁺ physical sputtering of C(100) 1x1 at 100 eV |
+| [`O2_bombardment_111.py`](examples/O2_bombardment_111.py) | O₂⁺ dimer on C(111) Pandey chain |
+| [`O_terminated_111_pandey.py`](examples/O_terminated_111_pandey.py) | C(111) Pandey + O surface |
+| [`O_etching_113.py`](examples/O_etching_113.py) | C(113) O-terminated surface |
 | [`angled_Ar_100.py`](examples/angled_Ar_100.py) | 45° off-normal Ar⁺ incidence |
 | [`high_energy_O_100.py`](examples/high_energy_O_100.py) | 200 eV O⁺ with deep slab (box_depth guidance) |
 

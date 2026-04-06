@@ -1,8 +1,8 @@
 """
-O radical etching of C(100) with O-ether bridging termination.
+O radical etching of C(100) with O-ether bridging surface.
 
-O_ether is a standalone surface state where oxygen bridges between adjacent
-surface carbon atoms. It is specified as a reconstruction, not a termination.
+O_ether is a surface state where oxygen bridges between adjacent surface
+carbon atoms.
 
     python examples/O_radical_100.py
     sbatch O_radical_100/submit
@@ -13,8 +13,7 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 
 spec = SimSpec(
     orientation    = "100",
-    surface         = "O_ether",    # standalone surface state (not 1x1 or 2x1)
-    
+    surface        = "O_ether",
 
     temperature    = 300.0,
     species        = "O",

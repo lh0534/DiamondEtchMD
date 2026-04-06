@@ -1,0 +1,184 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+LAMMPS (23 Jun 2022)
+KOKKOS mode is enabled (src/KOKKOS/kokkos.cpp:105)
+  will use up to 1 GPU(s) per node
+WARNING: When using a single thread, the Kokkos Serial backend (i.e. Makefile.kokkos_mpi_only) gives better performance than the OpenMP backend (src/KOKKOS/kokkos.cpp:217)
+  using 1 OpenMP thread(s) per MPI task
+BOTTOM -0.625
+Lattice spacing in x,y,z = 5.0422189 3.5653872 7.5633283
+Created orthogonal box = (0 0 -4.7270802) to (20.168876 21.392323 75.633283)
+  1 by 1 by 1 MPI processor grid
+Created 3264 atoms
+  using lattice units in orthogonal box = (0 0 -4.7270802) to (20.168876 21.392323 75.633283)
+  create_atoms CPU = 0.006 seconds
+Setting atom values ...
+  3264 settings made for charge
+N_LAT_0 2880
+288 atoms in group anchor
+0 atoms in group insert
+2976 atoms in group mobile
+3264 atoms in group carbon
+Reading potential file ffield.reax with DATE: 2011-02-18
+WARNING: Changed valency_val to valency_boc for X (src/REAXFF/reaxff_ffield.cpp:296)
+Changing box ...
+  orthogonal box = (0 0 -4.7270802) to (20.168876 21.392323 75.633283)
+  orthogonal box = (0 0 -4.7270802) to (20.168876 21.392323 75.633283)
+  orthogonal box = (0 0 -4.7270802) to (20.168876 21.392323 75.633283)
+System init for delete_atoms ...
+Neighbor list info ...
+  update every 1 steps, delay 10 steps, check yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 12, bins = 2 2 7
+  3 neighbor lists, perpetual/occasional/extra = 2 1 0
+  (1) command delete_atoms, occasional
+      attributes: full, newton on
+      pair build: full/bin/atomonly
+      stencil: full/bin/3d
+      bin: standard
+  (2) pair reaxff/kk, perpetual
+      attributes: half, newton off, ghost, kokkos_device
+      pair build: half/bin/ghost/kk/device
+      stencil: full/ghost/bin/3d
+      bin: kk/device
+  (3) fix qeq/reaxff/kk, perpetual
+      attributes: full, newton off, kokkos_device
+      pair build: full/bin/kk/device
+      stencil: full/bin/3d
+      bin: kk/device
+WARNING: Fixes cannot yet send exchange data in Kokkos communication, switching to classic exchange/border communication (src/KOKKOS/comm_kokkos.cpp:581)
+Deleted 0 atoms, new total = 3264
+Created 96 atoms
+  using lattice units in orthogonal box = (0 0 -4.7270802) to (20.168876 21.392323 75.633283)
+  create_atoms CPU = 0.001 seconds
+96 atoms in group O
+Displacing atoms ...
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+- pair reaxff command:
+- fix qeq/reaxff command:
+The log file lists these citations in BibTeX format.
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+WARNING: Using 'neigh_modify every 1 delay 0 check yes' setting during minimization (src/min.cpp:187)
+Neighbor list info ...
+  update every 1 steps, delay 0 steps, check yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 12, bins = 2 2 7
+  2 neighbor lists, perpetual/occasional/extra = 2 0 0
+  (1) pair reaxff/kk, perpetual
+      attributes: half, newton off, ghost, kokkos_device
+      pair build: half/bin/ghost/kk/device
+      stencil: full/ghost/bin/3d
+      bin: kk/device
+  (2) fix qeq/reaxff/kk, perpetual
+      attributes: full, newton off, kokkos_device
+      pair build: full/bin/kk/device
+      stencil: full/bin/3d
+      bin: kk/device
+Setting up cg/kk style minimization ...
+  Unit style    : real
+  Current step  : 0
+Per MPI rank memory allocation (min/avg/max) = 122.9 | 122.9 | 122.9 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press          Volume    
+         0   0             -594754.5       0             -594754.5       97621.422      34672.21     
+         1   0             -594754.5       0             -594754.5       97621.403      34672.21     
+Loop time of 0.680943 on 1 procs for 1 steps with 3360 atoms
+
+99.5% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+Minimization stats:
+  Stopping criterion = energy tolerance
+  Energy initial, next-to-last, final = 
+     -594754.499035704  -594754.499035704  -594754.502788542
+  Force two-norm initial, final = 1443.0167 1443.0167
+  Force max component initial, final = 71.557732 71.557761
+  Final line search alpha, max atom move = 1.0411985e-11 7.4505836e-10
+  Iterations, force evaluations = 1 39
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.51128    | 0.51128    | 0.51128    |   0.0 | 75.08
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0.00076621 | 0.00076621 | 0.00076621 |   0.0 |  0.11
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0.15028    | 0.15028    | 0.15028    |   0.0 | 22.07
+Other   |            | 0.01862    |            |       |  2.73
+
+Nlocal:           3360 ave        3360 max        3360 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:          12259 ave       12259 max       12259 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:    2.70759e+06 ave 2.70759e+06 max 2.70759e+06 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:   3.8807e+06 ave  3.8807e+06 max  3.8807e+06 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 3880704
+Ave neighs/atom = 1154.9714
+Neighbor list builds = 0
+Dangerous builds = 0
+System init for write_data ...
+WARNING: Temperature for thermo pressure is not for group all (src/thermo.cpp:520)
+Setting up Verlet run ...
+  Unit style    : real
+  Current step  : 0
+  Time step     : 1
+Per MPI rank memory allocation (min/avg/max) = 121.9 | 121.9 | 121.9 Mbytes
+   Step          Time           Temp     
+         0   0              300          
+      1000   1000           335.72795    
+      2000   2000           357.19239    
+      3000   3000           365.44337    
+      4000   4000           347.54355    
+      5000   5000           326.36385    
+      6000   6000           314.78381    
+      7000   7000           321.46427    
+      8000   8000           328.81702    
+      9000   9000           328.33415    
+     10000   10000          322.92743    
+Loop time of 153.019 on 1 procs for 10000 steps with 3360 atoms
+
+Performance: 5.646 ns/day, 4.251 hours/ns, 65.351 timesteps/s
+99.8% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 114.77     | 114.77     | 114.77     |   0.0 | 75.00
+Neigh   | 0.01264    | 0.01264    | 0.01264    |   0.0 |  0.01
+Comm    | 4.3195     | 4.3195     | 4.3195     |   0.0 |  2.82
+Output  | 0.0039365  | 0.0039365  | 0.0039365  |   0.0 |  0.00
+Modify  | 33.602     | 33.602     | 33.602     |   0.0 | 21.96
+Other   |            | 0.3159     |            |       |  0.21
+
+Nlocal:           3360 ave        3360 max        3360 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:          12259 ave       12259 max       12259 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:    2.74331e+06 ave 2.74331e+06 max 2.74331e+06 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:  3.92591e+06 ave 3.92591e+06 max 3.92591e+06 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 3925912
+Ave neighs/atom = 1168.4262
+Neighbor list builds = 1
+Dangerous builds = 0
+System init for write_data ...
+System init for write_data ...
+0 2880 0 0
+0 -0.625 2880
+Total wall time: 0:02:34
+srun: error: della-l05g6: task 0: Exited with exit code 1
+srun: Terminating StepId=6632485.1
+LAMMPS exited with code 1 — not re-submitting.
