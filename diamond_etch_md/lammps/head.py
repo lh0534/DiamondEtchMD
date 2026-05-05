@@ -42,11 +42,11 @@ def _potential_block(species: dict) -> str:
             f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
     else:
-        # O, O2, H: plain ReaxFF
+        # O, O2, H: plain ReaxFF — type 4 slot maps to C so all pair coeffs are set
         return (
             f'if "${{pot}} == REAX" then &\n'
             f'"pair_style reaxff NULL mincap 200 safezone 1.5" &\n'
-            f'"pair_coeff * * ffield.reax C H O NULL" &\n'
+            f'"pair_coeff * * ffield.reax C H O C" &\n'
             f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
 
@@ -218,15 +218,28 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"fix         thalt all halt 1 v_time_elapsed > ${{impact_time}} error continue message yes\n"
         f"\n"
         f"run         0 post no\n"
+        f"variable    n_channelled equal 0\n"
         f"# =========================== begin inner loop ===========================\n"
         f"label\t\tcontinue_impact\n"
         f"\n"
         f"run         1000000000 pre no post no\n"
-        f'if "$(time-v_t0) > ${{impact_time}}" then "run 0"\n'
-        f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
+        f"run         0\n"
         f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
         f'"variable event_count equal ${{event_count}}+1" &\n'
         f'"variable starting_nclusts equal $(c_nclusts)"\n'
+        f'if "${{one_clust}} == 0" then &\n'
+        f'"include sweep.lmp" &\n'
+        f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
+        f'"group channelled_group region channelled" &\n'
+        f'"variable n_channelled equal count(channelled_group)" &\n'
+        f'"region channelled delete" &\n'
+        f"\n"
+        f'if "${{n_channelled}} > 0" then &\n'
+        f'"delete_atoms group channelled_group" &\n'
+        f'"run 0" &\n'
+        f'"group channelled_group delete" &\n'
+        f'"variable n_channelled equal 0" &\n'
+        f"\n"
         f'if "$(time-v_t0) < ${{impact_time}}" then "jump SELF continue_impact"\n'
         f"unfix thalt\n"
         f"# ============================ end inner loop ============================\n"
@@ -261,7 +274,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         f"\n"
         f"write_data data_files/${{c}}.data nofix nocoeff\n"
-        f"if '$(v_c%v_ML) == 0' then \"write_dump all custom dumps/dump.dump id type x y z vx vy vz modify sort id append yes\"\n"
+        f"if '$(v_c%v_ML) == 0' then \"write_dump all custom dumps/dump.dump id type q x y z vx vy vz modify sort id append yes\"\n"
         f"\n"
         f"undump current_dump\n"
         f"# ========================= End Per-Impact Outer Loop =========================\n"

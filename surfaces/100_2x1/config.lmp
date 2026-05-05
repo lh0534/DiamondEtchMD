@@ -2,7 +2,7 @@
 # orientation=100  surface=2x1
 # species=O  energy=0.5eV  angle=0.0deg  T=300.0K
 
-variable    ML equal 81            # atoms per monolayer
+variable    ML equal 64            # atoms per monolayer
 variable    end_fluence equal 50   # in ML
 
 variable    energ equal 0.5     # incident energy per atom (eV)

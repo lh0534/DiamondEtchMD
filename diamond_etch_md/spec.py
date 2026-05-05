@@ -62,3 +62,10 @@ def validate(spec: SimSpec) -> None:
 
     if spec.ml <= 0:
         sys.exit("ML (atoms per monolayer) must be > 0.")
+
+    if spec.orientation == "100" and spec.surface in ("2x1", "2x1_O"):
+        if spec.box_x % 2 != 0 or spec.box_y % 2 != 0:
+            sys.exit(
+                f"C(100) 2×1 reconstruction requires even box dimensions; "
+                f"got box_x={spec.box_x}, box_y={spec.box_y}."
+            )

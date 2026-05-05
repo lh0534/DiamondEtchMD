@@ -101,7 +101,7 @@ if "${O_ether_terminate} && !${use_starting_data_file}" then &
 
 minimize 1.0e-5 1.0e-6 1000 10000
 reset_timestep  0 time 0.0
-write_data      001_2x1_0K.dat nofix nocoeff
+write_data      100_0K.dat nofix nocoeff
 
 
 # initial thermalization w/ nose-hoover since it's easy
@@ -120,7 +120,7 @@ if "!${use_starting_data_file}" then &
 "reset_timestep  0 time 0.0 # pretend this never happened"
 
 # write initial values
-write_data      001_2x1_${T}K.dat nofix nocoeff
+write_data      100_${T}K.dat nofix nocoeff
 write_data      data_files/0.data nofix nocoeff
 write_dump      all custom dumps/dump.dump id type x y z vx vy vz modify sort id
 
