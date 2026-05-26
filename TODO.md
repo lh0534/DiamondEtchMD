@@ -10,6 +10,12 @@ Planned features and known gaps, roughly ordered by expected impact.
   `n_complete` from `ncarbon.txt` and compares to `end_fluence * ML`. If incomplete,
   re-queues with `sbatch "$0"`. Skips re-submit on LAMMPS failure. Also exits early
   (before running LAMMPS) if already complete, making the script idempotent.
+  `--signal=B:USR1@120` + backgrounded `srun` + `wait` ensures the wall-time trap
+  fires before SLURM kills the job.
+
+- [x] **Channeled atom safeguard** — ion inner loop detects atoms that passed through
+  the slab bottom (`z < bottom`) via a temporary region and deletes them each iteration,
+  preventing simulation artifacts from channeled ions.
 
 - [x] **Selectable LAMMPS module** — `lammps_module` field on `SimSpec` (default
   `"lammps/kokkos/gpu_della9_2022"`), emitted in submit script. CLI: `--lammps-module`.
@@ -53,14 +59,17 @@ Planned features and known gaps, roughly ordered by expected impact.
 
 ## Cycling modes
 
-- [ ] **Ion-species cycling** — add a `cycle_species` option: a list such as
-  `["Ar", "O", "O2"]` with per-species fluence counts.  The submit script (or a new
-  LAMMPS driver script) iterates through the list, restarting from the latest snapshot
-  between phases.  Useful for simulating alternating Ar sputtering + O passivation.
+- [x] **Ion-species cycling** — `SimSpec.phases` accepts a list of `CyclePhase`
+  objects (species, energy, fluence_ml, flux_ratio, radical_energy).  `builder.py`
+  routes to `head_cycling.py` / `get_config_lmp_cycling()` / `get_submit_script_cycling()`.
+  N-phase combinations (Ar+O2, O+O2, Ar+O+O2, …) work in any order.
+  - Plain ReaxFF (3 types) used when no Ar phase present — faster.
+  - Per-phase O• radical flux with per-phase radical energy.
+  - Mid-radical-loop restarts via `neut_complete` variable in `ncarbon.txt` col 2.
+  - Channeled atom safeguard in ion inner loop.
 
-- [ ] **Flux-ratio cycling** — add a `cycle_flux_ratios` option: a list of
-  `(n_radicals, n_ions)` pairs applied in sequence between ion impacts.  This enables
-  simulation of dose-modulated etching without spawning separate jobs.
+- [x] **Flux-ratio cycling** — implemented as `CyclePhase.flux_ratio` (O• radicals
+  per ion impact) and `CyclePhase.radical_energy` per phase.  No separate option needed.
 
 ---
 

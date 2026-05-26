@@ -75,9 +75,10 @@ diamond_etch_md/
   builder.py       make_sim() — writes config/head/submit, copies make_surf, symlinks
   cli.py           diamond-etch-md entry point
   lammps/
-    config.py         get_config_lmp()    — per-condition LAMMPS variable file
-    head.py           get_head_lmp()      — main driver script (per-impact loop)
-    submit.py         get_submit_script() — SLURM batch script
+    config.py         get_config_lmp(), get_config_lmp_cycling()
+    head.py           get_head_lmp()        — single-species driver
+    head_cycling.py   get_head_lmp_cycling() — cycling (multi-phase) driver
+    submit.py         get_submit_script(), get_submit_script_cycling()
     templates/
       make_surf_100.lmp            C(100) all surfaces
       make_surf_110.lmp            C(110)
@@ -204,11 +205,95 @@ impact#  atom_type  n_C  n_H  n_O  vx  vy  vz
 
 ### `ncarbon.txt` format
 
-One line per completed impact:
-
+**Single-species:** one line per completed impact:
 ```
 impact#  n_carbon  n_hydrogen  n_oxygen
 ```
+
+**Cycling:** one line per radical and per ion impact:
+```
+impact#  radical#  n_carbon  n_hydrogen  n_oxygen
+```
+`radical# > 0` after each O• radical (1-indexed); `radical# = 0` after each ion impact. This enables mid-radical-loop restarts.
+
+## Cycling simulations (multi-phase)
+
+Set `phases` to a list of `CyclePhase` objects to alternate between ion species within a single run. The `cycles` field controls how many times the phase list repeats.
+
+```python
+from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_sim, validate
+from pathlib import Path
+
+ml = compute_ml("100", 8, 8)  # 64 atoms/ML for 8×8 box
+
+# Example 1: Ar+ physical sputtering → O2+ chemical etching (10 cycles)
+spec = SimSpec(
+    orientation = "100",
+    surface     = "O_ether",
+    ml          = ml,
+    box_x=8, box_y=8, box_depth=5,
+    phases=[
+        CyclePhase(species="Ar", energy=30.0, fluence_ml=5),          # 5 ML Ar+, no radicals
+        CyclePhase(species="O2", energy=20.0, fluence_ml=5,
+                   flux_ratio=10, radical_energy=0.2),                  # 5 ML O2+, R=10 O• per O2+
+    ],
+    cycles     = 10,
+    wall_hours = 48,
+    name       = "100_Oether_Ar30eV_O2_20eV_R10_x10",
+)
+validate(spec)
+make_sim(spec, Path("ar_o2_cycling"))
+```
+
+```python
+# Example 2: O+ → O2+ cycling (no Ar → faster plain ReaxFF potential)
+spec = SimSpec(
+    orientation = "100",
+    surface     = "O_ether",
+    ml          = ml,
+    box_x=8, box_y=8, box_depth=5,
+    phases=[
+        CyclePhase(species="O",  energy=1.0, fluence_ml=5, flux_ratio=0),
+        CyclePhase(species="O2", energy=20.0, fluence_ml=5, flux_ratio=10),
+    ],
+    cycles     = 10,
+    name       = "100_Oether_O_O2_cycling",
+)
+make_sim(spec, Path("o_o2_cycling"))
+```
+
+```python
+# Example 3: 3-phase — Ar sputtering → O passivation → O2 etching
+spec = SimSpec(
+    orientation = "100",
+    surface     = "O_ether",
+    ml          = ml,
+    box_x=8, box_y=8, box_depth=5,
+    phases=[
+        CyclePhase(species="Ar", energy=50.0, fluence_ml=5),
+        CyclePhase(species="O",  energy=1.0,  fluence_ml=3, flux_ratio=5),
+        CyclePhase(species="O2", energy=20.0, fluence_ml=5, flux_ratio=10),
+    ],
+    cycles = 5,
+    name   = "100_3phase_Ar_O_O2",
+)
+make_sim(spec, Path("ar_o_o2_cycling"))
+```
+
+### `CyclePhase` fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `species` | str | — | Ion species: `"O"`, `"O2"`, `"Ar"`, `"H"` |
+| `energy` | float | — | Ion energy in eV (total dimer energy for O₂) |
+| `fluence_ml` | int | — | ML of this species per cycle repetition |
+| `flux_ratio` | int | `0` | O• radicals deposited before each ion impact (0 = none) |
+| `radical_energy` | float | `0.2` | eV per O• radical |
+
+**Notes:**
+- If no phase uses Ar, plain ReaxFF (3 atom types) is used — faster than the ZBL hybrid.
+- `ncarbon.txt` cycling format: `c cn ncarbon nhydrogen noxygen` — `cn > 0` after a radical impact, `cn = 0` after an ion impact. The submit script reads col 2 to resume mid-radical-loop after a wall-time restart.
+- `O2.molecule` is automatically symlinked when any phase uses O₂.
 
 ## Examples
 

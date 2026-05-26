@@ -6,6 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "DiamondEtchMD"
 version = "0.1.0"
 description = "LAMMPS simulation setup and analysis for diamond surface radical/ion etching"
+authors = [
+    {name = "Louis E.S. Hoffenberg", email = "lhoff@princeton.edu"},
+    {name = "Jack S. Draney",        email = "jackdraney@princeton.edu"},
+]
 requires-python = ">=3.9"
 dependencies = []
 

@@ -1,0 +1,60 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it and the relevant papers below."
+title: DiamondEtchMD
+version: 0.1.0
+repository-code: "https://github.com/lh0534/DiamondEtchMD"
+license: MIT
+
+authors:
+  - family-names: Hoffenberg
+    given-names: Louis E.S.
+    email: lhoff@princeton.edu
+    # orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"
+  - family-names: Draney
+    given-names: Jack S.
+    email: jackdraney@princeton.edu
+    # orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"
+
+references:
+  - type: article
+    title: "Atomic scale etching of diamond: insights from molecular dynamics simulations"
+    authors:
+      - family-names: Draney
+        given-names: Jack S.
+      - family-names: Vella
+        given-names: Joseph R.
+      - family-names: Panagiotopoulos
+        given-names: Athanassios Z.
+      - family-names: Graves
+        given-names: David B.
+    journal: "Journal of Physics D: Applied Physics"
+    volume: 58
+    article-number: "025206"
+    year: 2025
+    doi: 10.1088/1361-6463/ad78e6
+
+  - type: article
+    title: "Development and transferability of neural-network models for interatomic potentials and condensed phase properties"
+    authors:
+      - family-names: Draney
+        given-names: Jack S.
+      - family-names: Panagiotopoulos
+        given-names: Athanassios Z.
+      # add remaining authors
+    journal: "Journal of Vacuum Science & Technology A"
+    volume: 43
+    article-number: "063002"
+    year: 2025
+    doi: 10.1116/6.0004843
+
+  - type: article
+    title: "Plasma-assisted atomic layer etching of single-crystal copper"
+    authors:
+      - family-names: Draney
+        given-names: Jack S.
+      # add remaining authors
+    journal: "Journal of Vacuum Science & Technology A"
+    volume: 44
+    article-number: "032603"
+    year: 2026
+    doi: 10.1116/6.0005266
