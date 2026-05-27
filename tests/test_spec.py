@@ -174,11 +174,11 @@ def test_etch_mode_cycle_etch():
 
 # ─── RIE-etch validation ──────────────────────────────────────────────────────
 
-def test_validate_rie_etch_Ar_fails():
-    """Ar cannot be used in RIE-etch (type 4 slot conflict)."""
-    spec = SimSpec(orientation="100", surface="1x1", species="Ar", ml=81, flux_ratio=5)
-    with pytest.raises(SystemExit):
-        validate(spec)
+def test_validate_rie_etch_Ar_passes():
+    """Ar + O• radicals (RIE-etch) is a valid combination."""
+    spec = SimSpec(orientation="100", surface="1x1", species="Ar", ml=81,
+                   flux_ratio=5, radical_energy=0.2)
+    validate(spec)  # should not raise
 
 
 def test_validate_rie_etch_negative_flux_ratio():

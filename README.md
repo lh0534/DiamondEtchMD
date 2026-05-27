@@ -7,13 +7,13 @@ bombardment regimes — **theory-etch** (ion-only baseline), **RIE-etch**
 (multi-phase alternating-species cycling, including **ALE-etch**) — across four
 crystal orientations and a range of surface reconstructions and terminations.
 Produces simulation directories that are ready to submit to a SLURM cluster or
-run locally. Requires a GPU.
+run locally (requires a GPU).
 
-| Mode | What it models | Key parameters |
-|---|---|---|
-| **theory-etch** | Single-species ion bombardment, no radicals. Baseline for synergy analysis. | `species`, `energy`, `fluence` |
-| **RIE-etch** | O• radicals deposited before each ion impact. Models plasma reactive-ion etching. | `flux_ratio`, `radical_energy` |
-| **cycle-etch / ALE-etch** | Alternating phases of different species and/or conditions. ALE is a 2-phase cycle. | `phases`, `cycles` |
+| Mode | What it models |
+|---|---|
+| **theory-etch** | Ion bombardment with no radicals for understanding etch thresholds and facet-dependence. |
+| **RIE-etch** | O• radicals deposited between each ion impact for modelling plasma reactive-ion etching (RIE). |
+| **cycle-etch / ALE-etch** | Alternating phases of different ionic species, flux ratios, and/or conditions. Atomic layer etching (ALE) is a 2-phase cycle. |
 
 ---
 
@@ -24,11 +24,7 @@ run locally. Requires a GPU.
 Single-species ion bombardment with no radical co-exposure. Ions of one type
 (O⁺, O₂⁺, or Ar⁺) are delivered one at a time at a specified energy and angle.
 
-Use theory-etch to establish a baseline etch yield before adding radical
-exposure. Comparing a theory-etch run to the equivalent RIE-etch run (same
-species, energy, and fluence; `flux_ratio=0` vs `flux_ratio>0`) isolates the
-**ion–radical synergy** — the excess etching that arises from the combined
-action of ions and radicals beyond the sum of their individual contributions.
+Use theory-etch to calculate facet-dependent ion energy etch thresholds, angle-dependence, or temperature-dependence.
 
 ### RIE-etch — reactive-ion etching
 
@@ -37,15 +33,9 @@ before each ion impact. The radical pre-exposure builds up surface oxygen, which
 is then driven off as volatile COₓ by the subsequent ion. This is the standard
 atomistic model for plasma-assisted reactive-ion etching of carbon.
 
-`flux_ratio` is the number of O• radicals per ion impact. `radical_energy` is
-the kinetic energy of each radical. The default of 0.2 eV is not thermal — it
-is intentionally elevated to the ~95th percentile of the Maxwell–Boltzmann
-distribution at 600 K, which compensates for the artificially low flux ratios
-accessible in MD (real plasmas deliver orders of magnitude more radicals per
-ion than can be simulated impact-by-impact).
-
-To quantify ion–radical synergy, run a matched theory-etch at identical
-parameters with `flux_ratio=0`.
+`flux_ratio` is the number of O• radicals per ion impact (ratio of radical and ion fluxes: $J_{O•}/J_{ion^+}$). `radical_energy` is
+the kinetic energy of each radical. The default of 0.2 eV is hyperthermal (~95th percentile of the Maxwell–Boltzmann
+distribution at 600 K) to simulate higher flux ratios.
 
 ### cycle-etch / ALE-etch — multi-phase cycling
 
@@ -86,16 +76,10 @@ Additional bookkeeping runs between impacts: etch products (clusters that
 separate from the surface with positive z-velocity) are detected and removed (`etch_products.txt`);
 atom counts are recorded (`ncarbon.txt`); if the number of C atoms falls below the initial
 count, a fresh bottom layer is added. Full atomic snapshots are written to `impact_snaps/` after every
-impact and appended to `ML_impacts.dump` once per monolayer; per-event
-trajectories are written to `etch_event_trajs/`. Run directories can exceed
-**1 GB** for long runs.
+impact and appended to `ML_impacts.dump` once per monolayer; per-etch-event
+trajectories are written to `etch_event_trajs/`. An `all_impacts.dump` file can be generated from impact_snaps/ via `make_impact_dump.py`.
 
-To consolidate all per-impact snapshots into a single trajectory file for
-visualisation, use the bundled script (symlinked into each simulation directory):
-
-```bash
-python make_impact_dump.py [sim_dir]   # → sim_dir/all_impacts.dump
-```
+NOTE: run directories can exceed **5 GB** for long runs at high ion energies.
 
 ---
 
@@ -113,7 +97,7 @@ python make_impact_dump.py [sim_dir]   # → sim_dir/all_impacts.dump
 
 ### Extractable quantities
 
-**Etch yield** — C atoms removed per ion impact (atoms/ion or ML/ion), from
+**Etch yield** — C atoms removed per ion impact (etched C/ion), from
 `etch_products.txt`.
 
 **Surface species** — O uptake (surface O atoms vs dose), from `ncarbon.txt`.
@@ -121,17 +105,19 @@ python make_impact_dump.py [sim_dir]   # → sim_dir/all_impacts.dump
 **Etch product distribution** — counts of CO, CO₂, C₂, C₂O, … as a 2-D
 heatmap and cumulative yield trajectories.
 
-**Ion–radical synergy** — run a theory-etch and a RIE-etch at identical
-conditions (`flux_ratio=0` and `flux_ratio>0`), then compare etch yields. The
-synergy is the excess above the individual contributions.
+**Ion–radical synergy** — run RIE-etch simulations at identical
+conditions with `flux_ratio=0` and `flux_ratio>0` to calculate the
+synergy, $S$: $$S=\frac{EY_{RIE}}{EY_{O^•}+EY_{ion^+}}-1$$
+
+$$EY_O^• \approx 0$$
 
 **Etch per cycle** — for cycle-etch simulations, etch depth and O coverage are
 decomposed per phase boundary.
 
-**Amorphous / sp2 layer** — post-hoc common-neighbour analysis from
-`impact_snaps/*.data` gives amorphous and sp2 carbon content vs dose.
+**Amorphous layer** — post-hoc common-neighbour analysis from
+`impact_snaps/*.data` gives amorphous carbon content vs dose. Amorphous layer thickness calculated from density (10-90% of $\rho_{diamond}$) is also reported.
 
-**Atom trajectories** — full 6-DOF trajectories in `etch_event_trajs/` and
+**Atom trajectories** — full 6-DOF + charge trajectories in `etch_event_trajs/` and
 `ML_impacts.dump`. Visualise with OVITO, VMD, or any LAMMPS-dump reader.
 
 ---
@@ -142,11 +128,7 @@ decomposed per phase boundary.
 
 DiamondEtchMD uses LAMMPS with the **Kokkos/GPU** backend and requires at
 least one GPU per job. On Princeton's Della cluster, LAMMPS is loaded via
-environment module:
-
-```bash
-module load lammps/kokkos/gpu_della9_2022
-```
+environment module: `module load lammps/kokkos/gpu_della9_2022`
 
 For portability — other clusters, workstations, or containers — LAMMPS can be
 run through an **Apptainer/Singularity** SIF image. The `container_image` field
@@ -179,7 +161,7 @@ correction applied to Ar-involved interactions. The parameterisation
 | `100` | `2x1_O` | 2×1 + ketone O atop surface C |
 | `100` | `O_ether` | O bridging between adjacent surface C |
 | `110` | `""` | Unterminated |
-| `110` | `O` | O-terminated |
+| `110` | `O` | O-terminated (TODO) |
 | `111` | `1x1` | Unreconstructed |
 | `111` | `2x1_single` | 2×1 single-chain |
 | `111` | `2x1_pandey` | 2×1 Pandey chain |
@@ -191,11 +173,11 @@ correction applied to Ar-involved interactions. The parameterisation
 
 ### Ion species
 
-| Species | Modes | Force field | Notes |
-|---|---|---|---|
-| `O` | theory, RIE, cycle | ReaxFF (C-H-O) | Single atom; serves as O⁺ ion or O• radical |
-| `O2` | theory, cycle | ReaxFF (C-H-O) | Injected as dimer; `energy` is total dimer KE (halved per atom) |
-| `Ar` | theory, cycle | ReaxFF + ZBL | Inert; removed after each impact by default; cannot be used in RIE-etch |
+| Species | Force field | Notes |
+|---|---|---|
+| `O` | ReaxFF | High-energy O⁺ ion or low-energy O• radical |
+| `O2` | ReaxFF | Injected as dimer; `energy` is total dimer KE (halved per atom) |
+| `Ar` | ReaxFF + ZBL | Inert; removed after each impact by default|
 
 ---
 

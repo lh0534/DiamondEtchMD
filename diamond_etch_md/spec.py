@@ -144,9 +144,3 @@ def validate(spec: "SimSpec") -> None:
                     f"radical_energy must be > 0 when flux_ratio > 0, "
                     f"got {spec.radical_energy}."
                 )
-            if SPECIES[spec.species]["needs_zbl"]:
-                sys.exit(
-                    f"RIE-etch (flux_ratio > 0) is not compatible with species "
-                    f"'{spec.species}': type 4 is reserved for Ar and cannot be "
-                    f"used for O• radical deposition."
-                )
