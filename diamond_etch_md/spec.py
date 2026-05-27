@@ -61,6 +61,7 @@ class SimSpec:
     lammps_module:       str   = "lammps/kokkos/gpu_della9_2022"
     plot_interval_hours: int   = 12     # hours between auto-plot runs (0 = disabled)
     remove_ar:           bool  = True   # delete Ar atoms after each impact; set False to retain
+    seed_adjust:         int   = 0      # random seed offset; increment for independent replicas
     # ── RIE-etch mode (single-species with radical pre-exposure) ──────────────
     flux_ratio:          int   = 0      # O• radicals per ion impact (0 = theory-etch; >0 = RIE-etch)
     radical_energy:      float = 0.2    # eV per O• radical (RIE-etch only)

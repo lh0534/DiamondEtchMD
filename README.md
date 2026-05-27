@@ -418,6 +418,7 @@ diamond_etch_md/
 | `thermalization_time` | float | `500.0` | NVT thermalisation after each impact (fs) |
 | `inter_neutral_time` | float | `1000.0` | NVE time per O• radical impact (fs) |
 | `remove_ar` | bool | `True` | Delete Ar atoms after each impact; set `False` to retain |
+| `seed_adjust` | int | `0` | Random seed offset; increment for independent replicas of the same condition |
 | `wall_hours` | int | `24` | SLURM wall-clock limit (hours) |
 | `name` | str | `""` | SLURM job name (auto-generated if empty) |
 | `account` | str | `"dgraves"` | SLURM account to charge |

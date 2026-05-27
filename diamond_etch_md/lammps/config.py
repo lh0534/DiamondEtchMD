@@ -67,7 +67,7 @@ def get_config_lmp(spec: SimSpec) -> str:
         f"variable    M_incident equal ${{{species['mass_var']}}}\n"
         f"variable    incident_type_index equal {species['type_index']}  # {spec.species}\n"
         f"\n"
-        f"variable    seed_adjust equal 0\n"
+        f"variable    seed_adjust equal {spec.seed_adjust}\n"
         f"variable    simdepo equal 1\n"
     )
 
@@ -153,7 +153,7 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"variable    M_O equal 16.0\n"
         f"variable    M_Ar equal 39.948\n"
         f"\n"
-        f"variable    seed_adjust equal 0\n"
+        f"variable    seed_adjust equal {spec.seed_adjust}\n"
         f"\n"
         f"# Per-phase parameters\n"
         f"{phase_vars}"
