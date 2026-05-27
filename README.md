@@ -9,6 +9,12 @@ crystal orientations and a range of surface reconstructions and terminations.
 Produces simulation directories that are ready to submit to a SLURM cluster or
 run locally. Requires a GPU.
 
+| Mode | What it models | Key parameters |
+|---|---|---|
+| **theory-etch** | Single-species ion bombardment, no radicals. Baseline for synergy analysis. | `species`, `energy`, `fluence` |
+| **RIE-etch** | O• radicals deposited before each ion impact. Models plasma reactive-ion etching. | `flux_ratio`, `radical_energy` |
+| **cycle-etch / ALE-etch** | Alternating phases of different species and/or conditions. ALE is a 2-phase cycle. | `phases`, `cycles` |
+
 ---
 
 ## Etching modes
@@ -61,46 +67,28 @@ any `SimSpec`.
 
 ## How simulations work
 
-Each simulation proceeds as a sequence of independent impact events:
+The surface slab is built (`make_surf.lmp`) and thermalized to the target
+temperature before the impact loop begins. The bottommost atomic layer is
+frozen throughout the run.
 
-1. **Surface initialisation** — the surface slab is built (`make_surf.lmp`) and
-   thermalized to the target temperature. The bottommost atomic layer is frozen
-   throughout the run to prevent rigid-body translation.
+Each impact event has two steps:
 
-2. **Radical pre-exposure** (RIE-etch and cycle-etch phases with `flux_ratio>0`)
-   — before each ion impact, `flux_ratio` O• radicals are deposited one at a
-   time from above the surface. Each radical is propagated in the NVE ensemble
-   for `inter_neutral_time` fs.
+1. **Impact** — a particle (ion or radical) is placed above the surface and
+   the simulation runs in the NVE (microcanonical) ensemble, allowing full
+   energy transfer without thermostat bias. In RIE-etch and cycle-etch phases
+   with `flux_ratio > 0`, `flux_ratio` O• radicals are delivered one at a time
+   before each ion impact.
 
-3. **Ion injection** — a single ion is placed above the surface with the
-   specified kinetic energy and incidence angle. The simulation runs in the NVE
-   (microcanonical) ensemble for `impact_time` fs, allowing full energy
-   transfer without thermostat bias.
+2. **Thermalisation** — the mobile atoms are thermalised in the NVT (canonical)
+   ensemble, returning the substrate to the target temperature. Ar is by default deleted after each impact.
 
-4. **Etch product detection** — if a cluster of atoms separates from the surface,
-   rises above all other clusters, and has a positive z-velocity component, it
-   is identified as an etch product, removed from the cell, and recorded in
-   `etch_products.txt`.
-
-5. **Thermalisation** — after the impact, the mobile atoms are thermalised in the
-   NVT ensemble for `thermalization_time` fs using a Nosé–Hoover chain, returning
-   the substrate to the target temperature.
-
-6. **Inert-ion removal** — Ar⁺ is chemically inert and is deleted from the cell
-   after each impact by default (`remove_ar=True`). Set `remove_ar=False` to
-   retain Ar for studies of implantation or trapping.
-
-7. **Carbon replenishment** — if the number of C atoms in the cell falls below
-   the initial lattice count (due to etching), a new layer of carbon is added to
-   the bottom of the slab and thermalized. This maintains a constant slab
-   thickness over long runs.
-
-8. **Snapshots** — after every impact, a full atomic snapshot is written to
-   `impact_snaps/[impact_number].data`. Every time one monolayer (ML) of ions
-   has been delivered, a snapshot is also appended to `ML_impacts.dump` in the
-   run directory. Detailed per-event atom trajectories are written to
-   `etch_event_trajs/`. Simulation directories can exceed **1 GB** of disk
-   space for long runs.
+Additional bookkeeping runs between impacts: etch products (clusters that
+separate from the surface with positive z-velocity) are detected and removed (`etch_products.txt`);
+atom counts are recorded (`ncarbon.txt`); if the number of C atoms falls below the initial
+count, a fresh bottom layer is added. Full atomic snapshots are written to `impact_snaps/` after every
+impact and appended to `ML_impacts.dump` once per monolayer; per-event
+trajectories are written to `etch_event_trajs/`. Run directories can exceed
+**1 GB** for long runs.
 
 To consolidate all per-impact snapshots into a single trajectory file for
 visualisation, use the bundled script (symlinked into each simulation directory):
@@ -140,8 +128,8 @@ synergy is the excess above the individual contributions.
 **Etch per cycle** — for cycle-etch simulations, etch depth and O coverage are
 decomposed per phase boundary.
 
-**sp3 / amorphous layer** — post-hoc common-neighbour analysis from
-`impact_snaps/*.data` gives sp3 fraction and amorphous layer thickness vs dose.
+**Amorphous / sp2 layer** — post-hoc common-neighbour analysis from
+`impact_snaps/*.data` gives amorphous and sp2 carbon content vs dose.
 
 **Atom trajectories** — full 6-DOF trajectories in `etch_event_trajs/` and
 `ML_impacts.dump`. Visualise with OVITO, VMD, or any LAMMPS-dump reader.
@@ -172,14 +160,6 @@ All simulations use the **ReaxFF** reactive force field for the C-H-O system,
 with the **ZBL** (Ziegler-Biersack-Littmark) screened nuclear repulsion
 correction applied to Ar-involved interactions. The parameterisation
 (`ffield.reax`) is from:
-
-> Draney J S, Vella J R, Panagiotopoulos A Z and Graves D B 2025
-> "Atomic scale etching of diamond: insights from molecular dynamics simulations"
-> *J. Phys. D: Appl. Phys.* **58** 025206.
-> <https://doi.org/10.1088/1361-6463/ad78e6>
-
-If you use this package, please also cite the paper in which these simulation
-methods were originally applied:
 
 > Draney J S et al. 2026
 > "Plasma-assisted atomic layer etching of single-crystal diamond"
@@ -527,7 +507,7 @@ depths = etch_depth(nc, ml=81, box_x=9, box_y=9, orientation="100")
 | `o_uptake.png` | Surface O (ML) vs dose |
 | `product_grid.png` | 2-D count heatmap: n_C vs n_O per ejected cluster |
 | `product_trajectory.png` | Cumulative yield per product species vs dose |
-| `amorphous.png` | Amorphous C (ML) + sp3 fraction vs dose |
+| `amorphous.png` | Amorphous and sp2 C vs dose |
 | `amorphous_thickness.png` | Disorder depth (10%–90% density criterion) vs dose |
 | `etch_per_cycle.png` | Etch depth per cycle (cycle-etch only) |
 | `per_phase_yield.png` | Per-phase etch yield breakdown (cycle-etch only) |
@@ -556,7 +536,7 @@ impact. This format enables mid-radical-loop restarts after wall-time preemption
 
 ## All examples
 
-[`example_all_options.py`](example_all_options.py) — all three ion species with
+[`examples/example_all_options.py`](examples/example_all_options.py) — all three ion species with
 annotations on every field.
 
 | File | Mode | What it demonstrates |
@@ -571,6 +551,7 @@ annotations on every field.
 | [`high_energy_O_100.py`](examples/high_energy_O_100.py) | theory-etch | 200 eV O⁺ with deep slab |
 | [`RIE_etching_100.py`](examples/RIE_etching_100.py) | RIE-etch | O⁺ at 20 eV + O• pre-exposure (flux_ratio=5) |
 | [`cycling_Ar_O2_100.py`](examples/cycling_Ar_O2_100.py) | cycle/ALE | Ar⁺→O₂⁺, O⁺→O₂⁺, 3-phase Ar⁺→O⁺→O₂⁺ |
+| [`make_all_surfaces.py`](examples/make_all_surfaces.py) | theory-etch | Generate a simulation directory for every supported surface |
 
 ---
 
