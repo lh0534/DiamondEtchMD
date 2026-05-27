@@ -15,6 +15,16 @@ from diamond_etch_md.lammps.submit import get_submit_script
 from diamond_etch_md.orientations import ORIENT
 
 
+def make_rie_spec(flux_ratio=5, radical_energy=0.2, **kw):
+    """Helper: make a valid RIE-etch SimSpec."""
+    defaults = dict(
+        orientation="100", surface="1x1", species="O",
+        energy=20.0, ml=81, name="rie_test",
+    )
+    defaults.update(kw)
+    return SimSpec(flux_ratio=flux_ratio, radical_energy=radical_energy, **defaults)
+
+
 # ─── fixtures ────────────────────────────────────────────────────────────────
 
 def make_spec(orientation="100", energy=0.5, temperature=300.0, ml=81,
@@ -331,7 +341,7 @@ def test_submit_contains_make_surf_call():
 
 def test_submit_creates_dirs():
     sub = get_submit_script(make_spec())
-    assert "mkdir -p dumps data_files" in sub
+    assert "mkdir -p etch_event_trajs impact_snaps" in sub
 
 
 # ─── auto re-submit tests ───────────────────────────────────────────────────
@@ -365,3 +375,100 @@ def test_submit_skips_lammps_if_already_complete():
     already_idx = sub.index("Simulation already complete")
     srun_idx = sub.index("srun lmp -k on g 1")
     assert already_idx < srun_idx
+
+
+# ─── RIE-etch config.lmp tests ───────────────────────────────────────────────
+
+def test_config_rie_contains_flux_ratio():
+    cfg = get_config_lmp(make_rie_spec(flux_ratio=5))
+    assert "variable    flux_ratio equal 5" in cfg
+
+
+def test_config_rie_contains_radical_energy():
+    cfg = get_config_lmp(make_rie_spec(radical_energy=0.3))
+    assert "variable    radical_energy equal 0.3" in cfg
+
+
+def test_config_rie_contains_chemical_i_above():
+    cfg = get_config_lmp(make_rie_spec())
+    assert "variable    chemical_i_above equal 6.0" in cfg
+
+
+def test_config_rie_contains_inter_neutral_time():
+    cfg = get_config_lmp(make_rie_spec(inter_neutral_time=800.0))
+    assert "variable    inter_neutral_time equal 800.0" in cfg
+
+
+def test_config_theory_etch_no_flux_ratio_variable():
+    """theory-etch (flux_ratio==0) must NOT have flux_ratio LAMMPS variable."""
+    cfg = get_config_lmp(make_spec(ml=81))
+    assert "flux_ratio" not in cfg
+
+
+# ─── RIE-etch head.lmp tests ─────────────────────────────────────────────────
+
+def test_head_rie_contains_neutral_loop_label():
+    head = get_head_lmp(make_rie_spec())
+    assert "label       neutral_loop" in head
+
+
+def test_head_rie_contains_skip_radicals_label():
+    head = get_head_lmp(make_rie_spec())
+    assert "label       skip_radicals" in head
+
+
+def test_head_rie_contains_cn_start():
+    head = get_head_lmp(make_rie_spec())
+    assert "cn_start" in head
+
+
+def test_head_rie_5col_ncarbon_format():
+    """RIE-etch should write 5-col ncarbon.txt: c 0 ncarbon nhydrogen noxygen."""
+    head = get_head_lmp(make_rie_spec())
+    assert "${c} 0 ${ncarbon} ${nhydrogen} ${noxygen}" in head
+
+
+def test_head_theory_etch_4col_ncarbon_format():
+    """theory-etch should write 4-col ncarbon.txt: c ncarbon nhydrogen noxygen."""
+    head = get_head_lmp(make_spec(ml=81))
+    assert "${c} ${ncarbon} ${nhydrogen} ${noxygen}" in head
+    assert "${c} 0 ${ncarbon}" not in head
+
+
+def test_head_rie_data_file_with_cn_suffix():
+    """RIE-etch ion snapshot goes to impact_snaps/${c}_0.data."""
+    head = get_head_lmp(make_rie_spec())
+    assert "impact_snaps/${c}_0.data" in head
+
+
+def test_head_theory_etch_data_file_no_suffix():
+    """theory-etch snapshot goes to impact_snaps/${c}.data (no _cn suffix)."""
+    head = get_head_lmp(make_spec(ml=81))
+    assert "impact_snaps/${c}.data" in head
+    assert "impact_snaps/${c}_0.data" not in head
+
+
+def test_head_rie_no_neutral_loop_when_zero_flux():
+    """theory-etch must NOT contain the radical loop labels."""
+    head = get_head_lmp(make_spec(ml=81))
+    assert "neutral_loop" not in head
+    assert "skip_radicals" not in head
+
+
+# ─── RIE-etch submit script tests ────────────────────────────────────────────
+
+def test_submit_rie_contains_neut_complete():
+    sub = get_submit_script(make_rie_spec())
+    assert "neut_complete" in sub
+
+
+def test_submit_rie_reads_cn_start():
+    sub = get_submit_script(make_rie_spec())
+    assert "cn_start" in sub
+    assert "awk '{print $2}'" in sub
+
+
+def test_submit_theory_etch_no_neut_complete():
+    sub = get_submit_script(make_spec(ml=81))
+    assert "neut_complete" not in sub
+    assert "cn_start" not in sub

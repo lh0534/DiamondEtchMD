@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from diamond_etch_md import SimSpec, compute_ml, make_sim
+from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_sim, make_ale, etch_mode
 
 
 def test_make_sim_creates_expected_files(tmp_path):
@@ -206,3 +206,138 @@ def test_make_sim_113_O(tmp_path):
     make_sim(spec, tmp_path / "sim")
     cfg = (tmp_path / "sim" / "config.lmp").read_text()
     assert "variable    O_terminate equal true" in cfg
+
+
+# ─── RIE-etch integration tests ──────────────────────────────────────────────
+
+def test_make_sim_rie_etch_creates_expected_files(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        surface="1x1",
+        species="O",
+        energy=20.0,
+        temperature=300.0,
+        ml=compute_ml("100", 9, 9),
+        box_x=9, box_y=9, box_depth=5,
+        flux_ratio=5,
+        radical_energy=0.2,
+        name="rie_smoke",
+    )
+    outdir = tmp_path / "rie_sim"
+    make_sim(spec, outdir)
+
+    assert (outdir / "config.lmp").exists()
+    assert (outdir / "head.lmp").exists()
+    assert (outdir / "submit").exists()
+    assert (outdir / "spec.json").exists()
+
+
+def test_make_sim_rie_etch_mode(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        surface="1x1",
+        species="O",
+        energy=20.0,
+        ml=compute_ml("100", 9, 9),
+        flux_ratio=5,
+        name="rie_mode",
+    )
+    assert etch_mode(spec) == "rie-etch"
+
+
+def test_make_sim_rie_etch_config(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        surface="1x1",
+        species="O",
+        energy=20.0,
+        temperature=300.0,
+        ml=compute_ml("100", 9, 9),
+        box_x=9, box_y=9, box_depth=5,
+        flux_ratio=5,
+        radical_energy=0.2,
+        name="rie_cfg",
+    )
+    make_sim(spec, tmp_path / "sim")
+    cfg = (tmp_path / "sim" / "config.lmp").read_text()
+    assert "variable    flux_ratio equal 5" in cfg
+    assert "variable    radical_energy equal 0.2" in cfg
+
+
+def test_make_sim_rie_etch_head(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        surface="1x1",
+        species="O",
+        energy=20.0,
+        temperature=300.0,
+        ml=compute_ml("100", 9, 9),
+        box_x=9, box_y=9, box_depth=5,
+        flux_ratio=5,
+        radical_energy=0.2,
+        name="rie_head",
+    )
+    make_sim(spec, tmp_path / "sim")
+    head = (tmp_path / "sim" / "head.lmp").read_text()
+    assert "neutral_loop" in head
+    assert "skip_radicals" in head
+    assert "${c} 0 ${ncarbon}" in head
+
+
+def test_make_sim_rie_etch_submit(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        surface="1x1",
+        species="O",
+        energy=20.0,
+        temperature=300.0,
+        ml=compute_ml("100", 9, 9),
+        flux_ratio=5,
+        name="rie_submit",
+    )
+    make_sim(spec, tmp_path / "sim")
+    sub = (tmp_path / "sim" / "submit").read_text()
+    assert "neut_complete" in sub
+    assert "cn_start" in sub
+
+
+# ─── make_ale() integration tests ────────────────────────────────────────────
+
+def test_make_ale_2phase_succeeds(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        surface="O_ether",
+        temperature=300.0,
+        ml=compute_ml("100", 8, 8),
+        box_x=8, box_y=8, box_depth=5,
+        phases=[
+            CyclePhase(species="Ar", energy=30.0, fluence_ml=5),
+            CyclePhase(species="O2", energy=20.0, fluence_ml=5, flux_ratio=10),
+        ],
+        cycles=5,
+        name="ale_test",
+    )
+    outdir = tmp_path / "ale_sim"
+    make_ale(spec, outdir)
+    assert (outdir / "head.lmp").exists()
+    assert (outdir / "config.lmp").exists()
+
+
+def test_make_ale_no_phases_fails(tmp_path):
+    spec = SimSpec(orientation="100", surface="1x1", species="O", ml=81, name="bad_ale")
+    with pytest.raises(SystemExit):
+        make_ale(spec, tmp_path / "ale_bad")
+
+
+def test_make_ale_3phase_fails(tmp_path):
+    spec = SimSpec(
+        orientation="100", surface="1x1", ml=81,
+        phases=[
+            CyclePhase(species="Ar", energy=30.0, fluence_ml=5),
+            CyclePhase(species="O",  energy=1.0,  fluence_ml=3),
+            CyclePhase(species="O2", energy=20.0, fluence_ml=5),
+        ],
+        name="bad_ale_3phase",
+    )
+    with pytest.raises(SystemExit):
+        make_ale(spec, tmp_path / "ale_bad")

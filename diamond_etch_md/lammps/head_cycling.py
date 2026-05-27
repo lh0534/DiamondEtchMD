@@ -1,5 +1,5 @@
 """
-lammps/head_cycling.py — generator for head.lmp in cycling (multi-phase) simulations.
+lammps/head_cycling.py — generator for head.lmp in cycle-etch (multi-phase) simulations.
 
 Cycling simulations alternate between N ion species within a single LAMMPS run.
 Each phase has its own ion species, energy, ML count, and optional O• radical flux.
@@ -124,8 +124,8 @@ def _phase_selection_block(phases: list, has_ar: bool) -> str:
     return "".join(lines)
 
 
-def get_head_lmp_cycling(spec: SimSpec) -> str:
-    """Generate the contents of head.lmp for a cycling SimSpec."""
+def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
+    """Generate the contents of head.lmp for a cycle-etch SimSpec."""
     cfg = ORIENT[spec.orientation]
     lattice_cmd = cfg["lattice_cmd"]
     bottom_expr = cfg["bottom_expr"]
@@ -292,7 +292,7 @@ def get_head_lmp_cycling(spec: SimSpec) -> str:
         f"region bbox units box\n"
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
-        f"dump        current_dump_n all custom 100 dumps/event_dump_n${{event_count}}.dump "
+        f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{event_count}}.dump "
         f"id type x y z vx vy vz fx fy fz q\n"
         f"\n"
         f"timestep    1e-10\n"
@@ -324,7 +324,7 @@ def get_head_lmp_cycling(spec: SimSpec) -> str:
         f'print       "Neutral run ${{cn}} complete"\n'
         f'print       "C_COUNT_neutral: ${{ncarbon}}"\n'
         f'print       "${{c}} ${{cn}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
-        f"write_data  data_files/${{c}}_${{cn}}.data nofix nocoeff\n"
+        f"write_data  impact_snaps/${{c}}_${{cn}}.data nofix nocoeff\n"
         f"\n"
         f"unfix       thalt\n"
         f"undump      current_dump_n\n"
@@ -358,7 +358,7 @@ def get_head_lmp_cycling(spec: SimSpec) -> str:
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box"\n'
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
-        f"dump        current_dump_ion all custom 100 dumps/event_dump_ion${{event_count}}.dump "
+        f"dump        current_dump_ion all custom 100 etch_event_trajs/event_dump_ion${{event_count}}.dump "
         f"id type x y z vx vy vz fx fy fz q\n"
         f"\n"
         f"timestep    1e-10\n"
@@ -429,9 +429,9 @@ def get_head_lmp_cycling(spec: SimSpec) -> str:
         f'print       "C_COUNT: ${{ncarbon}}"\n'
         f'print       "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         f"\n"
-        f"write_data  data_files/${{c}}_0.data nofix nocoeff\n"
+        f"write_data  impact_snaps/${{c}}_0.data nofix nocoeff\n"
         f"if '$(v_c%v_ML) == 0' then "
-        f"\"write_dump all custom dumps/dump.dump id type x y z vx vy vz q modify sort id append yes\"\n"
+        f"\"write_dump all custom ML_impacts.dump id type x y z vx vy vz q modify sort id append yes\"\n"
         f"\n"
         f"undump      current_dump_ion\n"
         f"# ========================= End Per-Impact Outer Loop =========================\n"

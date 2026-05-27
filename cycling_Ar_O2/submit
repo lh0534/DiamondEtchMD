@@ -1,0 +1,104 @@
+#!/bin/bash
+#SBATCH --job-name=100_Oether_Ar30eV_O2_20eV_R10_x10
+#SBATCH --nodes=1
+#SBATCH --mem=16G
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:1
+#SBATCH --time=48:00:00
+#SBATCH --dependency=singleton
+#SBATCH --signal=B:USR1@120
+#SBATCH --nice=2
+#SBATCH --account=dgraves
+
+module purge
+module load lammps/kokkos/gpu_della9_2022
+
+mkdir -p dumps data_files
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OMP_PROC_BIND=spread
+export OMP_PLACES=threads
+
+# Resubmit on SLURM time-limit signal (fired 120 s before wall-time).
+_resubmitted=0
+_resubmit() {
+    local nc ml ef ec
+    nc=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $1}'); nc=${nc:-0}
+    ml=$(grep 'ML equal' config.lmp | awk '{print $4}')
+    ef=$(grep 'end_fluence equal' config.lmp | awk '{print $4}')
+    ec=$(( ef * ml ))
+    if [ "$nc" -lt "$ec" ]; then
+        echo "Wall-time signal: $nc / $ec impacts done — re-submitting."
+        [ -n "$_PLOT_PID" ] && kill "$_PLOT_PID" 2>/dev/null; wait "$_PLOT_PID" 2>/dev/null || true
+        sbatch "$0"
+        _resubmitted=1
+    fi
+}
+trap '_resubmit' USR1
+
+if [ ! -f data_files/0.data ]; then
+    srun lmp -log log_make_surf.lammps -k on g 1 -sf kk -in make_surf.lmp
+fi
+
+n_lat_0=$(grep ' atoms' data_files/0.data | awk '{print $1}')
+n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $1}')
+n_complete=${n_complete:-0}
+cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $2}')
+cn_start=${cn_start:-0}
+data_file=$(ls -t data_files/*.data | head -1)
+log_file=log$(echo "$(ls | grep -c .lammps)+1" | bc).lammps
+event_count=$(ls dumps/event_dump_*.dump 2>/dev/null | wc -l)
+
+# Check if simulation is already complete
+ML=$(grep 'ML equal' config.lmp | awk '{print $4}')
+end_fluence=$(grep 'end_fluence equal' config.lmp | awk '{print $4}')
+end_c=$(( end_fluence * ML ))
+if [ "$n_complete" -ge "$end_c" ]; then
+    echo "Simulation already complete: $n_complete / $end_c impacts done."
+    exit 0
+fi
+
+# Run LAMMPS in background so the USR1 trap can fire during 'wait'
+srun lmp -k on g 1 -sf kk \
+    -var data_file $data_file \
+    -var n_complete $n_complete \
+    -var neut_complete $cn_start \
+    -var log_file $log_file \
+    -var n_events $event_count \
+    -var n_lat_0 $n_lat_0 \
+    -log $log_file \
+    -screen none \
+    -nocite \
+    -in head.lmp &
+SRUN_PID=$!
+# Auto-plot every 12 h (--no-cna for speed during live run)
+_PLOT_PID=""
+if command -v diamond-etch-md-plot &>/dev/null; then
+    ( while true; do
+          sleep 43200
+          diamond-etch-md-plot . --no-cna 2>>plot.log || true
+      done ) &
+    _PLOT_PID=$!
+fi
+wait $SRUN_PID
+lmp_exit=$?
+[ -n "$_PLOT_PID" ] && kill "$_PLOT_PID" 2>/dev/null; wait "$_PLOT_PID" 2>/dev/null || true
+
+[ $_resubmitted -eq 1 ] && exit 0
+
+if [ $lmp_exit -ne 0 ]; then
+    echo "LAMMPS exited with code $lmp_exit — not re-submitting."
+    exit $lmp_exit
+fi
+
+n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $1}')
+n_complete=${n_complete:-0}
+if [ "$n_complete" -lt "$end_c" ]; then
+    echo "Progress: $n_complete / $end_c impacts. Re-submitting..."
+    sbatch "$0"
+else
+    echo "Simulation complete: $n_complete / $end_c impacts."
+    echo "Running final analysis plots ..."
+diamond-etch-md-plot . --cna-stride $ML 2>>plot.log || true
+fi

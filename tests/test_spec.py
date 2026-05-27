@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from diamond_etch_md.spec import SimSpec, compute_ml, validate
+from diamond_etch_md.spec import SimSpec, CyclePhase, compute_ml, validate, etch_mode
 
 
 # ─── ML computation ──────────────────────────────────────────────────────────
@@ -145,6 +145,59 @@ def test_simspec_defaults():
     assert s.email == ""
     assert s.lammps_module == "lammps/kokkos/gpu_della9_2022"
     assert s.plot_interval_hours == 12
+    assert s.flux_ratio == 0
+    assert s.radical_energy == 0.2
+
+
+# ─── etch_mode() ──────────────────────────────────────────────────────────────
+
+def test_etch_mode_theory_etch():
+    s = SimSpec(orientation="100", surface="1x1", species="O", ml=81)
+    assert etch_mode(s) == "theory-etch"
+
+
+def test_etch_mode_rie_etch():
+    s = SimSpec(orientation="100", surface="1x1", species="O", ml=81, flux_ratio=5)
+    assert etch_mode(s) == "rie-etch"
+
+
+def test_etch_mode_cycle_etch():
+    s = SimSpec(
+        orientation="100", surface="1x1", ml=81,
+        phases=[
+            CyclePhase(species="Ar", energy=30.0, fluence_ml=5),
+            CyclePhase(species="O2", energy=20.0, fluence_ml=5),
+        ],
+    )
+    assert etch_mode(s) == "cycle-etch"
+
+
+# ─── RIE-etch validation ──────────────────────────────────────────────────────
+
+def test_validate_rie_etch_Ar_fails():
+    """Ar cannot be used in RIE-etch (type 4 slot conflict)."""
+    spec = SimSpec(orientation="100", surface="1x1", species="Ar", ml=81, flux_ratio=5)
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_validate_rie_etch_negative_flux_ratio():
+    spec = SimSpec(orientation="100", surface="1x1", species="O", ml=81, flux_ratio=-1)
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_validate_rie_etch_zero_radical_energy():
+    spec = SimSpec(orientation="100", surface="1x1", species="O", ml=81,
+                   flux_ratio=5, radical_energy=0.0)
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_validate_rie_etch_valid():
+    spec = SimSpec(orientation="100", surface="1x1", species="O", ml=81,
+                   flux_ratio=5, radical_energy=0.2)
+    validate(spec)  # should not raise
 
 
 def test_simspec_custom_fields():

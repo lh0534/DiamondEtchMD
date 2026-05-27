@@ -1,5 +1,13 @@
 """
 spec.py — SimSpec dataclass, ML formula, and validation.
+
+Simulation modes
+----------------
+theory-etch  — single species, ions only, no radicals (flux_ratio == 0, phases is None).
+RIE-etch     — single species, ions with O• radicals before each impact (flux_ratio > 0,
+               phases is None). Requires a non-Ar species.
+cycle-etch   — multi-phase cycling (phases is not None).
+ALE-etch     — cycle-etch with exactly 2 phases; validated via make_ale().
 """
 
 import sys
@@ -45,13 +53,17 @@ class SimSpec:
     box_depth:           int   = 3        # lat_top in lattice units
     impact_time:         float = 2000.0   # fs — ion impact window
     thermalization_time: float = 500.0    # fs — post-impact thermalisation
-    inter_neutral_time:  float = 1000.0   # fs — O• radical impact window (cycling only)
+    inter_neutral_time:  float = 1000.0   # fs — O• radical impact window (RIE/cycling)
     wall_hours:          int   = 24
     name:                str   = ""
     account:             str   = "dgraves"
     email:               str   = ""    # empty = no mail directives
     lammps_module:       str   = "lammps/kokkos/gpu_della9_2022"
     plot_interval_hours: int   = 12     # hours between auto-plot runs (0 = disabled)
+    remove_ar:           bool  = True   # delete Ar atoms after each impact; set False to retain
+    # ── RIE-etch mode (single-species with radical pre-exposure) ──────────────
+    flux_ratio:          int   = 0      # O• radicals per ion impact (0 = theory-etch; >0 = RIE-etch)
+    radical_energy:      float = 0.2    # eV per O• radical (RIE-etch only)
     # ── Cycling mode ──────────────────────────────────────────────────────────
     phases:              Optional[List[CyclePhase]] = None  # None = single-species mode
     cycles:              int   = 1      # how many times the phase list repeats
@@ -65,7 +77,22 @@ def compute_ml(orientation: str, box_x: int, box_y: int) -> int:
     return ORIENT[orientation]["ml_factor"] * box_x * box_y
 
 
-def validate(spec: SimSpec) -> None:
+def etch_mode(spec: "SimSpec") -> str:
+    """Return the etch mode string for a SimSpec.
+
+    Returns:
+        "theory-etch"  — single species, no radicals (flux_ratio == 0, phases is None)
+        "rie-etch"     — single species with O• radicals (flux_ratio > 0, phases is None)
+        "cycle-etch"   — multi-phase cycling (phases is not None)
+    """
+    if spec.phases is not None:
+        return "cycle-etch"
+    if spec.flux_ratio > 0:
+        return "rie-etch"
+    return "theory-etch"
+
+
+def validate(spec: "SimSpec") -> None:
     """Validate a SimSpec; exit with an informative message on any error."""
     if spec.orientation not in ORIENT:
         sys.exit(f"Unknown orientation '{spec.orientation}'. Choose from: {list(ORIENT)}")
@@ -90,6 +117,7 @@ def validate(spec: SimSpec) -> None:
 
     if spec.phases is not None:
         # ── Cycling-mode validation ────────────────────────────────────────
+        # (flux_ratio and radical_energy on SimSpec are ignored in cycle-etch)
         if len(spec.phases) < 2:
             sys.exit("Cycling requires at least 2 phases.")
         if spec.cycles <= 0:
@@ -105,6 +133,20 @@ def validate(spec: SimSpec) -> None:
             if p.flux_ratio < 0:
                 sys.exit(f"Phase {i}: flux_ratio must be >= 0, got {p.flux_ratio}.")
     else:
-        # ── Single-species-mode validation ────────────────────────────────
+        # ── Single-species-mode validation (theory-etch or RIE-etch) ──────
         if spec.species not in SPECIES:
             sys.exit(f"Unknown species '{spec.species}'. Choose from: {list(SPECIES)}")
+        if spec.flux_ratio < 0:
+            sys.exit(f"flux_ratio must be >= 0, got {spec.flux_ratio}.")
+        if spec.flux_ratio > 0:
+            if spec.radical_energy <= 0:
+                sys.exit(
+                    f"radical_energy must be > 0 when flux_ratio > 0, "
+                    f"got {spec.radical_energy}."
+                )
+            if SPECIES[spec.species]["needs_zbl"]:
+                sys.exit(
+                    f"RIE-etch (flux_ratio > 0) is not compatible with species "
+                    f"'{spec.species}': type 4 is reserved for Ar and cannot be "
+                    f"used for O• radical deposition."
+                )

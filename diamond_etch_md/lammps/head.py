@@ -2,14 +2,24 @@
 lammps/head.py — generator for head.lmp, the main LAMMPS driver script.
 
 head.lmp is the top-level script passed to lmp via -in.  It includes config.lmp,
-sets up atom groups, the force field, computes, and runs the per-impact outer loop:
+sets up atom groups, the force field, computes, and runs the per-impact outer loop.
 
-  for each impact:
+Supports two single-species modes:
+  theory-etch  (flux_ratio == 0): ions only; 4-col ncarbon.txt format.
+  RIE-etch     (flux_ratio > 0) : O• radicals deposited before each ion impact;
+               5-col ncarbon.txt format (same as cycle-etch).
+
+  For each impact (theory-etch):
     1. deposit incident particle
     2. adaptive-timestep NVE until impact_time reached or cluster separates
     3. thermalize substrate
     4. replenish carbon if etched below baseline (addfix loop)
-    5. write ncarbon.txt, save restart snapshot
+    5. write ncarbon.txt (4-col), save impact_snaps/${c}.data
+
+  For each impact (RIE-etch) — adds a radical pre-exposure loop:
+    0. deposit flux_ratio O• radicals; after each: write 5-col ncarbon.txt,
+       save impact_snaps/${c}_${cn}.data
+    1–5. same as theory-etch, but ncarbon.txt uses 5-col; save impact_snaps/${c}_0.data
 
 The lattice command and bottom expression embedded in head.lmp are
 orientation-specific and are pulled from the ORIENT registry.
@@ -69,12 +79,101 @@ def _deposit_line(species: dict) -> str:
         )
 
 
+def _radical_loop_block(spec: SimSpec) -> str:
+    """Return the LAMMPS radical pre-exposure loop for RIE-etch mode.
+
+    Deposits `flux_ratio` O• radicals (type 3) before each ion impact.
+    Handles mid-loop restarts via cn_start (from neut_complete variable).
+    After each radical: writes 5-col ncarbon.txt and impact_snaps/${c}_${cn}.data.
+    """
+    return (
+        f"# ========= Begin RIE-etch O• radical deposition loop =========\n"
+        f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{flux_ratio}}" then &\n'
+        f'"variable neutral_lp loop $(v_flux_ratio-v_cn_start)" &\n'
+        f'elif "${{cn_start}} == ${{flux_ratio}}" &\n'
+        f'"jump SELF skip_radicals" &\n'
+        f"else &\n"
+        f'"variable neutral_lp loop ${{flux_ratio}}"\n'
+        f"\n"
+        f"label       neutral_loop\n"
+        f"variable    cn equal ${{cn}}+1\n"
+        f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{cn}}))\n"
+        f"group       insert clear\n"
+        f"group       mobile subtract all anchor\n"
+        f"\n"
+        f"# Deposit O• radical (always type 3)\n"
+        f"variable    vel_chem equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+        f"variable    velz_chem equal cos(${{angl}}*PI/180)*${{vel_chem}}\n"
+        f"variable    vely_chem equal sin(${{angl}}*PI/180)*${{vel_chem}}\n"
+        f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
+        f"${{chemical_i_above}} ${{chemical_i_above}} "
+        f"vx 0.0 0.0 vy ${{vely_chem}} ${{vely_chem}} vz -${{velz_chem}} -${{velz_chem}} "
+        f"region bbox units box\n"
+        f"fix         2 mobile nve\n"
+        f"fix         3 insert nve\n"
+        f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{event_count}}.dump "
+        f"id type x y z vx vy vz fx fy fz q\n"
+        f"\n"
+        f"timestep    1e-10\n"
+        f"run         1 post no\n"
+        f"run         0\n"
+        f"variable    starting_nclusts equal $(c_nclusts)\n"
+        f"variable    t0 equal $(time)\n"
+        f"variable    time_elapsed equal time-${{t0}}\n"
+        f"fix         thalt all halt 1 v_time_elapsed > ${{inter_neutral_time}} error continue message yes\n"
+        f"\n"
+        f"# ===================== Radical inner loop =====================\n"
+        f"label       continue_n_impact\n"
+        f"run         500 pre no post no\n"
+        f"run         0\n"
+        f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
+        f'"variable event_count equal ${{event_count}}+1" &\n'
+        f'"variable starting_nclusts equal $(c_nclusts)"\n'
+        f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
+        f'if "$(time-v_t0) < ${{inter_neutral_time}}" then "jump SELF continue_n_impact"\n'
+        f"\n"
+        f"group       carbon type 1\n"
+        f"group       hydrogen type 2\n"
+        f"group       oxygen type 3\n"
+        f"variable    ncarbon equal count(carbon)\n"
+        f"variable    nhydrogen equal count(hydrogen)\n"
+        f"variable    noxygen equal count(oxygen)\n"
+        f"\n"
+        f'print       "Neutral run ${{cn}} complete"\n'
+        f'print       "C_COUNT_neutral: ${{ncarbon}}"\n'
+        f'print       "${{c}} ${{cn}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        f"write_data  impact_snaps/${{c}}_${{cn}}.data nofix nocoeff\n"
+        f"\n"
+        f"unfix       thalt\n"
+        f"undump      current_dump_n\n"
+        f"unfix       depo\n"
+        f"unfix       2\n"
+        f"unfix       3\n"
+        f"# ===================== End radical inner loop =====================\n"
+        f"next        neutral_lp\n"
+        f"jump        SELF neutral_loop\n"
+        f"\n"
+        f"label       skip_radicals\n"
+        f"variable    cn_start equal 0\n"
+        f"variable    cn equal 0\n"
+        f"# ========= End RIE-etch O• radical deposition loop =========\n"
+        f"\n"
+        f"# Thermalize between radicals and ion\n"
+        f"include     thermalize.lmp\n"
+        f"\n"
+    )
+
+
 def get_head_lmp(spec: SimSpec) -> str:
-    """Generate the contents of head.lmp for the given SimSpec."""
+    """Generate the contents of head.lmp for the given SimSpec.
+
+    Supports theory-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
+    """
     cfg = ORIENT[spec.orientation]
     lattice_cmd = cfg["lattice_cmd"]
     bottom_expr = cfg["bottom_expr"]
     species = SPECIES[spec.species]
+    is_rie = spec.flux_ratio > 0
 
     # O2 molecule declaration (before the loop)
     molecule_decl = ""
@@ -86,9 +185,9 @@ def get_head_lmp(spec: SimSpec) -> str:
     if species["needs_zbl"]:
         nonargon_regroup = f"group nonargon type 1 2 3\n"
 
-    # Post-impact removal for inert species (Ar)
+    # Post-impact removal for inert species (Ar); gated by spec.remove_ar
     removal_block = ""
-    if species["remove_after_impact"]:
+    if species["remove_after_impact"] and spec.remove_ar:
         removal_block = (
             f"\n"
             f"# Remove {spec.species} (inert, does not participate in chemistry)\n"
@@ -96,6 +195,37 @@ def get_head_lmp(spec: SimSpec) -> str:
             f"delete_atoms group IonRemove\n"
             f"group       IonRemove delete\n"
         )
+
+    # RIE-etch: cn (radical counter) restart variables before the loop
+    rie_pre_loop = ""
+    if is_rie:
+        rie_pre_loop = (
+            f"variable    cn_start equal ${{neut_complete}}\n"
+            f"variable    cn equal 0\n"
+        )
+
+    # RIE-etch: cn_start reset at top of loop iteration
+    rie_loop_top = ""
+    if is_rie:
+        rie_loop_top = (
+            f'if "${{cn_start}} > 0" then "variable cn equal ${{cn_start}}" else "variable cn equal 0"\n'
+            f"\n"
+        )
+
+    # ncarbon.txt output format: 5-col for RIE-etch, 4-col for theory-etch
+    if is_rie:
+        ncarbon_print = f'print "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        write_data    = f"write_data impact_snaps/${{c}}_0.data nofix nocoeff\n"
+    else:
+        ncarbon_print = f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        write_data    = f"write_data impact_snaps/${{c}}.data nofix nocoeff\n"
+
+    # RIE-etch radical loop block (inserted before the ion deposit section)
+    radical_loop = _radical_loop_block(spec) if is_rie else ""
+
+    # In RIE-etch mode, ion counter is NOT incremented at top of loop (radicals run first)
+    # In theory-etch mode, increment happens in place
+    loop_counter_line = f"variable    c equal ${{c}}+1\n"
 
     return (
         f"# head.lmp — generated by DiamondEtchMD\n"
@@ -148,6 +278,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"# Pre-run counters\n"
         f"variable c equal ${{n_complete}}\n"
         f"variable event_count equal ${{n_events}}\n"
+        f"{rie_pre_loop}"
         f"\n"
         f"# Atom counts\n"
         f"variable\tnfixed   equal count(anchor)\n"
@@ -190,14 +321,15 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"\n"
         f"# ========================= Begin Per-Impact Outer Loop =========================\n"
         f"label\t\tloop\n"
-        f"\n"
-        f"dump current_dump all custom 100 dumps/event_dump_${{event_count}}.dump id type x y z vx vy vz fx fy fz q\n"
+        f"{rie_loop_top}"
+        f"dump current_dump all custom 100 etch_event_trajs/event_dump_${{event_count}}.dump id type x y z vx vy vz fx fy fz q\n"
         f"\n"
         f"group       insert clear\n"
         f"group \t    mobile subtract all anchor\n"
         f"{nonargon_regroup}"
         f"\n"
-        f"variable    c equal ${{c}}+1\n"
+        f"{radical_loop}"
+        f"{loop_counter_line}"
         f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{c}}))\n"
         f"{_deposit_line(species)}"
         f"\n"
@@ -271,10 +403,10 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"\n"
         f'print "Run ${{c}} complete"\n'
         f'print "C_COUNT: ${{ncarbon}}"\n'
-        f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        f"{ncarbon_print}"
         f"\n"
-        f"write_data data_files/${{c}}.data nofix nocoeff\n"
-        f"if '$(v_c%v_ML) == 0' then \"write_dump all custom dumps/dump.dump id type q x y z vx vy vz modify sort id append yes\"\n"
+        f"{write_data}"
+        f"if '$(v_c%v_ML) == 0' then \"write_dump all custom ML_impacts.dump id type q x y z vx vy vz modify sort id append yes\"\n"
         f"\n"
         f"undump current_dump\n"
         f"# ========================= End Per-Impact Outer Loop =========================\n"

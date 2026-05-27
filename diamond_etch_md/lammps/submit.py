@@ -3,7 +3,7 @@ lammps/submit.py — generator for the SLURM submit script.
 
 The generated script:
   - loads the LAMMPS/Kokkos/GPU module for the Della cluster
-  - runs make_surf.lmp to build the initial surface (skipped if data_files/0.data exists)
+  - runs make_surf.lmp to build the initial surface (skipped if impact_snaps/0.data exists)
   - detects the resume state from ncarbon.txt and the latest restart snapshot
   - launches lmp with all required -var arguments
   - uses --dependency=singleton for automatic serialization of re-queued jobs
@@ -47,7 +47,12 @@ def _final_plot_block(ml_var: str = "$ML") -> str:
 
 
 def get_submit_script(spec: SimSpec) -> str:
-    """Generate the contents of the SLURM submit script for the given SimSpec."""
+    """Generate the contents of the SLURM submit script for the given SimSpec.
+
+    Handles both theory-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
+    For RIE-etch, reads cn_start (col 2 of last ncarbon.txt line) and passes
+    -var neut_complete $cn_start to LAMMPS for mid-radical-loop restarts.
+    """
     mail_lines = (
         f"#SBATCH --mail-type=END,FAIL\n"
         f"#SBATCH --mail-user={spec.email}\n"
@@ -56,6 +61,19 @@ def get_submit_script(spec: SimSpec) -> str:
     plot_loop = _plot_loop_block(spec.plot_interval_hours)
     plot_kill = _plot_kill_block()
     final_plot = _final_plot_block()
+
+    is_rie = spec.flux_ratio > 0
+
+    # RIE-etch: read cn_start from col 2 of last ncarbon.txt line
+    if is_rie:
+        cn_start_lines = (
+            f"cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $2}}')\n"
+            f"cn_start=${{cn_start:-0}}\n"
+        )
+        neut_complete_var = f"    -var neut_complete $cn_start \\\n"
+    else:
+        cn_start_lines = ""
+        neut_complete_var = ""
 
     return (
         f"#!/bin/bash\n"
@@ -75,7 +93,7 @@ def get_submit_script(spec: SimSpec) -> str:
         f"module purge\n"
         f"module load {spec.lammps_module}\n"
         f"\n"
-        f"mkdir -p dumps data_files\n"
+        f"mkdir -p etch_event_trajs impact_snaps\n"
         f"\n"
         f"export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK\n"
         f"export OMP_PROC_BIND=spread\n"
@@ -99,16 +117,17 @@ def get_submit_script(spec: SimSpec) -> str:
         f"}}\n"
         f"trap '_resubmit' USR1\n"
         f"\n"
-        f"if [ ! -f data_files/0.data ]; then\n"
+        f"if [ ! -f impact_snaps/0.data ]; then\n"
         f"    srun lmp -log log_make_surf.lammps -k on g 1 -sf kk -in make_surf.lmp\n"
         f"fi\n"
         f"\n"
-        f"n_lat_0=$(grep ' atoms' data_files/0.data | awk '{{print $1}}')\n"
+        f"n_lat_0=$(grep ' atoms' impact_snaps/0.data | awk '{{print $1}}')\n"
         f"n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $1}}')\n"
         f"n_complete=${{n_complete:-0}}\n"
-        f"data_file=$(ls -t data_files/*.data | head -1)\n"
+        f"{cn_start_lines}"
+        f"data_file=$(ls -t impact_snaps/*.data | head -1)\n"
         f"log_file=log$(echo \"$(ls | grep -c .lammps)+1\" | bc).lammps\n"
-        f"event_count=$(ls dumps/event_dump_*.dump 2>/dev/null | wc -l)\n"
+        f"event_count=$(ls etch_event_trajs/event_dump_*.dump 2>/dev/null | wc -l)\n"
         f"\n"
         f"# Check if simulation is already complete\n"
         f"ML=$(grep 'ML equal' config.lmp | awk '{{print $4}}')\n"
@@ -123,6 +142,7 @@ def get_submit_script(spec: SimSpec) -> str:
         f"srun lmp -k on g 1 -sf kk \\\n"
         f"    -var data_file $data_file \\\n"
         f"    -var n_complete $n_complete \\\n"
+        f"{neut_complete_var}"
         f"    -var log_file $log_file \\\n"
         f"    -var n_events $event_count \\\n"
         f"    -var n_lat_0 $n_lat_0 \\\n"
@@ -157,8 +177,8 @@ def get_submit_script(spec: SimSpec) -> str:
     )
 
 
-def get_submit_script_cycling(spec: SimSpec) -> str:
-    """Generate the SLURM submit script for a cycling SimSpec.
+def get_submit_script_cycle_etch(spec: SimSpec) -> str:
+    """Generate the SLURM submit script for a cycle-etch SimSpec.
 
     Differences from the single-species version:
       - Reads cn_start (col 2 of last ncarbon.txt line) for mid-radical-loop restarts.
@@ -192,7 +212,7 @@ def get_submit_script_cycling(spec: SimSpec) -> str:
         f"module purge\n"
         f"module load {spec.lammps_module}\n"
         f"\n"
-        f"mkdir -p dumps data_files\n"
+        f"mkdir -p etch_event_trajs impact_snaps\n"
         f"\n"
         f"export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK\n"
         f"export OMP_PROC_BIND=spread\n"
@@ -215,18 +235,18 @@ def get_submit_script_cycling(spec: SimSpec) -> str:
         f"}}\n"
         f"trap '_resubmit' USR1\n"
         f"\n"
-        f"if [ ! -f data_files/0.data ]; then\n"
+        f"if [ ! -f impact_snaps/0.data ]; then\n"
         f"    srun lmp -log log_make_surf.lammps -k on g 1 -sf kk -in make_surf.lmp\n"
         f"fi\n"
         f"\n"
-        f"n_lat_0=$(grep ' atoms' data_files/0.data | awk '{{print $1}}')\n"
+        f"n_lat_0=$(grep ' atoms' impact_snaps/0.data | awk '{{print $1}}')\n"
         f"n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $1}}')\n"
         f"n_complete=${{n_complete:-0}}\n"
         f"cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $2}}')\n"
         f"cn_start=${{cn_start:-0}}\n"
-        f"data_file=$(ls -t data_files/*.data | head -1)\n"
+        f"data_file=$(ls -t impact_snaps/*.data | head -1)\n"
         f"log_file=log$(echo \"$(ls | grep -c .lammps)+1\" | bc).lammps\n"
-        f"event_count=$(ls dumps/event_dump_*.dump 2>/dev/null | wc -l)\n"
+        f"event_count=$(ls etch_event_trajs/event_dump_*.dump 2>/dev/null | wc -l)\n"
         f"\n"
         f"# Check if simulation is already complete\n"
         f"ML=$(grep 'ML equal' config.lmp | awk '{{print $4}}')\n"

@@ -23,7 +23,7 @@ from pathlib import Path
 from .orientations import ORIENT
 from .species import SPECIES
 from .spec import SimSpec, compute_ml, validate
-from .builder import make_sim
+from .builder import make_sim, make_ale
 
 # Default surface per orientation (used when --surface is omitted)
 _DEFAULT_SURFACE = {
@@ -73,6 +73,17 @@ def build_parser() -> argparse.ArgumentParser:
     bomb.add_argument(
         "--angle", type=float, default=0.0, metavar="deg",
         help="Incidence angle in degrees from surface normal (default: 0)",
+    )
+    bomb.add_argument(
+        "--flux-ratio", type=int, default=0, dest="flux_ratio", metavar="N",
+        help=(
+            "RIE-etch: number of O• radicals deposited before each ion impact "
+            "(0 = theory-etch, no radicals; default: 0)"
+        ),
+    )
+    bomb.add_argument(
+        "--radical-energy", type=float, default=0.2, dest="radical_energy", metavar="eV",
+        help="Kinetic energy per O• radical for RIE-etch (default: 0.2 eV)",
     )
 
     sim = p.add_argument_group("simulation size")
@@ -170,6 +181,8 @@ def main():
         email               = args.email,
         lammps_module       = args.lammps_module,
         plot_interval_hours = args.plot_interval_hours,
+        flux_ratio          = args.flux_ratio,
+        radical_energy      = args.radical_energy,
         name                = args.name or (
             f"{args.orientation}_{args.species}_{args.energy}eV_{int(args.temperature)}K"
         ),
@@ -208,7 +221,7 @@ def plot_main():
     )
     pp.add_argument(
         "--cna-stride", type=int, default=1, dest="cna_stride", metavar="N",
-        help="Analyze every N-th data_files/*.data for CNA (default: 1 = every impact)",
+        help="Analyze every N-th impact_snaps/*.data for CNA (default: 1 = every impact)",
     )
     pp.add_argument(
         "--n-blocks", type=int, default=10, dest="n_blocks",
@@ -232,13 +245,13 @@ def plot_main():
         )
 
     cna_records = None
-    data_dir = sim_dir / 'data_files'
+    data_dir = sim_dir / 'impact_snaps'
     if not args.no_cna and data_dir.exists():
         print(f"Computing CNA from {data_dir} (stride={args.cna_stride}) ...")
         cna_records = load_cna_series(data_dir, stride=args.cna_stride, verbose=True)
         print(f"  Done — {len(cna_records)} snapshots analyzed.")
     elif not args.no_cna:
-        print("data_files/ not found — skipping CNA analysis.")
+        print("impact_snaps/ not found — skipping CNA analysis.")
 
     print("Generating plots ...")
     make_plots(sim_dir, spec=spec, ml=ml, cna_records=cna_records)
@@ -253,6 +266,54 @@ def plot_main():
     for png in sorted(sim_dir.glob('*.png')):
         print(f"  {png.name}")
     print(f"  summary.txt")
+
+
+def ale_main():
+    """Entry point for diamond-etch-md-ale.
+
+    ALE-etch (Atomic Layer Etching) requires exactly 2 phases defined in Python
+    code, because CLI arguments cannot express multi-phase configurations.
+
+    To use ALE-etch, use the Python API instead:
+
+        from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_ale
+        from pathlib import Path
+
+        spec = SimSpec(
+            orientation="100",
+            surface="O_ether",
+            ml=compute_ml("100", 8, 8),
+            box_x=8, box_y=8, box_depth=5,
+            phases=[
+                CyclePhase(species="Ar", energy=30.0, fluence_ml=5),
+                CyclePhase(species="O2", energy=20.0, fluence_ml=5,
+                           flux_ratio=10, radical_energy=0.2),
+            ],
+            cycles=10,
+            name="my_ale_sim",
+        )
+        make_ale(spec, Path("my_ale_sim"))
+    """
+    print(
+        "diamond-etch-md-ale: ALE-etch requires specifying 2 phases in Python.\n"
+        "Use the Python API: make_ale(spec, outdir) where spec.phases has exactly 2 entries.\n"
+        "\n"
+        "Example:\n"
+        "    from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_ale\n"
+        "    from pathlib import Path\n"
+        "\n"
+        "    spec = SimSpec(\n"
+        "        orientation='100', surface='O_ether',\n"
+        "        ml=compute_ml('100', 8, 8), box_x=8, box_y=8, box_depth=5,\n"
+        "        phases=[\n"
+        "            CyclePhase(species='Ar', energy=30.0, fluence_ml=5),\n"
+        "            CyclePhase(species='O2', energy=20.0, fluence_ml=5,\n"
+        "                       flux_ratio=10, radical_energy=0.2),\n"
+        "        ],\n"
+        "        cycles=10, name='my_ale_sim',\n"
+        "    )\n"
+        "    make_ale(spec, Path('my_ale_sim'))\n"
+    )
 
 
 if __name__ == "__main__":

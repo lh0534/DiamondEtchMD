@@ -6,22 +6,29 @@ script into `outdir`, then creates symlinks to shared LAMMPS scripts bundled
 with the package (ffield.reax, lat_a.txt, sweep.lmp, thermalize.lmp, addfix.lmp).
 All surface templates are package-bundled; no external dfiles directory is needed.
 
-Cycling mode (spec.phases is not None) routes to the cycling generators and
-symlinks O2.molecule if any phase uses it.
+Routing by etch mode (from spec.py etch_mode()):
+  theory-etch  — spec.phases is None, flux_ratio == 0
+  rie-etch     — spec.phases is None, flux_ratio > 0
+  cycle-etch   — spec.phases is not None
+  ALE-etch     — cycle-etch with exactly 2 phases; use make_ale() factory
+
+cycle-etch mode routes to the cycle-etch generators and symlinks O2.molecule
+if any phase uses it.
 """
 
 import dataclasses
 import json
 import shutil
+import sys
 from pathlib import Path
 
 from .orientations import ORIENT
 from .species import SPECIES
-from .spec import SimSpec
-from .lammps.config import get_config_lmp, get_config_lmp_cycling
+from .spec import SimSpec, etch_mode
+from .lammps.config import get_config_lmp, get_config_lmp_cycle_etch
 from .lammps.head import get_head_lmp
-from .lammps.head_cycling import get_head_lmp_cycling
-from .lammps.submit import get_submit_script, get_submit_script_cycling
+from .lammps.head_cycling import get_head_lmp_cycle_etch
+from .lammps.submit import get_submit_script, get_submit_script_cycle_etch
 
 _TEMPLATES = Path(__file__).parent / "lammps" / "templates"
 
@@ -42,19 +49,22 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
 
     # symlink shared LAMMPS scripts and data files from package templates
     for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp",
-                  "ffield.reax", "lat_a.txt", "lmp_env.sh", "auto-plot.py"):
+                  "ffield.reax", "lat_a.txt", "lmp_env.sh", "auto-plot.py",
+                  "make_impact_dump.py"):
         dst = outdir / fname
         if not dst.exists():
             dst.symlink_to(_TEMPLATES / fname)
 
     surface_label = spec.surface if spec.surface else "(unterminated)"
 
+    mode = etch_mode(spec)
+
     if spec.phases is not None:
-        # ── Cycling mode ──────────────────────────────────────────────────────
-        (outdir / "head.lmp").write_text(get_head_lmp_cycling(spec))
-        (outdir / "config.lmp").write_text(get_config_lmp_cycling(spec))
+        # ── Cycle-etch mode ───────────────────────────────────────────────────
+        (outdir / "head.lmp").write_text(get_head_lmp_cycle_etch(spec))
+        (outdir / "config.lmp").write_text(get_config_lmp_cycle_etch(spec))
         submit = outdir / "submit"
-        submit.write_text(get_submit_script_cycling(spec))
+        submit.write_text(get_submit_script_cycle_etch(spec))
         submit.chmod(0o755)
 
         # Symlink O2.molecule if any phase uses it
@@ -71,7 +81,7 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
             + (f"+O•R{p.flux_ratio}" if p.flux_ratio > 0 else "")
             for p in spec.phases
         )
-        print(f"Simulation created at: {outdir}")
+        print(f"Simulation created at: {outdir}  [{mode}]")
         print(f"  surface:     {spec.orientation}  {surface_label}")
         print(f"  phases:      {phase_str}")
         print(f"  cycles:      {spec.cycles}  ({total_ml} ML total, {total_ml * spec.ml} impacts)")
@@ -79,7 +89,7 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
         print(f"  T={spec.temperature} K  angle={spec.angle}°")
         print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
     else:
-        # ── Single-species mode ───────────────────────────────────────────────
+        # ── Theory-etch or RIE-etch mode ──────────────────────────────────────
         (outdir / "head.lmp").write_text(get_head_lmp(spec))
         (outdir / "config.lmp").write_text(get_config_lmp(spec))
         submit = outdir / "submit"
@@ -92,9 +102,16 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
             if not mol_dst.exists():
                 mol_dst.symlink_to(_TEMPLATES / species_cfg["molecule_file"])
 
-        print(f"Simulation created at: {outdir}")
+        rie_str = (
+            f"  flux_ratio:  {spec.flux_ratio} O• radicals/impact  "
+            f"(radical_energy={spec.radical_energy} eV)\n"
+        ) if mode == "rie-etch" else ""
+
+        print(f"Simulation created at: {outdir}  [{mode}]")
         print(f"  surface:     {spec.orientation}  {surface_label}")
         print(f"  bombardment: {spec.species} at {spec.energy} eV, angle={spec.angle}°, T={spec.temperature} K")
+        if rie_str:
+            print(rie_str, end="")
         print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")
         print(f"  fluence:     {spec.fluence} ML  ({spec.fluence * spec.ml} total impacts)")
         print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
@@ -104,4 +121,31 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
     (outdir / 'spec.json').write_text(json.dumps(spec_dict, indent=2))
 
     print(f"\nTo submit: sbatch {outdir}/submit")
-    print(f"\nNote: verify ML={spec.ml} matches actual surface atom count from data_files/0.data")
+    print(f"\nNote: verify ML={spec.ml} matches actual surface atom count from impact_snaps/0.data")
+
+
+def make_ale(spec: SimSpec, outdir: Path) -> None:
+    """Create a simulation directory for ALE-etch (Atomic Layer Etching).
+
+    ALE-etch is a cycle-etch with exactly 2 phases.  This function validates
+    the 2-phase constraint and then delegates to make_sim().
+
+    Args:
+        spec:   A SimSpec with exactly 2 CyclePhase entries in spec.phases.
+        outdir: Output directory path.
+
+    Raises:
+        SystemExit if spec.phases is None or len(spec.phases) != 2.
+    """
+    if spec.phases is None:
+        sys.exit(
+            "make_ale() requires spec.phases to be set with exactly 2 CyclePhase entries. "
+            "Use make_sim() for single-species (theory-etch or RIE-etch) simulations."
+        )
+    if len(spec.phases) != 2:
+        sys.exit(
+            f"ALE-etch requires exactly 2 phases, got {len(spec.phases)}. "
+            "For more phases, use make_sim() directly (cycle-etch)."
+        )
+    print("ALE-etch (cycle-etch with 2 phases)")
+    make_sim(spec, outdir)

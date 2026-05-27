@@ -12,7 +12,11 @@ from ..spec import SimSpec, CyclePhase
 
 
 def get_config_lmp(spec: SimSpec) -> str:
-    """Generate the contents of config.lmp for the given SimSpec."""
+    """Generate the contents of config.lmp for the given SimSpec.
+
+    Handles both theory-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
+    When flux_ratio > 0, additional radical-related variables are appended.
+    """
     species = SPECIES[spec.species]
     surf = ORIENT[spec.orientation]["surfaces"][spec.surface]
 
@@ -23,7 +27,7 @@ def get_config_lmp(spec: SimSpec) -> str:
     # O2 energy is split across 2 atoms; user specifies total dimer energy
     energy_per_atom = spec.energy / species["energy_divisor"]
 
-    return (
+    cfg = (
         f"# DiamondEtchMD generated config (single-species)\n"
         f"# orientation={spec.orientation}  surface={spec.surface}\n"
         f"# species={spec.species}  energy={spec.energy}eV  angle={spec.angle}deg"
@@ -67,9 +71,21 @@ def get_config_lmp(spec: SimSpec) -> str:
         f"variable    simdepo equal 1\n"
     )
 
+    if spec.flux_ratio > 0:
+        cfg += (
+            f"\n"
+            f"# RIE-etch: O• radical pre-exposure before each ion impact\n"
+            f"variable    flux_ratio equal {spec.flux_ratio}\n"
+            f"variable    radical_energy equal {spec.radical_energy}\n"
+            f"variable    chemical_i_above equal 6.0\n"
+            f"variable    inter_neutral_time equal {spec.inter_neutral_time}\n"
+        )
 
-def get_config_lmp_cycling(spec: SimSpec) -> str:
-    """Generate config.lmp for a cycling (multi-phase) SimSpec."""
+    return cfg
+
+
+def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
+    """Generate config.lmp for a cycle-etch (multi-phase) SimSpec."""
     surf = ORIENT[spec.orientation]["surfaces"][spec.surface]
     recon_flag = "true" if surf["reconstruct"] else "false"
     o_flag     = "true" if surf["O_terminate"] else "false"

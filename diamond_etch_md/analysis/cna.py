@@ -1,5 +1,5 @@
 """
-analysis/cna.py — Post-hoc sp3 / amorphous carbon analysis from data_files/.
+analysis/cna.py — Post-hoc sp3 / amorphous carbon analysis from impact_snaps/.
 
 Reads LAMMPS data files written by `write_data` after each impact and computes:
   - sp3 carbon count (exactly 4 C neighbours within 1.85 Å, PBC in x/y)
@@ -157,7 +157,7 @@ def amorphous_thickness_angstrom(
 
 
 def analyze_impact(path, c_type: int = 1, cutoff: float = 1.85, bin_width: float = 0.5) -> Dict:
-    """Compute CNA metrics for one data_files/*.data file.
+    """Compute CNA metrics for one impact_snaps/*.data file.
 
     Returns
     -------
@@ -190,11 +190,11 @@ def load_cna_series(
     bin_width: float = 0.5,
     verbose: bool = False,
 ) -> List[Dict]:
-    """Compute CNA metrics for all (or strided) data_files/ entries.
+    """Compute CNA metrics for all (or strided) impact_snaps/ entries.
 
     Parameters
     ----------
-    data_dir : path to data_files/ directory
+    data_dir : path to impact_snaps/ directory
     stride   : analyze every stride-th impact (1 = every impact)
     verbose  : print progress to stdout
 
