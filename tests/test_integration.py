@@ -29,6 +29,8 @@ def test_make_sim_creates_expected_files(tmp_path):
     assert (outdir / "head.lmp").exists()
     assert (outdir / "make_surf.lmp").exists()
     assert (outdir / "submit").exists()
+    assert (outdir / "spec.json").exists()
+    assert (outdir / "auto-plot.py").exists()
     for name in ("sweep.lmp", "thermalize.lmp", "addfix.lmp", "ffield.reax"):
         assert (outdir / name).exists()
 

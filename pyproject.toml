@@ -13,15 +13,22 @@ authors = [
 requires-python = ">=3.9"
 dependencies = []
 
+[project.optional-dependencies]
+analysis = [
+    "numpy>=1.21",
+    "matplotlib>=3.5",
+]
+
 [project.scripts]
-diamond-etch-md = "diamond_etch_md.cli:main"
+diamond-etch-md      = "diamond_etch_md.cli:main"
+diamond-etch-md-plot = "diamond_etch_md.cli:plot_main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["diamond_etch_md*"]
 
 [tool.setuptools.package-data]
-diamond_etch_md = ["lammps/templates/*.lmp", "lammps/templates/*.reax", "lammps/templates/*.txt", "lammps/templates/*.sh"]
+diamond_etch_md = ["lammps/templates/*.lmp", "lammps/templates/*.reax", "lammps/templates/*.txt", "lammps/templates/*.sh", "lammps/templates/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -51,6 +51,7 @@ class SimSpec:
     account:             str   = "dgraves"
     email:               str   = ""    # empty = no mail directives
     lammps_module:       str   = "lammps/kokkos/gpu_della9_2022"
+    plot_interval_hours: int   = 12     # hours between auto-plot runs (0 = disabled)
     # ── Cycling mode ──────────────────────────────────────────────────────────
     phases:              Optional[List[CyclePhase]] = None  # None = single-species mode
     cycles:              int   = 1      # how many times the phase list repeats

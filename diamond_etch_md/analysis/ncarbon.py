@@ -3,45 +3,47 @@ analysis/ncarbon.py — parsing and analysis of ncarbon.txt output files.
 
 ncarbon.txt format
 ------------------
-One line is appended after each impact cycle by head.lmp.
-Columns (space-separated):
+**Single-species** (head.lmp): one line per completed impact:
 
-  impact#     integer   Impact number (1-indexed, matching etch_products.txt)
-  n_carbon    integer   Total number of carbon atoms currently in the simulation box
-  n_hydrogen  integer   Total number of hydrogen atoms currently in the simulation box
-  n_oxygen    integer   Total number of oxygen atoms currently in the simulation box
+  impact#  n_carbon  n_hydrogen  n_oxygen
 
-The file is also used at job startup to determine the resume impact number
-(via `tail -1 ncarbon.txt | awk '{print $1}'` in the submit script).
+**Cycling** (head_cycling.py): one line per radical AND per ion impact:
 
-Example lines:
+  impact#  cn  n_carbon  n_hydrogen  n_oxygen
+
+  cn > 0 after each O• radical (1-indexed within the current ion's radical
+  loop); cn = 0 after each ion impact.  This enables mid-radical-loop
+  restarts.
+
+The file is used at job startup to determine the resume point
+(col 1 = impact#, col 2 = cn for cycling).
+
+Example single-species lines:
   1  648  0  0
-  2  647  0  0
   50 630  0  12
 
-Notes:
-  - n_carbon decreasing over time represents etching; the etch depth can be
-    computed from (n_carbon_initial - n_carbon) / (ML * rho_layer), where
-    rho_layer is the number of carbon atoms per Å of depth.
-  - n_hydrogen and n_oxygen > 0 indicate surface termination or radical uptake.
+Example cycling lines:
+  1  1  648  0  3
+  1  2  648  0  5
+  1  0  647  0  6
 """
 
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 
 def parse_ncarbon(path) -> List[Dict[str, Any]]:
-    """Parse an ncarbon.txt file into a list of per-impact records.
+    """Parse an ncarbon.txt file (single-species or cycling) into records.
 
-    Parameters
-    ----------
-    path:
-        Path-like or str pointing to an ncarbon.txt file.
+    Auto-detects 4-column (single-species) vs 5-column (cycling) format.
+    In both cases returns dicts with a unified key set; cycling records carry
+    an extra 'cn' key (always 0 for single-species).
 
     Returns
     -------
-    list of dict, each with keys:
-        impact (int), n_carbon (int), n_hydrogen (int), n_oxygen (int)
+    list of dict with keys:
+        impact (int), cn (int, 0 for single-species),
+        n_carbon (int), n_hydrogen (int), n_oxygen (int)
     """
     records = []
     for line in Path(path).read_text().splitlines():
@@ -49,12 +51,102 @@ def parse_ncarbon(path) -> List[Dict[str, Any]]:
         if not line or line.startswith("#"):
             continue
         parts = line.split()
-        records.append({
-            "impact":     int(parts[0]),
-            "n_carbon":   int(parts[1]),
-            "n_hydrogen": int(parts[2]),
-            "n_oxygen":   int(parts[3]),
-        })
+        if len(parts) == 5:
+            records.append({
+                "impact":     int(parts[0]),
+                "cn":         int(parts[1]),
+                "n_carbon":   int(parts[2]),
+                "n_hydrogen": int(parts[3]),
+                "n_oxygen":   int(parts[4]),
+            })
+        elif len(parts) >= 4:
+            records.append({
+                "impact":     int(parts[0]),
+                "cn":         0,
+                "n_carbon":   int(parts[1]),
+                "n_hydrogen": int(parts[2]),
+                "n_oxygen":   int(parts[3]),
+            })
+    return records
+
+
+def is_cycling_format(path) -> bool:
+    """Return True if ncarbon.txt uses the 5-column cycling format."""
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith('#'):
+            return len(line.split()) == 5
+    return False
+
+
+def parse_ncarbon_cycling(path, spec=None) -> List[Dict[str, Any]]:
+    """Parse a cycling ncarbon.txt into per-ion-impact records with phase info.
+
+    Requires the 5-column cycling format.  Each returned record represents
+    one ion impact (cn == 0 rows); associated radical rows supply pre-ion
+    state.  If `spec` is provided, phase_idx and phase_name are annotated.
+
+    Returns
+    -------
+    list of dict with keys:
+        impact (int), cycle_idx (int), phase_idx (int), phase_name (str),
+        n_carbon_pre_ion (int), n_carbon (int), n_hydrogen (int), n_oxygen (int),
+        radical_etch (int), ion_etch (int)
+    """
+    raw = parse_ncarbon(path)
+    if not raw:
+        return []
+
+    # Build phase cycle boundaries if spec available
+    phase_boundaries = []  # list of cumulative ML impact counts (1-indexed)
+    if spec is not None and spec.phases is not None:
+        cum = 0
+        for p in spec.phases:
+            cum += p.fluence_ml * spec.ml
+            phase_boundaries.append((cum, p.species))
+
+    records = []
+    prev_ion_nc = raw[0]['n_carbon']
+    last_radical_nc = prev_ion_nc
+
+    for r in raw:
+        if r['cn'] == 0:
+            # ion impact
+            ion_etch = last_radical_nc - r['n_carbon']
+            radical_etch = prev_ion_nc - last_radical_nc
+
+            rec = {
+                'impact':           r['impact'],
+                'n_carbon_pre_ion': last_radical_nc,
+                'n_carbon':         r['n_carbon'],
+                'n_hydrogen':       r['n_hydrogen'],
+                'n_oxygen':         r['n_oxygen'],
+                'ion_etch':         ion_etch,
+                'radical_etch':     radical_etch,
+                'cycle_idx':        0,
+                'phase_idx':        0,
+                'phase_name':       '',
+            }
+
+            if spec is not None and spec.phases is not None:
+                total_cycle = sum(p.fluence_ml for p in spec.phases) * spec.ml
+                cycle_idx = (r['impact'] - 1) // total_cycle
+                pos_in_cycle = (r['impact'] - 1) % total_cycle
+                cum = 0
+                for pi, p in enumerate(spec.phases):
+                    cum += p.fluence_ml * spec.ml
+                    if pos_in_cycle < cum:
+                        rec['cycle_idx'] = cycle_idx
+                        rec['phase_idx'] = pi
+                        rec['phase_name'] = p.species
+                        break
+
+            records.append(rec)
+            prev_ion_nc = r['n_carbon']
+            last_radical_nc = r['n_carbon']
+        else:
+            last_radical_nc = r['n_carbon']
+
     return records
 
 

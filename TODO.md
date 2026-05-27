@@ -27,11 +27,62 @@ Planned features and known gaps, roughly ordered by expected impact.
     `srun lmp` invocation from `-k on g 1 -sf kk` to a CPU-only call
   - `mem_gb` (default 16) — memory per node
 
-- [ ] **In-situ auto-plot** — add a `plot_interval_hours` field (default 0 = disabled).
-  When set, emit a background loop in the submit script (or a companion SLURM array
-  step) that calls `diamond-etch-md-plot` every N hours to regenerate etch-yield and
-  O-uptake curves from the live `etch_products.txt` / `ncarbon.txt`.  The plot command
-  should live in `diamond_etch_md/analysis/plot.py` and produce PNGs in the sim dir.
+- [x] **Auto-analysis** — `diamond-etch-md-plot <sim_dir>` CLI:
+  - CNA / sp3 analysis from `data_files/*.data` (post-hoc, pure numpy)
+  - `amorphous.png` — amorphous C (ML) + sp3 fraction vs dose
+  - `amorphous_thickness.png` — disorder depth (10%–90% density criterion) vs dose
+  - `etch.png` — etch depth (ML) vs dose; phase-boundary lines for cycling
+  - `o_uptake.png` — surface O (ML) vs dose
+  - `product_grid.png` — 2-D count heatmap: n_C vs n_O
+  - `product_trajectory.png` — cumulative yield per product species vs dose
+  - `etch_per_cycle.png`, `per_phase_yield.png`, `o_per_cycle.png` (cycling only)
+  - `summary.txt` — block-averaged stats: etch yield, O uptake, amorphous C/thickness,
+    product composition, throughput (ML/day); per-phase breakdown for cycling
+  - `spec.json` saved by `make_sim()` for automatic spec recovery by the plot tool
+
+- [x] **In-situ auto-plot** — `plot_interval_hours` field on `SimSpec` (default 12 h).
+  Submit script starts a background loop that runs `diamond-etch-md-plot . --no-cna`
+  every N hours while LAMMPS is running; kills the loop on wall-time resubmit or
+  normal exit.  On successful completion runs one final `--cna-stride $ML` analysis.
+  Set `--plot-interval-hours 0` on the CLI to disable.
+
+  **Remaining plot gaps (can be added to plot.py):**
+  - [ ] Rolling-mean etch yield overlay on etch.png
+  - [ ] Sputtering yield fit once steady-state reached (single-species)
+  - [ ] ALE: saturation curves per half-cycle; surface O at end of each half-cycle
+  - [ ] Radical-only: O uptake saturation curve; O/C surface ratio vs dose
+
+- [ ] **Optional SLURM / plain bash** — add a `use_slurm` flag (default `True`).
+  When `False`, emit a plain `run.sh` instead of a SLURM `submit` script: no `#SBATCH`
+  headers, no `srun`, just `lmp -k on g 1 -sf kk ...` directly. Useful for running on
+  a workstation or inside a container without a scheduler.
+
+---
+
+## Portability / containerization
+
+- [ ] **Container image** — provide a `Dockerfile` that compiles LAMMPS with ReaxFF,
+  Kokkos (CPU target), and ZBL support, then installs DiamondEtchMD. Publish to
+  Docker Hub so users can pull it locally or convert it for HPC use.
+  - **Local / workstation**: run directly with Docker + the `use_slurm=False` bash
+    run script (`lmp` → `docker run ... lmp`).
+  - **Cluster (Della)**: convert to Apptainer/Singularity SIF with
+    `apptainer pull docker://...`; the SLURM submit script calls
+    `srun apptainer exec image.sif lmp -k on g 1 -sf kk ...`.
+  - Add an optional `container_image` field on `SimSpec` (default `""`); when set,
+    the generated run/submit script wraps `lmp` with `apptainer exec ${container_image}`.
+
+---
+
+## Tests
+
+- [ ] **`tests/RIE_test.py`** — end-to-end test for a minimal single-species RIE
+  simulation: build a small C(100) surface, run a handful of O impacts, check that
+  `ncarbon.txt` and `etch_products.txt` are produced and well-formed.
+
+- [ ] **`tests/cycle_test.py`** — end-to-end test for a minimal cycling simulation:
+  Ar+O2 (or O+O2) cycling spec, verify that the generated files are valid and that
+  phase selection logic produces the correct LAMMPS variable assignments.
 
 ---
 

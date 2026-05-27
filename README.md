@@ -115,6 +115,7 @@ diamond_etch_md/
 | `account` | str | `"dgraves"` | SLURM account to charge |
 | `email` | str | `""` | Email for END/FAIL notifications; empty = no mail |
 | `lammps_module` | str | `"lammps/kokkos/gpu_della9_2022"` | LAMMPS module for submit script |
+| `plot_interval_hours` | int | `12` | Hours between in-situ auto-plot runs (0 = disabled) |
 
 ### Surface states
 

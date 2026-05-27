@@ -82,8 +82,11 @@ def test_validate_ml_negative():
 # ─── validate() success paths ────────────────────────────────────────────────
 
 def test_validate_100_surfaces():
-    for surf in ("1x1", "2x1", "2x1_O", "O_ether"):
+    for surf in ("1x1", "O_ether"):
         spec = SimSpec(orientation="100", surface=surf, ml=81)
+        validate(spec)
+    for surf in ("2x1", "2x1_O"):
+        spec = SimSpec(orientation="100", surface=surf, ml=64, box_x=8, box_y=8)
         validate(spec)
 
 
@@ -141,6 +144,7 @@ def test_simspec_defaults():
     assert s.account == "dgraves"
     assert s.email == ""
     assert s.lammps_module == "lammps/kokkos/gpu_della9_2022"
+    assert s.plot_interval_hours == 12
 
 
 def test_simspec_custom_fields():

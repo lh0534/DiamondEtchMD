@@ -14,12 +14,48 @@ The generated script:
 from ..spec import SimSpec, CyclePhase
 
 
+def _plot_loop_block(interval_hours: int) -> str:
+    """Return the bash snippet that starts/stops the background auto-plot loop."""
+    if interval_hours <= 0:
+        return (
+            "_PLOT_PID=\"\"\n"
+        )
+    interval_s = interval_hours * 3600
+    return (
+        f"# Auto-plot every {interval_hours} h (--no-cna for speed during live run)\n"
+        f"_PLOT_PID=\"\"\n"
+        f"if command -v diamond-etch-md-plot &>/dev/null; then\n"
+        f"    ( while true; do\n"
+        f"          sleep {interval_s}\n"
+        f"          diamond-etch-md-plot . --no-cna 2>>plot.log || true\n"
+        f"      done ) &\n"
+        f"    _PLOT_PID=$!\n"
+        f"fi\n"
+    )
+
+
+def _plot_kill_block() -> str:
+    return "[ -n \"$_PLOT_PID\" ] && kill \"$_PLOT_PID\" 2>/dev/null; wait \"$_PLOT_PID\" 2>/dev/null || true\n"
+
+
+def _final_plot_block(ml_var: str = "$ML") -> str:
+    """Run a final plot with CNA strided to 1-per-ML after normal completion."""
+    return (
+        f"echo \"Running final analysis plots ...\"\n"
+        f"diamond-etch-md-plot . --cna-stride {ml_var} 2>>plot.log || true\n"
+    )
+
+
 def get_submit_script(spec: SimSpec) -> str:
     """Generate the contents of the SLURM submit script for the given SimSpec."""
     mail_lines = (
         f"#SBATCH --mail-type=END,FAIL\n"
         f"#SBATCH --mail-user={spec.email}\n"
     ) if spec.email else ""
+
+    plot_loop = _plot_loop_block(spec.plot_interval_hours)
+    plot_kill = _plot_kill_block()
+    final_plot = _final_plot_block()
 
     return (
         f"#!/bin/bash\n"
@@ -56,6 +92,7 @@ def get_submit_script(spec: SimSpec) -> str:
         f"    ec=$(( ef * ml ))\n"
         f"    if [ \"$nc\" -lt \"$ec\" ]; then\n"
         f"        echo \"Wall-time signal: $nc / $ec impacts done — re-submitting.\"\n"
+        f"        {plot_kill}"
         f"        sbatch \"$0\"\n"
         f"        _resubmitted=1\n"
         f"    fi\n"
@@ -94,8 +131,10 @@ def get_submit_script(spec: SimSpec) -> str:
         f"    -nocite \\\n"
         f"    -in head.lmp &\n"
         f"SRUN_PID=$!\n"
+        f"{plot_loop}"
         f"wait $SRUN_PID\n"
         f"lmp_exit=$?\n"
+        f"{plot_kill}"
         f"\n"
         f"# If the time-limit signal fired, resubmit was already handled; exit cleanly\n"
         f"[ $_resubmitted -eq 1 ] && exit 0\n"
@@ -113,6 +152,7 @@ def get_submit_script(spec: SimSpec) -> str:
         f"    sbatch \"$0\"\n"
         f"else\n"
         f"    echo \"Simulation complete: $n_complete / $end_c impacts.\"\n"
+        f"    {final_plot}"
         f"fi\n"
     )
 
@@ -129,6 +169,10 @@ def get_submit_script_cycling(spec: SimSpec) -> str:
         f"#SBATCH --mail-type=END,FAIL\n"
         f"#SBATCH --mail-user={spec.email}\n"
     ) if spec.email else ""
+
+    plot_loop = _plot_loop_block(spec.plot_interval_hours)
+    plot_kill = _plot_kill_block()
+    final_plot = _final_plot_block()
 
     return (
         f"#!/bin/bash\n"
@@ -164,6 +208,7 @@ def get_submit_script_cycling(spec: SimSpec) -> str:
         f"    ec=$(( ef * ml ))\n"
         f"    if [ \"$nc\" -lt \"$ec\" ]; then\n"
         f"        echo \"Wall-time signal: $nc / $ec impacts done — re-submitting.\"\n"
+        f"        {plot_kill}"
         f"        sbatch \"$0\"\n"
         f"        _resubmitted=1\n"
         f"    fi\n"
@@ -205,8 +250,10 @@ def get_submit_script_cycling(spec: SimSpec) -> str:
         f"    -nocite \\\n"
         f"    -in head.lmp &\n"
         f"SRUN_PID=$!\n"
+        f"{plot_loop}"
         f"wait $SRUN_PID\n"
         f"lmp_exit=$?\n"
+        f"{plot_kill}"
         f"\n"
         f"[ $_resubmitted -eq 1 ] && exit 0\n"
         f"\n"
@@ -222,5 +269,6 @@ def get_submit_script_cycling(spec: SimSpec) -> str:
         f"    sbatch \"$0\"\n"
         f"else\n"
         f"    echo \"Simulation complete: $n_complete / $end_c impacts.\"\n"
+        f"    {final_plot}"
         f"fi\n"
     )

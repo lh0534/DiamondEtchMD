@@ -128,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
         dest="lammps_module",
         help="LAMMPS module to load in submit script (default: lammps/kokkos/gpu_della9_2022)",
     )
+    job.add_argument(
+        "--plot-interval-hours", type=int, default=12, dest="plot_interval_hours",
+        metavar="H",
+        help="Hours between auto-plot runs during the job (0 = disabled, default: 12)",
+    )
 
     return p
 
@@ -164,6 +169,7 @@ def main():
         account             = args.account,
         email               = args.email,
         lammps_module       = args.lammps_module,
+        plot_interval_hours = args.plot_interval_hours,
         name                = args.name or (
             f"{args.orientation}_{args.species}_{args.energy}eV_{int(args.temperature)}K"
         ),
@@ -171,6 +177,82 @@ def main():
 
     validate(spec)
     make_sim(spec, Path(args.outdir))
+
+
+def plot_main():
+    """Entry point for diamond-etch-md-plot.
+
+    Usage:
+        diamond-etch-md-plot <sim_dir> [options]
+
+    Generates analysis plots and summary.txt in the simulation directory.
+    Reads spec.json (written by make_sim) to recover SimSpec automatically.
+    """
+    import argparse
+    from .analysis.cna import load_cna_series
+    from .analysis.plot import make_plots
+    from .analysis.summary import analyze_run, write_summary
+
+    pp = argparse.ArgumentParser(
+        description="Generate analysis plots and summary.txt for a DiamondEtchMD simulation.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    pp.add_argument("sim_dir", help="Simulation directory (must contain ncarbon.txt)")
+    pp.add_argument(
+        "--ml", type=int, default=0,
+        help="Atoms per monolayer (auto-loaded from spec.json if 0)",
+    )
+    pp.add_argument(
+        "--no-cna", action="store_true",
+        help="Skip CNA analysis (faster; omits amorphous C plots and stats)",
+    )
+    pp.add_argument(
+        "--cna-stride", type=int, default=1, dest="cna_stride", metavar="N",
+        help="Analyze every N-th data_files/*.data for CNA (default: 1 = every impact)",
+    )
+    pp.add_argument(
+        "--n-blocks", type=int, default=10, dest="n_blocks",
+        help="Number of blocks for block-averaging uncertainties (default: 10)",
+    )
+    args = pp.parse_args()
+
+    sim_dir = Path(args.sim_dir)
+    spec = None
+    spec_path = sim_dir / 'spec.json'
+    if spec_path.exists():
+        from .analysis.plot import _load_spec
+        spec = _load_spec(spec_path)
+
+    ml = args.ml or (spec.ml if spec else 0)
+    if ml <= 0:
+        import sys
+        sys.exit(
+            "Error: cannot determine ml. Either pass --ml or ensure spec.json "
+            "exists in the simulation directory."
+        )
+
+    cna_records = None
+    data_dir = sim_dir / 'data_files'
+    if not args.no_cna and data_dir.exists():
+        print(f"Computing CNA from {data_dir} (stride={args.cna_stride}) ...")
+        cna_records = load_cna_series(data_dir, stride=args.cna_stride, verbose=True)
+        print(f"  Done — {len(cna_records)} snapshots analyzed.")
+    elif not args.no_cna:
+        print("data_files/ not found — skipping CNA analysis.")
+
+    print("Generating plots ...")
+    make_plots(sim_dir, spec=spec, ml=ml, cna_records=cna_records)
+
+    print("Computing summary statistics ...")
+    stats = analyze_run(sim_dir, spec=spec, ml=ml,
+                        n_blocks=args.n_blocks, cna_records=cna_records)
+    summary_path = sim_dir / 'summary.txt'
+    write_summary(stats, summary_path)
+
+    print(f"\nOutputs written to {sim_dir}:")
+    for png in sorted(sim_dir.glob('*.png')):
+        print(f"  {png.name}")
+    print(f"  summary.txt")
 
 
 if __name__ == "__main__":

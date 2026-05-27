@@ -10,6 +10,8 @@ Cycling mode (spec.phases is not None) routes to the cycling generators and
 symlinks O2.molecule if any phase uses it.
 """
 
+import dataclasses
+import json
 import shutil
 from pathlib import Path
 
@@ -40,7 +42,7 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
 
     # symlink shared LAMMPS scripts and data files from package templates
     for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp",
-                  "ffield.reax", "lat_a.txt", "lmp_env.sh"):
+                  "ffield.reax", "lat_a.txt", "lmp_env.sh", "auto-plot.py"):
         dst = outdir / fname
         if not dst.exists():
             dst.symlink_to(_TEMPLATES / fname)
@@ -96,6 +98,10 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
         print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")
         print(f"  fluence:     {spec.fluence} ML  ({spec.fluence * spec.ml} total impacts)")
         print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
+
+    # Save spec as JSON for analysis tools
+    spec_dict = dataclasses.asdict(spec)
+    (outdir / 'spec.json').write_text(json.dumps(spec_dict, indent=2))
 
     print(f"\nTo submit: sbatch {outdir}/submit")
     print(f"\nNote: verify ML={spec.ml} matches actual surface atom count from data_files/0.data")
