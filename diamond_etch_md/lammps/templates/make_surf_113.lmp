@@ -21,13 +21,10 @@ region          anchor block INF INF INF INF ${bottom} ${sublat} units lattice #
 if "${use_starting_data_file}" then &
     "read_data       ${starting_data_file} add merge" &
     "group carbon type 1" &
-    "variable        n_lat_0  equal $(count(carbon)) # n_lat_0 is the starting number of carbon" &
 else &
     "create_atoms    1 region lbox" &
-    "variable        n_lat_0  equal $(8*v_x*v_y*v_lat_top) # 8 times the number of unit cells for 113"
 
 set group all charge 0.0
-print 'N_LAT_0 ${n_lat_0}'
 
 # Groups
 group 	anchor region anchor
@@ -79,9 +76,11 @@ if "!${use_starting_data_file}" then &
 "reset_timestep  0 time 0.0 # pretend this never happened"
 
 # write initial values
+variable n_lat_0 equal $(count(carbon))
+print 'N_LAT_0 ${n_lat_0}'
 write_data      113_${T}K.dat nofix nocoeff
-write_data      data_files/0.data nofix nocoeff
-write_dump      all custom dumps/dump.dump id type q x y z vx vy vz modify sort id
+write_data      impact_snaps/0.data nofix nocoeff
+write_dump      all custom ML_impacts.dump id type q x y z vx vy vz modify sort id
 
 print "0 ${n_lat_0} 0 0" append ncarbon.txt
 print "0 ${bottom} ${n_lat_0}" append bottom_tracker.txt

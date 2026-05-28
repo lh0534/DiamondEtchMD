@@ -89,6 +89,18 @@ def _radical_etch_sequence(nc_records: List[Dict]) -> List[float]:
     return yields
 
 
+def _phase_of_impact(impact: int, spec, ml: int) -> int:
+    """Return phase index for a given impact number in a cycling simulation."""
+    total_cycle = sum(p.fluence_ml for p in spec.phases) * ml
+    pos = (impact - 1) % total_cycle
+    cum = 0
+    for pi, p in enumerate(spec.phases):
+        cum += p.fluence_ml * ml
+        if pos < cum:
+            return pi
+    return len(spec.phases) - 1
+
+
 # ── main analysis function ────────────────────────────────────────────────────
 
 def analyze_run(
@@ -125,6 +137,9 @@ def analyze_run(
     nc = parse_ncarbon(nc_path)
     ep = parse_etch_products(ep_path) if ep_path.exists() else []
 
+    # filter to carbon-containing products only
+    ep_carbon = [r for r in ep if r['n_C'] > 0]
+
     is_cyc = any(r['cn'] > 0 for r in nc)
     n_ion = sum(1 for r in nc if r['cn'] == 0)
     n_radical = sum(1 for r in nc if r['cn'] > 0)
@@ -134,7 +149,7 @@ def analyze_run(
                    'n_ion_impacts': n_ion, 'n_radical_impacts': n_radical}
 
     # ── etch yield ────────────────────────────────────────────────────────────
-    ion_yields = _ion_etch_sequence(nc)
+    ion_yields = [max(0.0, v) for v in _ion_etch_sequence(nc)]
     ey_mean, ey_err = block_stats(ion_yields, n_blocks)
     stats['etch_yield_per_ion'] = ey_mean
     stats['etch_yield_per_ion_err'] = ey_err
@@ -153,11 +168,12 @@ def analyze_run(
             stats['etch_yield_total'] = 0.0
     else:
         stats['etch_yield_per_radical'] = None
+        stats['etch_yield_per_radical_err'] = None
         stats['etch_yield_total'] = ey_mean
 
-    # ── etch depth ────────────────────────────────────────────────────────────
-    n_final = nc[-1]['n_carbon'] if nc else n0
-    stats['etch_depth_ml'] = (n0 - n_final) / ml
+    # ── cumulative etch ───────────────────────────────────────────────────────
+    # Use total C in ejected products (correct even when addfix replenishes slab).
+    stats['etch_depth_ml'] = sum(r['n_C'] for r in ep_carbon) / ml if ep_carbon else 0.0
 
     # ── oxygen uptake ─────────────────────────────────────────────────────────
     # Report mean O content across all records (snapshot after each event)
@@ -184,15 +200,17 @@ def analyze_run(
         stats['amorphous_thickness_A_err'] = None
 
     # ── product composition ───────────────────────────────────────────────────
-    if ep:
-        oc_ratios = [r['n_O'] / r['n_C'] if r['n_C'] > 0 else 0.0 for r in ep]
+    if ep_carbon:
+        oc_ratios = [r['n_O'] / r['n_C'] if r['n_C'] > 0 else 0.0 for r in ep_carbon]
         stats['avg_oc_ratio'] = float(np.mean(oc_ratios))
-        stats['avg_o_per_product'] = float(np.mean([r['n_O'] for r in ep]))
-        stats['avg_c_per_product'] = float(np.mean([r['n_C'] for r in ep]))
+        stats['avg_o_per_product'] = float(np.mean([r['n_O'] for r in ep_carbon]))
+        stats['avg_c_per_product'] = float(np.mean([r['n_C'] for r in ep_carbon]))
+        stats['n_products_carbon'] = len(ep_carbon)
     else:
         stats['avg_oc_ratio'] = 0.0
         stats['avg_o_per_product'] = 0.0
         stats['avg_c_per_product'] = 0.0
+        stats['n_products_carbon'] = 0
 
     # ── cycling per-phase stats ───────────────────────────────────────────────
     if is_cyc and spec is not None and spec.phases is not None:
@@ -207,17 +225,81 @@ def analyze_run(
                     'radical_etch': [],
                     'o_content': [],
                 }
-            phase_stats[key]['ion_etch'].append(float(rec['ion_etch']))
+            phase_stats[key]['ion_etch'].append(max(0.0, float(rec['ion_etch'])))
             phase_stats[key]['radical_etch'].append(float(rec['radical_etch']))
             phase_stats[key]['o_content'].append(rec['n_oxygen'] / ml)
 
+        # ── per-phase O uptake at phase-end ───────────────────────────────────
+        ion_recs = [r for r in nc if r['cn'] == 0]
+        max_impact = max((r['impact'] for r in ion_recs), default=0)
+        total_cycle_ml = sum(p.fluence_ml for p in spec.phases) * ml
+        for pi, p in enumerate(spec.phases):
+            phase_start = sum(spec.phases[j].fluence_ml for j in range(pi)) * ml
+            phase_end_off = phase_start + p.fluence_ml * ml
+            o_end_list = []
+            for cyc in range(spec.cycles):
+                lo = cyc * total_cycle_ml + phase_start
+                hi = cyc * total_cycle_ml + phase_end_off
+                if max_impact < hi:
+                    break
+                recs = [r for r in ion_recs if lo < r['impact'] <= hi]
+                if recs:
+                    o_end_list.append(recs[-1]['n_oxygen'] / ml)
+            o_end_m, o_end_e = block_stats(o_end_list, n_blocks) if o_end_list else (0.0, 0.0)
+            if pi not in phase_stats:
+                phase_stats[pi] = {'name': spec.phases[pi].species,
+                                   'ion_etch': [], 'radical_etch': [], 'o_content': []}
+            phase_stats[pi]['o_end_mean'] = o_end_m
+            phase_stats[pi]['o_end_err'] = o_end_e
+
+        # ── per-phase amorphous (CNA) ─────────────────────────────────────────
+        if cna_records:
+            for rec in cna_records:
+                pi = _phase_of_impact(rec['impact'], spec, ml)
+                if pi in phase_stats:
+                    phase_stats[pi].setdefault('cna_amorphous_ml', []).append(
+                        rec['n_amorphous'] / ml)
+                    phase_stats[pi].setdefault('cna_thickness', []).append(
+                        rec['amorphous_thickness_A'])
+            for pi, ps in phase_stats.items():
+                am_list = ps.get('cna_amorphous_ml', [])
+                th_list = ps.get('cna_thickness', [])
+                ps['amorphous_ml_mean'] = float(np.mean(am_list)) if am_list else None
+                ps['amorphous_thickness_mean'] = float(np.mean(th_list)) if th_list else None
+
+        # ── per-phase product composition ─────────────────────────────────────
+        if ep_carbon:
+            phase_ep: Dict[int, list] = {pi: [] for pi in range(len(spec.phases))}
+            for r in ep_carbon:
+                pi = _phase_of_impact(r['impact'], spec, ml)
+                if pi in phase_ep:
+                    phase_ep[pi].append(r)
+            for pi, recs in phase_ep.items():
+                if recs:
+                    if pi not in phase_stats:
+                        phase_stats[pi] = {'name': spec.phases[pi].species,
+                                           'ion_etch': [], 'radical_etch': [], 'o_content': []}
+                    oc = [r['n_O'] / r['n_C'] if r['n_C'] > 0 else 0.0 for r in recs]
+                    phase_stats[pi]['ep_oc_ratio'] = float(np.mean(oc))
+                    phase_stats[pi]['ep_avg_c'] = float(np.mean([r['n_C'] for r in recs]))
+                    phase_stats[pi]['ep_avg_o'] = float(np.mean([r['n_O'] for r in recs]))
+                    phase_stats[pi]['ep_n'] = len(recs)
+
         stats['per_phase'] = {
             pi: {
-                'name':              ps['name'],
-                'etch_yield_mean':   float(np.mean(ps['ion_etch'])) if ps['ion_etch'] else 0.0,
-                'etch_yield_err':    block_stats(ps['ion_etch'], n_blocks)[1],
-                'radical_etch_mean': float(np.mean(ps['radical_etch'])) if ps['radical_etch'] else 0.0,
-                'o_content_mean':    float(np.mean(ps['o_content'])) if ps['o_content'] else 0.0,
+                'name':                   ps['name'],
+                'etch_yield_mean':        float(np.mean(ps['ion_etch'])) if ps['ion_etch'] else 0.0,
+                'etch_yield_err':         block_stats(ps['ion_etch'], n_blocks)[1],
+                'radical_etch_mean':      float(np.mean(ps['radical_etch'])) if ps['radical_etch'] else 0.0,
+                'o_content_mean':         float(np.mean(ps['o_content'])) if ps['o_content'] else 0.0,
+                'o_end_mean':             ps.get('o_end_mean', 0.0),
+                'o_end_err':              ps.get('o_end_err', 0.0),
+                'amorphous_ml_mean':      ps.get('amorphous_ml_mean'),
+                'amorphous_thickness_mean': ps.get('amorphous_thickness_mean'),
+                'ep_oc_ratio':            ps.get('ep_oc_ratio'),
+                'ep_avg_c':               ps.get('ep_avg_c'),
+                'ep_avg_o':               ps.get('ep_avg_o'),
+                'ep_n':                   ps.get('ep_n'),
             }
             for pi, ps in phase_stats.items()
         }
@@ -227,9 +309,18 @@ def analyze_run(
     # ── throughput ────────────────────────────────────────────────────────────
     wall_s = _wall_time_seconds(sim_dir)
     if wall_s and wall_s > 0 and n_ion > 0:
-        stats['impacts_per_day_ml'] = (n_ion / ml) * 86400 / wall_s
+        impacts_per_day = n_ion * 86400.0 / wall_s
+        stats['impacts_per_day'] = impacts_per_day
+        stats['ml_per_day'] = (n_ion / ml) * 86400.0 / wall_s
+        if is_cyc and spec is not None and spec.phases is not None:
+            cycle_ml = sum(p.fluence_ml for p in spec.phases)
+            stats['cycles_per_day'] = stats['ml_per_day'] / cycle_ml if cycle_ml > 0 else None
+        else:
+            stats['cycles_per_day'] = None
     else:
-        stats['impacts_per_day_ml'] = None
+        stats['impacts_per_day'] = None
+        stats['ml_per_day'] = None
+        stats['cycles_per_day'] = None
 
     return stats
 
@@ -250,54 +341,121 @@ def write_summary(stats: Dict, path) -> None:
         return s
 
     is_cyc = stats.get('is_cycling', False)
+    has_radicals = is_cyc and stats.get('n_radical_impacts', 0) > 0
+    per_phase = stats.get('per_phase', {})
     lines = ['# DiamondEtchMD Analysis Summary', '']
 
-    lines += [
-        '## Etch statistics',
-        f"Etch yield (C/ion):{_fmt(stats.get('etch_yield_per_ion'), stats.get('etch_yield_per_ion_err'))}",
-    ]
-    if is_cyc:
+    # ── Etch statistics ───────────────────────────────────────────────────────
+    lines.append('## Etch statistics')
+    lines.append(
+        f"Cumulative etch (MLs):{_fmt(stats.get('etch_depth_ml'))}"
+    )
+    lines.append(
+        f"Etch yield (C/ion):{_fmt(stats.get('etch_yield_per_ion'), stats.get('etch_yield_per_ion_err'))}"
+    )
+    if has_radicals:
         lines.append(
-            f"  (total):{_fmt(stats.get('etch_yield_total'))}"
+            f"  Ion etch yield (C/ion):{_fmt(stats.get('etch_yield_per_ion'), stats.get('etch_yield_per_ion_err'))}"
         )
-        if stats.get('etch_yield_per_radical') is not None:
-            lines.append(
-                f"  (radical):{_fmt(stats.get('etch_yield_per_radical'), stats.get('etch_yield_per_radical_err'))}"
+        lines.append(
+            f"  Radical etch yield (C/radical):{_fmt(stats.get('etch_yield_per_radical'), stats.get('etch_yield_per_radical_err'))}"
+        )
+        lines.append(
+            f"  Total etch yield:{_fmt(stats.get('etch_yield_total'))}"
+        )
+
+    if per_phase:
+        for pi, ps in sorted(per_phase.items()):
+            radical_str = (
+                f"  radical: {ps['radical_etch_mean']:.4g} C/radical"
+                if ps.get('radical_etch_mean') else ''
             )
-    lines.append(f"Etch depth (ML):{_fmt(stats.get('etch_depth_ml'))}")
-
-    if stats.get('per_phase'):
-        lines.append('\nPer-phase etch yield (cycle-averaged):')
-        for pi, ps in sorted(stats['per_phase'].items()):
             lines.append(
-                f"  Phase {pi} ({ps['name']}):  {ps['etch_yield_mean']:.4g} C/ion"
-                + (f"  radical: {ps['radical_etch_mean']:.4g} C/radical" if ps['radical_etch_mean'] else '')
+                f"  Phase {pi} ({ps['name']}): "
+                f"{ps['etch_yield_mean']:.4g} ± {ps['etch_yield_err']:.2g} C/ion"
+                + radical_str
             )
 
-    lines += [
-        '',
-        '## Surface oxygen',
-        f"O uptake (ML):{_fmt(stats.get('o_uptake_ml'), stats.get('o_uptake_ml_err'))}",
-        '',
-        '## Amorphous carbon (CNA)',
-        f"Amorphous C (ML):{_fmt(stats.get('amorphous_ml'), stats.get('amorphous_ml_err'))}",
-        f"Layer thickness (Å):{_fmt(stats.get('amorphous_thickness_A'), stats.get('amorphous_thickness_A_err'))}",
-        '',
-        '## Product composition',
-        f"Avg O:C ratio:{_fmt(stats.get('avg_oc_ratio'))}",
-        f"Avg O per product:{_fmt(stats.get('avg_o_per_product'))}",
-        f"Avg C per product:{_fmt(stats.get('avg_c_per_product'))}",
-        '',
-        '## Throughput',
-    ]
+    # ── Surface oxygen ────────────────────────────────────────────────────────
+    lines += ['', '## Surface oxygen']
+    if per_phase:
+        lines.append('Avg phase-end O uptake (MLs):')
+        for pi, ps in sorted(per_phase.items()):
+            o_m = ps.get('o_end_mean', 0.0)
+            o_e = ps.get('o_end_err', 0.0)
+            lines.append(f"  Phase {pi} ({ps['name']}):{_fmt(o_m, o_e if o_e else None)}")
+    else:
+        lines.append(
+            f"Avg O uptake (MLs):{_fmt(stats.get('o_uptake_ml'), stats.get('o_uptake_ml_err'))}"
+        )
 
-    tpd = stats.get('impacts_per_day_ml')
-    if tpd is not None:
-        lines.append(f'Ion impacts per day:{_fmt(tpd, unit="ML/day")}')
+    # ── Amorphous carbon (CNA) ────────────────────────────────────────────────
+    if stats.get('amorphous_ml') is not None:
+        lines += ['', '## Amorphous carbon (CNA)']
+        lines.append(
+            f"Amorphous C (MLs):{_fmt(stats.get('amorphous_ml'), stats.get('amorphous_ml_err'))}"
+        )
+        lines.append(
+            f"Amorphous layer thickness (Å):{_fmt(stats.get('amorphous_thickness_A'), stats.get('amorphous_thickness_A_err'))}"
+        )
+        if per_phase:
+            for pi, ps in sorted(per_phase.items()):
+                am = ps.get('amorphous_ml_mean')
+                th = ps.get('amorphous_thickness_mean')
+                am_str = f'{am:.4g}' if am is not None else 'N/A'
+                th_str = f'{th:.4g}' if th is not None else 'N/A'
+                lines.append(
+                    f"  Phase {pi} ({ps['name']}): amorphous C  {am_str}, thickness  {th_str} Å"
+                )
+
+    # ── Carbon-containing product composition ─────────────────────────────────
+    n_prod = stats.get('n_products_carbon', 0)
+    if n_prod > 0:
+        lines += ['', '## Carbon-containing product composition']
+        if not per_phase:
+            lines.append(f"Avg O:C ratio:{_fmt(stats.get('avg_oc_ratio'))}")
+            lines.append(f"Avg O per product:{_fmt(stats.get('avg_o_per_product'))}")
+            lines.append(f"Avg C per product:{_fmt(stats.get('avg_c_per_product'))}")
+            lines.append(f"n products:  {n_prod}")
+        else:
+            # overall first
+            lines.append(f"Avg O:C ratio:{_fmt(stats.get('avg_oc_ratio'))}")
+            lines.append(f"Avg O per product:{_fmt(stats.get('avg_o_per_product'))}")
+            lines.append(f"Avg C per product:{_fmt(stats.get('avg_c_per_product'))}")
+            lines.append(f"n products:  {n_prod}")
+            for pi, ps in sorted(per_phase.items()):
+                ep_n = ps.get('ep_n')
+                if ep_n:
+                    oc = ps.get('ep_oc_ratio')
+                    avg_c = ps.get('ep_avg_c')
+                    avg_o = ps.get('ep_avg_o')
+                    oc_s = f'{oc:.4g}' if oc is not None else 'N/A'
+                    c_s = f'{avg_c:.4g}' if avg_c is not None else 'N/A'
+                    o_s = f'{avg_o:.4g}' if avg_o is not None else 'N/A'
+                    lines.append(
+                        f"  Phase {pi} ({ps['name']}): O:C = {oc_s}, avg C = {c_s}, avg O = {o_s}, n = {ep_n}"
+                    )
+
+    # ── Throughput ────────────────────────────────────────────────────────────
+    lines += ['', '## Throughput']
+    ipd = stats.get('impacts_per_day')
+    if ipd is not None:
+        lines.append(f'Ion impacts per day:{_fmt(ipd)}')
     else:
         lines.append('Ion impacts per day:  N/A  (log.lammps not found)')
-    lines.append(f"Total ion impacts:  {stats.get('n_ion_impacts', 'N/A')}")
+    ml_day = stats.get('ml_per_day')
+    if ml_day is not None:
+        lines.append(f'Monolayers per day:{_fmt(ml_day)}')
+    else:
+        lines.append('Monolayers per day:  N/A')
     if is_cyc:
+        cpd = stats.get('cycles_per_day')
+        if cpd is not None:
+            lines.append(f'Cycles per day:{_fmt(cpd)}')
+        else:
+            lines.append('Cycles per day:  N/A')
+    lines.append(f"Total ion impacts:  {stats.get('n_ion_impacts', 'N/A')}")
+    if has_radicals:
         lines.append(f"Total radical impacts:  {stats.get('n_radical_impacts', 'N/A')}")
 
     Path(path).write_text('\n'.join(lines) + '\n')

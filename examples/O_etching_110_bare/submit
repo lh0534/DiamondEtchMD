@@ -14,7 +14,7 @@
 module purge
 module load lammps/kokkos/gpu_della9_2022
 
-mkdir -p dumps data_files
+mkdir -p etch_event_trajs impact_snaps
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OMP_PROC_BIND=spread
@@ -38,16 +38,16 @@ _resubmit() {
 }
 trap '_resubmit' USR1
 
-if [ ! -f data_files/0.data ]; then
+if [ ! -f impact_snaps/0.data ]; then
     srun lmp -log log_make_surf.lammps -k on g 1 -sf kk -in make_surf.lmp
 fi
 
-n_lat_0=$(grep ' atoms' data_files/0.data | awk '{print $1}')
+n_lat_0=$(grep ' atoms' impact_snaps/0.data | awk '{print $1}')
 n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $1}')
 n_complete=${n_complete:-0}
-data_file=$(ls -t data_files/*.data | head -1)
+data_file=$(ls -t impact_snaps/*.data | head -1)
 log_file=log$(echo "$(ls | grep -c .lammps)+1" | bc).lammps
-event_count=$(ls dumps/event_dump_*.dump 2>/dev/null | wc -l)
+event_count=$(ls etch_event_trajs/event_dump_*.dump 2>/dev/null | wc -l)
 
 # Check if simulation is already complete
 ML=$(grep 'ML equal' config.lmp | awk '{print $4}')

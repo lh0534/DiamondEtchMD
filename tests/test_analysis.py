@@ -16,9 +16,9 @@ from diamond_etch_md.analysis.ncarbon import parse_ncarbon, etch_depth
 # ─── fixtures ─────────────────────────────────────────────────────────────────
 
 ETCH_PRODUCTS_CONTENT = textwrap.dedent("""\
-    12 C 1 0 0  0.001  0.003  0.412
-    47 C 2 1 0 -0.002  0.001  0.387
-    47 O 0 0 1  0.000 -0.005  0.210
+    12 1 0 0
+    47 2 1 0
+    47 0 0 1
 """)
 
 NCARBON_CONTENT = textwrap.dedent("""\
@@ -52,13 +52,9 @@ def test_parse_etch_products_count(etch_products_file):
 def test_parse_etch_products_first_record(etch_products_file):
     r = parse_etch_products(etch_products_file)[0]
     assert r["impact"] == 12
-    assert r["atom_type"] == "C"
     assert r["n_C"] == 1
     assert r["n_H"] == 0
     assert r["n_O"] == 0
-    assert r["vx"] == pytest.approx(0.001)
-    assert r["vy"] == pytest.approx(0.003)
-    assert r["vz"] == pytest.approx(0.412)
 
 
 def test_parse_etch_products_second_record(etch_products_file):
@@ -67,12 +63,10 @@ def test_parse_etch_products_second_record(etch_products_file):
     assert r["n_C"] == 2
     assert r["n_H"] == 1
     assert r["n_O"] == 0
-    assert r["vx"] == pytest.approx(-0.002)
 
 
 def test_parse_etch_products_oxygen_cluster(etch_products_file):
     r = parse_etch_products(etch_products_file)[2]
-    assert r["atom_type"] == "O"
     assert r["n_C"] == 0
     assert r["n_O"] == 1
 
@@ -83,12 +77,24 @@ def test_parse_etch_products_empty_file(tmp_path):
     assert parse_etch_products(p) == []
 
 
-def test_parse_etch_products_skips_comments(tmp_path):
+def test_parse_etch_products_skips_hash_comments(tmp_path):
     p = tmp_path / "ep.txt"
-    p.write_text("# comment\n1 C 1 0 0 0.0 0.0 0.5\n")
+    p.write_text("# comment\n1 1 0 0\n")
     records = parse_etch_products(p)
     assert len(records) == 1
     assert records[0]["impact"] == 1
+
+
+def test_parse_etch_products_legacy_format(tmp_path):
+    p = tmp_path / "ep.txt"
+    p.write_text(
+        "* Cluster of C1H0O2 sputtered on impact 7\n"
+        "* Cluster of C0H0O0 sputtered on impact 8\n"
+    )
+    records = parse_etch_products(p)
+    assert len(records) == 2
+    assert records[0] == {"impact": 7, "n_C": 1, "n_H": 0, "n_O": 2}
+    assert records[1] == {"impact": 8, "n_C": 0, "n_H": 0, "n_O": 0}
 
 
 # ─── etch_yield ───────────────────────────────────────────────────────────────
@@ -106,7 +112,7 @@ def test_etch_yield_empty():
 
 def test_etch_yield_single_record(tmp_path):
     p = tmp_path / "ep.txt"
-    p.write_text("10 C 3 0 0 0.0 0.0 0.5\n")
+    p.write_text("10 3 0 0\n")
     records = parse_etch_products(p)
     assert etch_yield(records, ml=81) == pytest.approx(3 / 10)
 

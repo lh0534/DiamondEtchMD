@@ -1,0 +1,465 @@
+* Cluster of C0H0O0 sputtered on impact 1
+* Cluster of C0H0O0 sputtered on impact 2
+* Cluster of C0H0O0 sputtered on impact 3
+* Cluster of C0H0O0 sputtered on impact 4
+* Cluster of C0H0O0 sputtered on impact 5
+* Cluster of C0H0O0 sputtered on impact 6
+* Cluster of C0H0O0 sputtered on impact 7
+* Cluster of C1H0O2 sputtered on impact 7
+* Cluster of C0H0O0 sputtered on impact 8
+* Cluster of C0H0O0 sputtered on impact 9
+* Cluster of C0H0O0 sputtered on impact 10
+* Cluster of C0H0O0 sputtered on impact 11
+* Cluster of C0H0O0 sputtered on impact 12
+* Cluster of C0H0O0 sputtered on impact 13
+* Cluster of C0H0O0 sputtered on impact 14
+* Cluster of C0H0O0 sputtered on impact 15
+* Cluster of C0H0O0 sputtered on impact 16
+* Cluster of C0H0O0 sputtered on impact 17
+* Cluster of C0H0O0 sputtered on impact 18
+* Cluster of C0H0O0 sputtered on impact 19
+* Cluster of C0H0O0 sputtered on impact 20
+* Cluster of C0H0O0 sputtered on impact 21
+* Cluster of C0H0O0 sputtered on impact 22
+* Cluster of C0H0O0 sputtered on impact 23
+* Cluster of C0H0O0 sputtered on impact 24
+* Cluster of C0H0O0 sputtered on impact 25
+* Cluster of C0H0O0 sputtered on impact 26
+* Cluster of C0H0O0 sputtered on impact 27
+* Cluster of C0H0O0 sputtered on impact 28
+* Cluster of C0H0O0 sputtered on impact 29
+* Cluster of C0H0O0 sputtered on impact 30
+* Cluster of C0H0O0 sputtered on impact 31
+* Cluster of C0H0O0 sputtered on impact 32
+* Cluster of C0H0O0 sputtered on impact 33
+* Cluster of C0H0O0 sputtered on impact 34
+* Cluster of C0H0O0 sputtered on impact 35
+* Cluster of C0H0O0 sputtered on impact 36
+* Cluster of C0H0O0 sputtered on impact 37
+* Cluster of C0H0O0 sputtered on impact 38
+* Cluster of C0H0O0 sputtered on impact 39
+* Cluster of C0H0O0 sputtered on impact 40
+* Cluster of C0H0O0 sputtered on impact 41
+* Cluster of C0H0O0 sputtered on impact 42
+* Cluster of C0H0O0 sputtered on impact 43
+* Cluster of C0H0O0 sputtered on impact 44
+* Cluster of C0H0O0 sputtered on impact 45
+* Cluster of C0H0O0 sputtered on impact 46
+* Cluster of C0H0O0 sputtered on impact 47
+* Cluster of C0H0O0 sputtered on impact 48
+* Cluster of C0H0O0 sputtered on impact 49
+* Cluster of C0H0O0 sputtered on impact 50
+* Cluster of C0H0O0 sputtered on impact 51
+* Cluster of C0H0O0 sputtered on impact 52
+* Cluster of C0H0O0 sputtered on impact 53
+* Cluster of C0H0O0 sputtered on impact 54
+* Cluster of C0H0O0 sputtered on impact 55
+* Cluster of C0H0O0 sputtered on impact 56
+* Cluster of C0H0O0 sputtered on impact 57
+* Cluster of C0H0O0 sputtered on impact 58
+* Cluster of C0H0O0 sputtered on impact 59
+* Cluster of C0H0O0 sputtered on impact 60
+* Cluster of C0H0O0 sputtered on impact 61
+* Cluster of C0H0O0 sputtered on impact 62
+* Cluster of C0H0O0 sputtered on impact 63
+* Cluster of C0H0O0 sputtered on impact 64
+* Cluster of C0H0O0 sputtered on impact 65
+* Cluster of C0H0O0 sputtered on impact 66
+* Cluster of C0H0O0 sputtered on impact 67
+* Cluster of C0H0O0 sputtered on impact 68
+* Cluster of C0H0O0 sputtered on impact 69
+* Cluster of C0H0O0 sputtered on impact 70
+* Cluster of C0H0O0 sputtered on impact 71
+* Cluster of C0H0O0 sputtered on impact 72
+* Cluster of C0H0O0 sputtered on impact 73
+* Cluster of C1H0O2 sputtered on impact 73
+* Cluster of C0H0O0 sputtered on impact 74
+* Cluster of C0H0O0 sputtered on impact 75
+* Cluster of C0H0O0 sputtered on impact 76
+* Cluster of C0H0O0 sputtered on impact 77
+* Cluster of C0H0O0 sputtered on impact 78
+* Cluster of C0H0O0 sputtered on impact 79
+* Cluster of C0H0O0 sputtered on impact 80
+* Cluster of C0H0O0 sputtered on impact 81
+* Cluster of C0H0O0 sputtered on impact 82
+* Cluster of C1H0O2 sputtered on impact 82
+* Cluster of C0H0O0 sputtered on impact 83
+* Cluster of C0H0O0 sputtered on impact 84
+* Cluster of C0H0O0 sputtered on impact 85
+* Cluster of C0H0O0 sputtered on impact 86
+* Cluster of C0H0O0 sputtered on impact 87
+* Cluster of C0H0O0 sputtered on impact 88
+* Cluster of C0H0O0 sputtered on impact 89
+* Cluster of C0H0O0 sputtered on impact 90
+* Cluster of C0H0O0 sputtered on impact 91
+* Cluster of C0H0O0 sputtered on impact 92
+* Cluster of C0H0O0 sputtered on impact 93
+* Cluster of C0H0O0 sputtered on impact 94
+* Cluster of C0H0O0 sputtered on impact 95
+* Cluster of C1H0O2 sputtered on impact 95
+* Cluster of C0H0O0 sputtered on impact 96
+* Cluster of C0H0O0 sputtered on impact 97
+* Cluster of C1H0O2 sputtered on impact 97
+* Cluster of C0H0O0 sputtered on impact 98
+* Cluster of C0H0O0 sputtered on impact 99
+* Cluster of C0H0O0 sputtered on impact 100
+* Cluster of C0H0O0 sputtered on impact 101
+* Cluster of C0H0O0 sputtered on impact 102
+* Cluster of C0H0O0 sputtered on impact 103
+* Cluster of C0H0O0 sputtered on impact 104
+* Cluster of C0H0O0 sputtered on impact 105
+* Cluster of C0H0O0 sputtered on impact 106
+* Cluster of C0H0O0 sputtered on impact 107
+* Cluster of C0H0O0 sputtered on impact 108
+* Cluster of C0H0O0 sputtered on impact 109
+* Cluster of C0H0O0 sputtered on impact 110
+* Cluster of C0H0O0 sputtered on impact 111
+* Cluster of C0H0O0 sputtered on impact 112
+* Cluster of C0H0O0 sputtered on impact 113
+* Cluster of C0H0O0 sputtered on impact 114
+* Cluster of C0H0O0 sputtered on impact 115
+* Cluster of C0H0O0 sputtered on impact 116
+* Cluster of C0H0O0 sputtered on impact 117
+* Cluster of C0H0O0 sputtered on impact 118
+* Cluster of C0H0O0 sputtered on impact 119
+* Cluster of C0H0O0 sputtered on impact 120
+* Cluster of C0H0O0 sputtered on impact 121
+* Cluster of C0H0O0 sputtered on impact 122
+* Cluster of C0H0O0 sputtered on impact 123
+* Cluster of C0H0O0 sputtered on impact 124
+* Cluster of C0H0O0 sputtered on impact 125
+* Cluster of C0H0O0 sputtered on impact 126
+* Cluster of C0H0O0 sputtered on impact 127
+* Cluster of C0H0O0 sputtered on impact 128
+* Cluster of C0H0O0 sputtered on impact 129
+* Cluster of C0H0O0 sputtered on impact 130
+* Cluster of C0H0O0 sputtered on impact 131
+* Cluster of C0H0O0 sputtered on impact 132
+* Cluster of C0H0O0 sputtered on impact 133
+* Cluster of C0H0O0 sputtered on impact 134
+* Cluster of C0H0O0 sputtered on impact 135
+* Cluster of C0H0O0 sputtered on impact 136
+* Cluster of C1H0O2 sputtered on impact 136
+* Cluster of C0H0O0 sputtered on impact 137
+* Cluster of C0H0O0 sputtered on impact 138
+* Cluster of C0H0O0 sputtered on impact 139
+* Cluster of C0H0O0 sputtered on impact 140
+* Cluster of C0H0O0 sputtered on impact 141
+* Cluster of C0H0O0 sputtered on impact 142
+* Cluster of C0H0O0 sputtered on impact 143
+* Cluster of C0H0O0 sputtered on impact 144
+* Cluster of C0H0O0 sputtered on impact 145
+* Cluster of C1H0O2 sputtered on impact 145
+* Cluster of C0H0O0 sputtered on impact 146
+* Cluster of C0H0O0 sputtered on impact 147
+* Cluster of C2H0O1 sputtered on impact 147
+* Cluster of C0H0O0 sputtered on impact 148
+* Cluster of C0H0O0 sputtered on impact 149
+* Cluster of C0H0O0 sputtered on impact 150
+* Cluster of C0H0O0 sputtered on impact 151
+* Cluster of C0H0O0 sputtered on impact 152
+* Cluster of C0H0O0 sputtered on impact 153
+* Cluster of C0H0O0 sputtered on impact 154
+* Cluster of C0H0O0 sputtered on impact 155
+* Cluster of C0H0O0 sputtered on impact 156
+* Cluster of C0H0O0 sputtered on impact 157
+* Cluster of C0H0O0 sputtered on impact 158
+* Cluster of C0H0O0 sputtered on impact 159
+* Cluster of C0H0O0 sputtered on impact 160
+* Cluster of C0H0O0 sputtered on impact 161
+* Cluster of C0H0O0 sputtered on impact 162
+* Cluster of C0H0O0 sputtered on impact 163
+* Cluster of C0H0O0 sputtered on impact 164
+* Cluster of C0H0O0 sputtered on impact 165
+* Cluster of C0H0O0 sputtered on impact 166
+* Cluster of C0H0O0 sputtered on impact 167
+* Cluster of C0H0O0 sputtered on impact 168
+* Cluster of C0H0O0 sputtered on impact 169
+* Cluster of C0H0O0 sputtered on impact 170
+* Cluster of C0H0O0 sputtered on impact 171
+* Cluster of C0H0O0 sputtered on impact 172
+* Cluster of C0H0O0 sputtered on impact 173
+* Cluster of C0H0O0 sputtered on impact 174
+* Cluster of C0H0O0 sputtered on impact 175
+* Cluster of C0H0O0 sputtered on impact 176
+* Cluster of C0H0O0 sputtered on impact 177
+* Cluster of C0H0O0 sputtered on impact 178
+* Cluster of C0H0O0 sputtered on impact 179
+* Cluster of C0H0O0 sputtered on impact 180
+* Cluster of C0H0O0 sputtered on impact 181
+* Cluster of C0H0O0 sputtered on impact 182
+* Cluster of C0H0O0 sputtered on impact 183
+* Cluster of C0H0O0 sputtered on impact 184
+* Cluster of C0H0O0 sputtered on impact 185
+* Cluster of C0H0O0 sputtered on impact 186
+* Cluster of C0H0O0 sputtered on impact 187
+* Cluster of C0H0O0 sputtered on impact 188
+* Cluster of C0H0O0 sputtered on impact 189
+* Cluster of C0H0O0 sputtered on impact 190
+* Cluster of C1H0O2 sputtered on impact 190
+* Cluster of C0H0O0 sputtered on impact 191
+* Cluster of C0H0O0 sputtered on impact 192
+* Cluster of C0H0O0 sputtered on impact 193
+* Cluster of C0H0O0 sputtered on impact 194
+* Cluster of C0H0O0 sputtered on impact 195
+* Cluster of C0H0O0 sputtered on impact 196
+* Cluster of C0H0O0 sputtered on impact 197
+* Cluster of C0H0O0 sputtered on impact 198
+* Cluster of C0H0O0 sputtered on impact 199
+* Cluster of C0H0O0 sputtered on impact 200
+* Cluster of C0H0O0 sputtered on impact 201
+* Cluster of C0H0O0 sputtered on impact 202
+* Cluster of C0H0O0 sputtered on impact 203
+* Cluster of C0H0O0 sputtered on impact 204
+* Cluster of C0H0O0 sputtered on impact 205
+* Cluster of C0H0O0 sputtered on impact 206
+* Cluster of C1H0O2 sputtered on impact 206
+* Cluster of C0H0O0 sputtered on impact 207
+* Cluster of C0H0O0 sputtered on impact 208
+* Cluster of C0H0O0 sputtered on impact 209
+* Cluster of C0H0O0 sputtered on impact 210
+* Cluster of C0H0O0 sputtered on impact 211
+* Cluster of C0H0O0 sputtered on impact 212
+* Cluster of C0H0O0 sputtered on impact 213
+* Cluster of C0H0O0 sputtered on impact 214
+* Cluster of C0H0O0 sputtered on impact 215
+* Cluster of C0H0O0 sputtered on impact 216
+* Cluster of C0H0O0 sputtered on impact 217
+* Cluster of C0H0O0 sputtered on impact 218
+* Cluster of C0H0O0 sputtered on impact 219
+* Cluster of C0H0O0 sputtered on impact 220
+* Cluster of C0H0O0 sputtered on impact 221
+* Cluster of C0H0O0 sputtered on impact 222
+* Cluster of C0H0O0 sputtered on impact 223
+* Cluster of C0H0O0 sputtered on impact 224
+* Cluster of C0H0O0 sputtered on impact 225
+* Cluster of C0H0O0 sputtered on impact 226
+* Cluster of C0H0O0 sputtered on impact 227
+* Cluster of C0H0O0 sputtered on impact 228
+* Cluster of C0H0O0 sputtered on impact 229
+* Cluster of C0H0O0 sputtered on impact 230
+* Cluster of C0H0O0 sputtered on impact 231
+* Cluster of C0H0O0 sputtered on impact 232
+* Cluster of C0H0O0 sputtered on impact 233
+* Cluster of C0H0O0 sputtered on impact 234
+* Cluster of C0H0O0 sputtered on impact 235
+* Cluster of C0H0O0 sputtered on impact 236
+* Cluster of C0H0O0 sputtered on impact 237
+* Cluster of C0H0O0 sputtered on impact 238
+* Cluster of C0H0O0 sputtered on impact 239
+* Cluster of C0H0O0 sputtered on impact 240
+* Cluster of C0H0O0 sputtered on impact 241
+* Cluster of C0H0O0 sputtered on impact 242
+* Cluster of C0H0O0 sputtered on impact 243
+* Cluster of C0H0O0 sputtered on impact 244
+* Cluster of C0H0O0 sputtered on impact 245
+* Cluster of C0H0O0 sputtered on impact 246
+* Cluster of C0H0O0 sputtered on impact 247
+* Cluster of C0H0O0 sputtered on impact 248
+* Cluster of C0H0O0 sputtered on impact 249
+* Cluster of C0H0O0 sputtered on impact 250
+* Cluster of C0H0O0 sputtered on impact 251
+* Cluster of C0H0O0 sputtered on impact 252
+* Cluster of C0H0O0 sputtered on impact 253
+* Cluster of C0H0O0 sputtered on impact 254
+* Cluster of C0H0O0 sputtered on impact 255
+* Cluster of C0H0O0 sputtered on impact 256
+* Cluster of C0H0O0 sputtered on impact 257
+* Cluster of C0H0O0 sputtered on impact 258
+* Cluster of C0H0O0 sputtered on impact 259
+* Cluster of C0H0O0 sputtered on impact 260
+* Cluster of C0H0O0 sputtered on impact 261
+* Cluster of C0H0O0 sputtered on impact 262
+* Cluster of C0H0O0 sputtered on impact 263
+* Cluster of C0H0O0 sputtered on impact 264
+* Cluster of C0H0O0 sputtered on impact 265
+* Cluster of C0H0O0 sputtered on impact 266
+* Cluster of C0H0O0 sputtered on impact 267
+* Cluster of C0H0O0 sputtered on impact 268
+* Cluster of C0H0O0 sputtered on impact 269
+* Cluster of C0H0O0 sputtered on impact 270
+* Cluster of C0H0O0 sputtered on impact 271
+* Cluster of C0H0O0 sputtered on impact 272
+* Cluster of C0H0O0 sputtered on impact 273
+* Cluster of C0H0O0 sputtered on impact 274
+* Cluster of C0H0O0 sputtered on impact 275
+* Cluster of C0H0O0 sputtered on impact 276
+* Cluster of C0H0O0 sputtered on impact 277
+* Cluster of C0H0O0 sputtered on impact 278
+* Cluster of C0H0O0 sputtered on impact 279
+* Cluster of C0H0O0 sputtered on impact 280
+* Cluster of C0H0O0 sputtered on impact 281
+* Cluster of C0H0O0 sputtered on impact 282
+* Cluster of C0H0O0 sputtered on impact 283
+* Cluster of C0H0O0 sputtered on impact 284
+* Cluster of C0H0O0 sputtered on impact 285
+* Cluster of C0H0O0 sputtered on impact 286
+* Cluster of C0H0O0 sputtered on impact 287
+* Cluster of C0H0O0 sputtered on impact 288
+* Cluster of C0H0O0 sputtered on impact 289
+* Cluster of C0H0O0 sputtered on impact 290
+* Cluster of C0H0O0 sputtered on impact 291
+* Cluster of C0H0O0 sputtered on impact 292
+* Cluster of C0H0O0 sputtered on impact 293
+* Cluster of C0H0O0 sputtered on impact 294
+* Cluster of C0H0O0 sputtered on impact 295
+* Cluster of C0H0O0 sputtered on impact 296
+* Cluster of C0H0O0 sputtered on impact 297
+* Cluster of C0H0O0 sputtered on impact 298
+* Cluster of C0H0O0 sputtered on impact 299
+* Cluster of C0H0O0 sputtered on impact 300
+* Cluster of C0H0O0 sputtered on impact 301
+* Cluster of C0H0O0 sputtered on impact 302
+* Cluster of C0H0O0 sputtered on impact 303
+* Cluster of C0H0O0 sputtered on impact 304
+* Cluster of C0H0O0 sputtered on impact 305
+* Cluster of C0H0O0 sputtered on impact 306
+* Cluster of C0H0O0 sputtered on impact 307
+* Cluster of C0H0O0 sputtered on impact 308
+* Cluster of C0H0O0 sputtered on impact 309
+* Cluster of C0H0O0 sputtered on impact 310
+* Cluster of C0H0O0 sputtered on impact 311
+* Cluster of C0H0O0 sputtered on impact 312
+* Cluster of C0H0O0 sputtered on impact 313
+* Cluster of C0H0O0 sputtered on impact 314
+* Cluster of C0H0O0 sputtered on impact 315
+* Cluster of C0H0O0 sputtered on impact 316
+* Cluster of C0H0O0 sputtered on impact 317
+* Cluster of C0H0O0 sputtered on impact 318
+* Cluster of C0H0O0 sputtered on impact 319
+* Cluster of C0H0O0 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 320
+* Cluster of C0H0O1 sputtered on impact 321
+* Cluster of C0H0O1 sputtered on impact 321
+* Cluster of C0H0O1 sputtered on impact 321
+* Cluster of C0H0O1 sputtered on impact 321
+* Cluster of C0H0O1 sputtered on impact 321
+* Cluster of C0H0O1 sputtered on impact 321
+* Cluster of C0H0O1 sputtered on impact 321
+* Cluster of C0H0O1 sputtered on impact 321
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C1H0O2 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 322
+* Cluster of C0H0O1 sputtered on impact 323
+* Cluster of C0H0O1 sputtered on impact 323
+* Cluster of C1H0O2 sputtered on impact 323
+* Cluster of C0H0O1 sputtered on impact 323
+* Cluster of C0H0O1 sputtered on impact 323
+* Cluster of C0H0O1 sputtered on impact 323
+* Cluster of C0H0O1 sputtered on impact 323
+* Cluster of C0H0O1 sputtered on impact 323
+* Cluster of C0H0O1 sputtered on impact 323
+* Cluster of C0H0O1 sputtered on impact 324
+* Cluster of C0H0O1 sputtered on impact 324
+* Cluster of C0H0O1 sputtered on impact 324
+* Cluster of C0H0O1 sputtered on impact 324
+* Cluster of C0H0O1 sputtered on impact 324
+* Cluster of C0H0O1 sputtered on impact 324
+* Cluster of C1H0O2 sputtered on impact 324
+* Cluster of C0H0O1 sputtered on impact 324
+* Cluster of C0H0O1 sputtered on impact 324
+* Cluster of C0H0O1 sputtered on impact 325
+* Cluster of C0H0O1 sputtered on impact 325
+* Cluster of C0H0O1 sputtered on impact 325
+* Cluster of C0H0O1 sputtered on impact 325
+* Cluster of C0H0O1 sputtered on impact 325
+* Cluster of C0H0O1 sputtered on impact 325
+* Cluster of C0H0O1 sputtered on impact 325
+* Cluster of C0H0O1 sputtered on impact 325
+* Cluster of C1H0O2 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 326
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 327
+* Cluster of C0H0O1 sputtered on impact 328
+* Cluster of C0H0O1 sputtered on impact 328
+* Cluster of C0H0O1 sputtered on impact 328
+* Cluster of C0H0O1 sputtered on impact 328
+* Cluster of C0H0O1 sputtered on impact 328
+* Cluster of C0H0O1 sputtered on impact 328
+* Cluster of C0H0O1 sputtered on impact 328
+* Cluster of C0H0O1 sputtered on impact 328
+328 0 0 1
+328 0 0 1
+329 0 0 2
+329 0 0 1
+329 0 0 1
+329 0 0 1
+329 0 0 1
+329 0 0 1
+329 0 0 1
+329 0 0 1
+329 0 0 1
+329 0 0 1
+330 1 0 2
+330 0 0 1
+330 1 0 3
+330 0 0 1
+330 0 0 1
+330 0 0 1
+330 0 0 1
+330 0 0 1
+330 0 0 1
+330 0 0 1
+330 0 0 1
+331 0 0 1
+331 0 0 1
+331 0 0 1
+331 0 0 1
+331 0 0 1
+331 0 0 1
+331 0 0 1
+331 0 0 1
+331 0 0 1
+332 0 0 2
+332 0 0 1
+332 0 0 1
+332 0 0 1
+332 0 0 1
+332 0 0 1
+332 0 0 1
+332 0 0 1
+332 0 0 1
+332 0 0 1
+333 1 0 2
+333 0 0 1
+333 0 0 1
+333 0 0 1
+333 0 0 1
+333 0 0 1
+333 0 0 1
+333 0 0 1
+333 0 0 1
+333 0 0 1
+333 0 0 1
+334 1 0 2
+334 0 0 1

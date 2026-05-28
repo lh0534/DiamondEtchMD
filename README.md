@@ -88,7 +88,7 @@ NOTE: run directories can exceed **5 GB** for long runs at high ion energies.
 | File / directory | Content |
 |---|---|
 | `ncarbon.txt` | Atom counts after every event — used to compute etch depth vs dose |
-| `etch_products.txt` | Ejected cluster log: composition (n_C, n_H, n_O), velocity vector |
+| `etch_products.txt` | Ejected cluster log: impact number, n_C, n_H, n_O per cluster |
 | `impact_snaps/` | Full atomic snapshots at every impact (positions, charges) |
 | `ML_impacts.dump` | LAMMPS dump appended once per monolayer — compact long-range trajectory |
 | `etch_event_trajs/` | Per-event atom trajectories through each impact |
@@ -500,7 +500,7 @@ depths = etch_depth(nc, ml=81, box_x=9, box_y=9, orientation="100")
 
 **`etch_products.txt`** — one line per ejected cluster:
 ```
-impact#  atom_type  n_C  n_H  n_O  vx  vy  vz
+impact#  n_C  n_H  n_O
 ```
 
 **`ncarbon.txt`** — theory-etch (4 columns):

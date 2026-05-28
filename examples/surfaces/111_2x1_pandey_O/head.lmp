@@ -92,7 +92,7 @@ print "${c}" file begin.txt
 # ========================= Begin Per-Impact Outer Loop =========================
 label		loop
 
-dump current_dump all custom 100 dumps/event_dump_${event_count}.dump id type x y z vx vy vz fx fy fz q
+dump current_dump all custom 100 etch_event_trajs/event_dump_${event_count}.dump id type x y z vx vy vz fx fy fz q
 
 group       insert clear
 group 	    mobile subtract all anchor
@@ -119,6 +119,7 @@ fix         thalt all halt 1 v_time_elapsed > ${impact_time} error continue mess
 
 run         0 post no
 # =========================== begin inner loop ===========================
+variable    cn equal 0
 label		continue_impact
 
 run         1000000000 pre no post no
@@ -159,8 +160,8 @@ print "Run ${c} complete"
 print "C_COUNT: ${ncarbon}"
 print "${c} ${ncarbon} ${nhydrogen} ${noxygen}" append ncarbon.txt
 
-write_data data_files/${c}.data nofix nocoeff
-if '$(v_c%v_ML) == 0' then "write_dump all custom dumps/dump.dump id type x y z vx vy vz modify sort id append yes"
+write_data impact_snaps/${c}.data nofix nocoeff
+if '$(v_c%v_ML) == 0' then "write_dump all custom ML_impacts.dump id type x y z vx vy vz modify sort id append yes"
 
 undump current_dump
 # ========================= End Per-Impact Outer Loop =========================

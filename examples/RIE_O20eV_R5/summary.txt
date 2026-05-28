@@ -1,0 +1,21 @@
+# DiamondEtchMD Analysis Summary
+
+## Etch statistics
+Etch yield (C/ion):  0
+Etch depth (ML):  0
+
+## Surface oxygen
+O uptake (ML):  0
+
+## Amorphous carbon (CNA)
+Amorphous C (ML):  0
+Layer thickness (Å):  0.8
+
+## Product composition
+Avg O:C ratio:  0
+Avg O per product:  0
+Avg C per product:  0
+
+## Throughput
+Ion impacts per day:  8.142  ML/day
+Total ion impacts:  1

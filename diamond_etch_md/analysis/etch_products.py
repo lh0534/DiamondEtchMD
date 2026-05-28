@@ -4,80 +4,76 @@ analysis/etch_products.py — parsing and analysis of etch_products.txt output f
 etch_products.txt format
 ------------------------
 Each line corresponds to one ejected cluster detected during the simulation.
-Columns (space-separated):
 
-  impact#   integer   Impact number (1-indexed) at which the cluster was ejected
-  atom_type string    LAMMPS atom type label of the cluster centroid atom
-  n_C       integer   Number of carbon atoms in the cluster
-  n_H       integer   Number of hydrogen atoms in the cluster
-  n_O       integer   Number of oxygen atoms in the cluster
-  vx        float     x-component of cluster centre-of-mass velocity (Å/fs)
-  vy        float     y-component of cluster centre-of-mass velocity (Å/fs)
-  vz        float     z-component of cluster centre-of-mass velocity (Å/fs)
+Current 5-column format (written by sweep.lmp):
+  impact  cn  n_C  n_H  n_O
+  cn=0 means ejected during the ion phase; cn>0 means during radical sweep #cn.
 
-The file is appended to by sweep.lmp after each impact event that produces
-detached clusters.  A cluster counts as ejected when it separates from the
-main substrate body and has positive vz (moving away from the surface).
+Legacy 4-column format (runs before cn tracking):
+  impact  n_C  n_H  n_O   (cn assumed 0)
 
-Example lines:
-  12 C 1 0 0  0.001  0.003  0.412
-  47 C 2 1 0 -0.002  0.001  0.387
+Legacy '*' format (oldest runs):
+  * Cluster of C<n>H<n>O<n> sputtered on impact <n> [<cn>]
+  The trailing cn field is optional.
+
+Lines beginning with '#' are comments and are skipped.
 """
 
+import re
 from pathlib import Path
 from typing import List, Dict, Any
+
+_LEGACY_RE = re.compile(
+    r"^\*\s*Cluster of C(\d+)H(\d+)O(\d+)\s+sputtered on impact\s+(\d+)(?:\s+(\d+))?",
+    re.IGNORECASE,
+)
 
 
 def parse_etch_products(path) -> List[Dict[str, Any]]:
     """Parse an etch_products.txt file into a list of cluster records.
 
-    Parameters
-    ----------
-    path:
-        Path-like or str pointing to an etch_products.txt file.
-
     Returns
     -------
-    list of dict, each with keys:
-        impact (int), atom_type (str), n_C (int), n_H (int), n_O (int),
-        vx (float), vy (float), vz (float)
+    list of dict with keys: impact (int), cn (int), n_C (int), n_H (int), n_O (int)
+    cn=0 means ejected during ion phase; cn>0 means during radical sweep cn.
     """
     records = []
     for line in Path(path).read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
+        if line.startswith("*"):
+            m = _LEGACY_RE.match(line)
+            if m:
+                nc  = int(m.group(1))
+                nh  = int(m.group(2))
+                no  = int(m.group(3))
+                imp = int(m.group(4))
+                cn  = int(m.group(5)) if m.group(5) is not None else 0
+                records.append({"impact": imp, "cn": cn, "n_C": nc, "n_H": nh, "n_O": no})
+            continue
         parts = line.split()
-        records.append({
-            "impact":    int(parts[0]),
-            "atom_type": parts[1],
-            "n_C":       int(parts[2]),
-            "n_H":       int(parts[3]),
-            "n_O":       int(parts[4]),
-            "vx":        float(parts[5]),
-            "vy":        float(parts[6]),
-            "vz":        float(parts[7]),
-        })
+        if len(parts) >= 5:
+            records.append({
+                "impact": int(parts[0]),
+                "cn":     int(parts[1]),
+                "n_C":    int(parts[2]),
+                "n_H":    int(parts[3]),
+                "n_O":    int(parts[4]),
+            })
+        elif len(parts) >= 4:
+            records.append({
+                "impact": int(parts[0]),
+                "cn":     0,
+                "n_C":    int(parts[1]),
+                "n_H":    int(parts[2]),
+                "n_O":    int(parts[3]),
+            })
     return records
 
 
 def etch_yield(records: List[Dict[str, Any]], ml: int) -> float:
-    """Compute the average etch yield in carbon atoms per incident particle.
-
-    Parameters
-    ----------
-    records:
-        List of cluster records as returned by parse_etch_products().
-    ml:
-        Atoms per monolayer (used to determine total number of impacts from
-        the last impact number in records).
-
-    Returns
-    -------
-    float
-        Mean number of carbon atoms ejected per incident particle (impact).
-        Returns 0.0 if records is empty.
-    """
+    """Compute the average etch yield in carbon atoms per incident particle."""
     if not records:
         return 0.0
     total_carbon = sum(r["n_C"] for r in records)

@@ -246,12 +246,14 @@ def plot_main():
 
     cna_records = None
     data_dir = sim_dir / 'impact_snaps'
+    if not data_dir.exists():
+        data_dir = sim_dir / 'data_files'
     if not args.no_cna and data_dir.exists():
         print(f"Computing CNA from {data_dir} (stride={args.cna_stride}) ...")
         cna_records = load_cna_series(data_dir, stride=args.cna_stride, verbose=True)
         print(f"  Done — {len(cna_records)} snapshots analyzed.")
     elif not args.no_cna:
-        print("impact_snaps/ not found — skipping CNA analysis.")
+        print("impact_snaps/ (or data_files/) not found — skipping CNA analysis.")
 
     print("Generating plots ...")
     make_plots(sim_dir, spec=spec, ml=ml, cna_records=cna_records)

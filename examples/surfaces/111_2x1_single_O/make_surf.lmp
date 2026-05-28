@@ -107,8 +107,8 @@ if "!${use_starting_data_file}" then &
 
 # write initial values
 write_data      111_2x1SC_${T}K.dat nofix nocoeff
-write_data      data_files/0.data nofix nocoeff
-write_dump      all custom dumps/dump.dump id type x y z vx vy vz modify sort id
+write_data      impact_snaps/0.data nofix nocoeff
+write_dump      all custom ML_impacts.dump id type x y z vx vy vz modify sort id
 
 print "0 ${n_lat_0} 0 0" append ncarbon.txt
 print "0 ${bottom} ${n_lat_0}" append bottom_tracker.txt
