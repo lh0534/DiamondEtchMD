@@ -126,6 +126,7 @@ dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${event_c
 timestep    1e-10
 run         1 post no
 run         0
+fix         ats_n all dt/reset 1 NULL 1.00 0.01 units box
 variable    starting_nclusts equal $(c_nclusts)
 variable    t0 equal $(time)
 variable    time_elapsed equal time-${t0}
@@ -154,6 +155,7 @@ print       "${c} ${cn} ${ncarbon} ${nhydrogen} ${noxygen}" append ncarbon.txt
 write_data  impact_snaps/${c}_${cn}.data nofix nocoeff
 
 unfix       thalt
+unfix       ats_n
 undump      current_dump_n
 unfix       depo
 unfix       2
@@ -193,7 +195,6 @@ fix         thalt all halt 1 v_time_elapsed > ${impact_time} error continue mess
 run         0 post no
 variable    n_channelled equal 0
 # =========================== begin inner loop ===========================
-variable    cn equal 0
 label		continue_impact
 
 run         1000000000 pre no post no

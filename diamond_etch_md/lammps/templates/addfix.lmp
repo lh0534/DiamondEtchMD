@@ -2,7 +2,7 @@
 # diamond cubic atoms, or the original number of atoms
 # number of diamond cubic atoms can supposedly be found with
 # compute ptm/atom, but this hasn't been tested
-print "${c} ${ncarbon} ${nhydrogen} ${noxygen}" append ncarbon.txt # report before adding so you can see things being added in ncarbon.txt
+print "${c} 0 ${ncarbon} ${nhydrogen} ${noxygen}" append ncarbon.txt # report before adding so you can see things being added in ncarbon.txt
 
 # move the bottom down
 variable    bottom equal ${bottom}-1/2

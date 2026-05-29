@@ -8,7 +8,7 @@ cycle-etch, enabling mid-loop restarts after a wall-time preemption.
 This example uses:
   - O+ ions at 20 eV
   - 5 O• radicals at 0.2 eV deposited before each O+ impact (flux_ratio=5)
-  - C(100) 1×1 surface, 9×9 box
+  - C(100) 1×1 surface, 6×6 box
 
     python examples/RIE_etching_100.py
     sbatch RIE_O20eV_R5/submit
@@ -17,7 +17,7 @@ This example uses:
 from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim, validate, etch_mode
 
-ml = compute_ml("100", 9, 9)   # 81 atoms/ML for 9×9 box
+ml = compute_ml("100", 6, 6)   # 36 atoms/ML for 6×6 box
 
 spec = SimSpec(
     orientation    = "100",
@@ -30,8 +30,8 @@ spec = SimSpec(
 
     fluence        = 50,        # 50 ML total ion impacts
     ml             = ml,
-    box_x          = 9,
-    box_y          = 9,
+    box_x          = 6,
+    box_y          = 6,
     box_depth      = 5,         # adequate for 20 eV O+
 
     # RIE-etch parameters: 5 O• radicals at 0.2 eV before each O+ impact

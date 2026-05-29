@@ -24,13 +24,11 @@ def _plot_loop_block(interval_hours: int) -> str:
     return (
         f"# Auto-plot every {interval_hours} h (--no-cna for speed during live run)\n"
         f"_PLOT_PID=\"\"\n"
-        f"if command -v diamond-etch-md-plot &>/dev/null; then\n"
-        f"    ( while true; do\n"
-        f"          sleep {interval_s}\n"
-        f"          diamond-etch-md-plot . --no-cna 2>>plot.log || true\n"
-        f"      done ) &\n"
-        f"    _PLOT_PID=$!\n"
-        f"fi\n"
+        f"( while true; do\n"
+        f"      sleep {interval_s}\n"
+        f"      python3 auto-plot.py --no-cna 2>>plot.log || true\n"
+        f"  done ) &\n"
+        f"_PLOT_PID=$!\n"
     )
 
 
@@ -42,7 +40,7 @@ def _final_plot_block(ml_var: str = "$ML") -> str:
     """Run a final plot with CNA strided to 1-per-ML after normal completion."""
     return (
         f"echo \"Running final analysis plots ...\"\n"
-        f"diamond-etch-md-plot . --cna-stride {ml_var} 2>>plot.log || true\n"
+        f"python3 auto-plot.py --cna-stride {ml_var} 2>>plot.log || true\n"
     )
 
 
@@ -67,7 +65,7 @@ def get_submit_script(spec: SimSpec) -> str:
     # RIE-etch: read cn_start from col 2 of last ncarbon.txt line
     if is_rie:
         cn_start_lines = (
-            f"cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $2}}')\n"
+            f"cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk 'NF>=5{{print $2}} NF<5{{print 0}}')\n"
             f"cn_start=${{cn_start:-0}}\n"
         )
         neut_complete_var = f"    -var neut_complete $cn_start \\\n"

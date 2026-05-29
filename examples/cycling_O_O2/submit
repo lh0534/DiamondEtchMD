@@ -44,7 +44,7 @@ fi
 n_lat_0=$(grep ' atoms' impact_snaps/0.data | awk '{print $1}')
 n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $1}')
 n_complete=${n_complete:-0}
-cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $2}')
+cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk 'NF>=5{print $2} NF<5{print 0}')
 cn_start=${cn_start:-0}
 data_file=$(ls -t impact_snaps/*.data | head -1)
 log_file=log$(echo "$(ls | grep -c .lammps)+1" | bc).lammps
@@ -74,13 +74,11 @@ srun lmp -k on g 1 -sf kk \
 SRUN_PID=$!
 # Auto-plot every 12 h (--no-cna for speed during live run)
 _PLOT_PID=""
-if command -v diamond-etch-md-plot &>/dev/null; then
-    ( while true; do
-          sleep 43200
-          diamond-etch-md-plot . --no-cna 2>>plot.log || true
-      done ) &
-    _PLOT_PID=$!
-fi
+( while true; do
+      sleep 43200
+      python3 auto-plot.py --no-cna 2>>plot.log || true
+  done ) &
+_PLOT_PID=$!
 wait $SRUN_PID
 lmp_exit=$?
 [ -n "$_PLOT_PID" ] && kill "$_PLOT_PID" 2>/dev/null; wait "$_PLOT_PID" 2>/dev/null || true
@@ -100,5 +98,5 @@ if [ "$n_complete" -lt "$end_c" ]; then
 else
     echo "Simulation complete: $n_complete / $end_c impacts."
     echo "Running final analysis plots ..."
-diamond-etch-md-plot . --cna-stride $ML 2>>plot.log || true
+python3 auto-plot.py --cna-stride $ML 2>>plot.log || true
 fi

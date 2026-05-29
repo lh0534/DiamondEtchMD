@@ -2,7 +2,7 @@
 # orientation=100  surface=1x1
 # species=O  energy=20.0eV  angle=0.0deg  T=300.0K
 
-variable    ML equal 81            # atoms per monolayer
+variable    ML equal 36            # atoms per monolayer
 variable    end_fluence equal 50   # in ML
 
 variable    energ equal 20.0     # incident energy per atom (eV)
@@ -16,8 +16,8 @@ variable    starting_data_file string data.truncated
 if "${pot} == REAX" then &
 "variable    lat_a file lat_a.txt"
 
-variable    x equal 9
-variable    y equal 9
+variable    x equal 6
+variable    y equal 6
 variable    lat_top equal 5
 variable    z equal ${lat_top}+5
 
