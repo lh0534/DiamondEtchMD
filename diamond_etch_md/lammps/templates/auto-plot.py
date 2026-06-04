@@ -16,6 +16,16 @@ from pathlib import Path
 sim_dir = str(Path(sys.argv[0]).absolute().parent)
 sys.argv.insert(1, sim_dir)
 
+# Ensure diamond_etch_md is importable even when compute-node python3 differs
+# from the one used to pip-install the package.  __file__ follows the symlink
+# (via realpath) to the actual template file inside the source tree, so the
+# package root (DiamondEtchMD/) is always 4 directories up.
+try:
+    import diamond_etch_md  # noqa: F401 — already on sys.path, nothing to do
+except ModuleNotFoundError:
+    _src_root = Path(__file__).resolve().parents[3]  # …/DiamondEtchMD/
+    sys.path.insert(0, str(_src_root))
+
 # Ask about CNA unless the user already passed --no-cna or --cna-stride.
 _cna_flags = {'--no-cna', '--cna-stride', '--help', '-h'}
 if not any(f in sys.argv for f in _cna_flags):

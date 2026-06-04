@@ -256,7 +256,10 @@ def plot_main():
         print("impact_snaps/ (or data_files/) not found — skipping CNA analysis.")
 
     print("Generating plots ...")
-    make_plots(sim_dir, spec=spec, ml=ml, cna_records=cna_records)
+    try:
+        make_plots(sim_dir, spec=spec, ml=ml, cna_records=cna_records)
+    except ImportError as e:
+        print(f"Warning: skipping plots ({e})")
 
     print("Computing summary statistics ...")
     stats = analyze_run(sim_dir, spec=spec, ml=ml,

@@ -28,6 +28,47 @@ def _has_ar(spec: SimSpec) -> bool:
     return any(SPECIES[p.species]["needs_zbl"] for p in spec.phases)
 
 
+def _can_switch_potential(spec: SimSpec) -> bool:
+    """True when the cycle mixes Ar phases with non-Ar phases.
+
+    In that case the ZBL potential is only needed during Ar phases.  Since
+    Ar is always removed after impact (remove_after_impact=True), it is safe
+    to drop to plain ReaxFF for non-Ar phases, which is faster.
+    """
+    has_zbl = any(SPECIES[p.species]["needs_zbl"] for p in spec.phases)
+    has_plain = any(not SPECIES[p.species]["needs_zbl"] for p in spec.phases)
+    return has_zbl and has_plain
+
+
+def _potential_switch_block() -> str:
+    """LAMMPS snippet that switches pair potential at phase boundaries.
+
+    Emitted once per outer-loop iteration, after phase-selection variables are
+    set.  prev_needs_zbl tracks the potential that is currently active; when
+    current_needs_zbl differs, the switch commands are executed.
+    """
+    return (
+        f"# Switch pair potential when moving between Ar and non-Ar phases\n"
+        f'if "${{prev_needs_zbl}} == 1 && ${{current_needs_zbl}} == 0" then &\n'
+        f'"unfix reax_qeq" &\n'
+        f'"pair_style reaxff NULL mincap 200 safezone 1.5" &\n'
+        f'"pair_coeff * * ffield.reax C H O NULL" &\n'
+        f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
+        f'if "${{prev_needs_zbl}} == 0 && ${{current_needs_zbl}} == 1" then &\n'
+        f'"unfix reax_qeq" &\n'
+        f'"pair_style hybrid reaxff NULL mincap 200 safezone 1.5 zbl 5.0 6.0" &\n'
+        f'"pair_coeff * * reaxff ffield.reax C H O NULL" &\n'
+        f'"pair_coeff 1 4 zbl 6.0 18.0" &\n'
+        f'"pair_coeff 2 4 zbl 1.0 18.0" &\n'
+        f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
+        f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
+        f'"group nonargon type 1 2 3" &\n'
+        f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
+        f"variable prev_needs_zbl equal ${{current_needs_zbl}}\n"
+        f"\n"
+    )
+
+
 def _has_o2(spec: SimSpec) -> bool:
     return any(SPECIES[p.species]["is_molecule"] for p in spec.phases)
 
@@ -73,7 +114,8 @@ def _phase_boundary_vars(phases: list) -> str:
     return "".join(lines)
 
 
-def _phase_selection_block(phases: list, has_ar: bool) -> str:
+def _phase_selection_block(phases: list, has_ar: bool,
+                           switch_potential: bool = False) -> str:
     """
     Generate LAMMPS if-blocks that set current-phase properties at runtime.
 
@@ -99,6 +141,11 @@ def _phase_selection_block(phases: list, has_ar: bool) -> str:
             f"variable current_needs_removal equal "
             f"{1 if last_sp['remove_after_impact'] else 0}\n"
         )
+    if switch_potential:
+        lines.append(
+            f"variable current_needs_zbl equal "
+            f"{1 if last_sp['needs_zbl'] else 0}\n"
+        )
     lines.append("\n")
 
     # Reverse-order overrides for phases 0..N-2
@@ -109,6 +156,10 @@ def _phase_selection_block(phases: list, has_ar: bool) -> str:
             f' &\n"variable current_needs_removal equal '
             f'{1 if sp["remove_after_impact"] else 0}"'
         ) if has_ar else ""
+        zbl_line = (
+            f' &\n"variable current_needs_zbl equal '
+            f'{1 if sp["needs_zbl"] else 0}"'
+        ) if switch_potential else ""
         lines.append(
             f'if "${{idx_in_cycle}} < ${{phase_{i}_end}}" then &\n'
             f'"variable current_ion_type equal {sp["type_index"]}" &\n'
@@ -117,7 +168,8 @@ def _phase_selection_block(phases: list, has_ar: bool) -> str:
             f'"variable current_M_ion equal ${{{sp["mass_var"]}}}" &\n'
             f'"variable current_flux_ratio equal ${{phase_{i}_flux_ratio}}" &\n'
             f'"variable current_radical_energy equal ${{phase_{i}_radical_energy}}"'
-            f"{removal_line}\n"
+            f"{removal_line}"
+            f"{zbl_line}\n"
             f"\n"
         )
 
@@ -132,6 +184,8 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
 
     has_ar = _has_ar(spec)
     has_o2 = _has_o2(spec)
+    switch_pot = _can_switch_potential(spec)
+    has_any_radicals = any(p.flux_ratio > 0 for p in spec.phases)
     n_types = 4 if has_ar else 3
 
     phase_names = " → ".join(
@@ -205,6 +259,10 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"\n"
         f"# Potential\n"
         f"{_potential_block(has_ar)}"
+        + (  # track which potential is active for runtime switching
+            f"variable    prev_needs_zbl equal 1\n"
+            if switch_pot else ""
+        ) +
         f"\n"
         f"# Restart state\n"
         f"variable    c equal ${{n_complete}}\n"
@@ -256,90 +314,99 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"variable    cycle_idx equal floor(v_c/v_impacts_per_cycle)\n"
         f"variable    idx_in_cycle equal $(v_c-v_cycle_idx*v_impacts_per_cycle)\n"
         f"\n"
-        f"{_phase_selection_block(spec.phases, has_ar)}"
-        f"# Ion and radical velocities for current phase\n"
+        f"{_phase_selection_block(spec.phases, has_ar, switch_pot)}"
+        f"# Ion velocities for current phase\n"
         f"variable    vel_ion equal sqrt(2*${{current_ion_energy}}*6.02214129*1.0e+7/${{current_M_ion}}/6242)/1000\n"
         f"variable    velz_ion equal cos(${{angl}}*PI/180)*${{vel_ion}}\n"
         f"variable    vely_ion equal sin(${{angl}}*PI/180)*${{vel_ion}}\n"
-        f"variable    vel_chem equal sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
-        f"variable    velz_chem equal cos(${{angl}}*PI/180)*${{vel_chem}}\n"
-        f"variable    vely_chem equal sin(${{angl}}*PI/180)*${{vel_chem}}\n"
         f"\n"
+        + (  # potential switch block — only when mixing Ar and non-Ar phases
+            _potential_switch_block() if switch_pot else ""
+        ) + (  # radical velocity vars — only when at least one phase has radicals
+            f"# Radical velocities for current phase\n"
+            f"variable    vel_chem equal sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+            f"variable    velz_chem equal cos(${{angl}}*PI/180)*${{vel_chem}}\n"
+            f"variable    vely_chem equal sin(${{angl}}*PI/180)*${{vel_chem}}\n"
+            f"\n"
+            if has_any_radicals else ""
+        ) +
         f"# Adaptive timestep (used for both neutral and ion loops)\n"
         f"fix         ats all dt/reset 1 NULL 1 0.01 units box\n"
         f"\n"
-        # ---- Neutral deposition loop ----
-        f"# ========================= Begin neutral deposition loop =========================\n"
-        f'if "${{current_flux_ratio}} == 0" then "jump SELF skip_chem"\n'
-        f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{current_flux_ratio}}" then &\n'
-        f'"variable neutral_lp loop $(v_current_flux_ratio-v_cn_start)" &\n'
-        f'elif "${{cn_start}} == ${{current_flux_ratio}}" &\n'
-        f'"jump SELF skip_chem" &\n'
-        f"else &\n"
-        f'"variable neutral_lp loop ${{current_flux_ratio}}"\n'
-        f"\n"
-        f"label       neutral_loop\n"
-        f"variable    cn equal ${{cn}}+1\n"
-        f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{cn}}))\n"
-        f"group       insert clear\n"
-        f"group       mobile subtract all anchor\n"
-        f"{nonargon_refresh}"
-        f"\n"
-        f"# Deposit O• radical (always type 3)\n"
-        f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
-        f"${{chemical_i_above}} ${{chemical_i_above}} "
-        f"vx 0.0 0.0 vy ${{vely_chem}} ${{vely_chem}} vz -${{velz_chem}} -${{velz_chem}} "
-        f"region bbox units box\n"
-        f"fix         2 mobile nve\n"
-        f"fix         3 insert nve\n"
-        f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{event_count}}.dump "
-        f"id type x y z vx vy vz fx fy fz q\n"
-        f"\n"
-        f"timestep    1e-10\n"
-        f"run         1 post no\n"
-        f"{nonargon_refresh}"
-        f"run         0\n"
-        f"variable    starting_nclusts equal $(c_nclusts)\n"
-        f"variable    t0 equal $(time)\n"
-        f"variable    time_elapsed equal time-${{t0}}\n"
-        f"fix         thalt all halt 1 v_time_elapsed > ${{inter_neutral_time}} error continue message yes\n"
-        f"\n"
-        f"# ======================== Neutral inner loop ========================\n"
-        f"label       continue_n_impact\n"
-        f"run         500 pre no post no\n"
-        f"run         0\n"
-        f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
-        f'"variable event_count equal ${{event_count}}+1" &\n'
-        f'"variable starting_nclusts equal $(c_nclusts)"\n'
-        f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
-        f'if "$(time-v_t0) < ${{inter_neutral_time}}" then "jump SELF continue_n_impact"\n'
-        f"\n"
-        f"group       carbon type 1\n"
-        f"group       hydrogen type 2\n"
-        f"group       oxygen type 3\n"
-        f"variable    ncarbon equal count(carbon)\n"
-        f"variable    nhydrogen equal count(hydrogen)\n"
-        f"variable    noxygen equal count(oxygen)\n"
-        f"\n"
-        f'print       "Neutral run ${{cn}} complete"\n'
-        f'print       "C_COUNT_neutral: ${{ncarbon}}"\n'
-        f'print       "${{c}} ${{cn}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
-        f"write_data  impact_snaps/${{c}}_${{cn}}.data nofix nocoeff\n"
-        f"\n"
-        f"unfix       thalt\n"
-        f"undump      current_dump_n\n"
-        f"unfix       depo\n"
-        f"unfix       2\n"
-        f"unfix       3\n"
-        f"# ======================== End neutral inner loop ========================\n"
-        f"next        neutral_lp\n"
-        f"jump        SELF neutral_loop\n"
-        f"\n"
-        f"label       skip_chem\n"
-        f"variable    cn_start equal 0\n"
-        f"variable    cn equal 0\n"
-        f"# ========================= End neutral deposition loop =========================\n"
-        f"\n"
+        + (  # neutral deposition loop — omitted entirely when no phase has radicals
+            f"# ========================= Begin neutral deposition loop =========================\n"
+            f'if "${{current_flux_ratio}} == 0" then "jump SELF skip_chem"\n'
+            f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{current_flux_ratio}}" then &\n'
+            f'"variable neutral_lp loop $(v_current_flux_ratio-v_cn_start)" &\n'
+            f'elif "${{cn_start}} == ${{current_flux_ratio}}" &\n'
+            f'"jump SELF skip_chem" &\n'
+            f"else &\n"
+            f'"variable neutral_lp loop ${{current_flux_ratio}}"\n'
+            f"\n"
+            f"label       neutral_loop\n"
+            f"variable    cn equal ${{cn}}+1\n"
+            f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{cn}}))\n"
+            f"group       insert clear\n"
+            f"group       mobile subtract all anchor\n"
+            f"{nonargon_refresh}"
+            f"\n"
+            f"# Deposit O• radical (always type 3)\n"
+            f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
+            f"${{chemical_i_above}} ${{chemical_i_above}} "
+            f"vx 0.0 0.0 vy ${{vely_chem}} ${{vely_chem}} vz -${{velz_chem}} -${{velz_chem}} "
+            f"region bbox units box\n"
+            f"fix         2 mobile nve\n"
+            f"fix         3 insert nve\n"
+            f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{event_count}}.dump "
+            f"id type x y z vx vy vz fx fy fz q\n"
+            f"\n"
+            f"timestep    1e-10\n"
+            f"run         1 post no\n"
+            f"{nonargon_refresh}"
+            f"run         0\n"
+            f"variable    starting_nclusts equal $(c_nclusts)\n"
+            f"variable    t0 equal $(time)\n"
+            f"variable    time_elapsed equal time-${{t0}}\n"
+            f"fix         thalt all halt 1 v_time_elapsed > ${{inter_neutral_time}} error continue message yes\n"
+            f"\n"
+            f"# ======================== Neutral inner loop ========================\n"
+            f"label       continue_n_impact\n"
+            f"run         500 pre no post no\n"
+            f"run         0\n"
+            f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
+            f'"variable event_count equal ${{event_count}}+1" &\n'
+            f'"variable starting_nclusts equal $(c_nclusts)"\n'
+            f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
+            f'if "$(time-v_t0) < ${{inter_neutral_time}}" then "jump SELF continue_n_impact"\n'
+            f"\n"
+            f"group       carbon type 1\n"
+            f"group       hydrogen type 2\n"
+            f"group       oxygen type 3\n"
+            f"variable    ncarbon equal count(carbon)\n"
+            f"variable    nhydrogen equal count(hydrogen)\n"
+            f"variable    noxygen equal count(oxygen)\n"
+            f"\n"
+            f'print       "Neutral run ${{cn}} complete"\n'
+            f'print       "C_COUNT_neutral: ${{ncarbon}}"\n'
+            f'print       "${{c}} ${{cn}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+            f"write_data  impact_snaps/${{c}}_${{cn}}.data nofix nocoeff\n"
+            f"\n"
+            f"unfix       thalt\n"
+            f"undump      current_dump_n\n"
+            f"unfix       depo\n"
+            f"unfix       2\n"
+            f"unfix       3\n"
+            f"# ======================== End neutral inner loop ========================\n"
+            f"next        neutral_lp\n"
+            f"jump        SELF neutral_loop\n"
+            f"\n"
+            f"label       skip_chem\n"
+            f"variable    cn_start equal 0\n"
+            f"variable    cn equal 0\n"
+            f"# ========================= End neutral deposition loop =========================\n"
+            f"\n"
+            if has_any_radicals else ""
+        ) +
         f"# Thermalize between radicals and ion\n"
         f"include     thermalize.lmp\n"
         f"\n"
