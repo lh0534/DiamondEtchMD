@@ -2,10 +2,11 @@
 
 ## Etch statistics
 Cumulative etch (MLs):  0.2969
+Total ion dose (MLs):  5.234
 Etch yield (C/ion):  0.04465 ± 0.018
   Ion etch yield (C/ion):  0.04465 ± 0.018
-  Radical etch yield (C/radical):  0.02857 ± 0.012
-  Total etch yield:  0.03989
+  Radical etch yield (C/radical):  0.02762 ± 0.012
+  Total etch yield:  0.03956
   Phase 0 (Ar): 0.03438 ± 0.014 C/ion
   Phase 1 (O2): 0.2667 ± 0.16 C/ion  radical: 0.2667 C/radical
 
@@ -23,8 +24,8 @@ n products:  18
   Phase 1 (O2): O:C = 2.125, avg C = 1, avg O = 2.125, n = 8
 
 ## Throughput
-Ion impacts per day:  2.067e+05
-Monolayers per day:  3230
-Cycles per day:  323
+Ion impacts per day:  47.55
+Monolayers per day:  0.743
+Cycles per day:  0.0743
 Total ion impacts:  335
-Total radical impacts:  141
+Total radical impacts:  143

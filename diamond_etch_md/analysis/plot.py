@@ -648,8 +648,11 @@ def make_plots(
     if ml <= 0:
         raise ValueError("ml must be > 0 (provide via spec or ml= keyword)")
 
-    nc, is_cyc = _parse_nc(nc_path)
+    nc, _has_radicals_nc = _parse_nc(nc_path)
     ep = _parse_ep(ep_path)
+    # is_cyc: True if spec declares multiple phases (phase shading, per-cycle plots).
+    # Distinct from _has_radicals_nc (cn>0 rows) which can be true in single-phase RIE.
+    is_cyc = bool(spec and spec.phases)
     plot_spec = spec if is_cyc else None
 
     lat_a = None

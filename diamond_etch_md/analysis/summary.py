@@ -35,17 +35,44 @@ def block_stats(values, n_blocks: int = 10) -> Tuple[float, float]:
 # ── log parsing ───────────────────────────────────────────────────────────────
 
 def _wall_time_seconds(sim_dir) -> Optional[float]:
-    """Parse total wall time from log.lammps or log*.lammps. Returns None if absent."""
-    candidates = sorted(Path(sim_dir).glob('log*.lammps'))
-    plain = Path(sim_dir) / 'log.lammps'
-    if plain.exists() and plain not in candidates:
-        candidates.append(plain)
-    for path in candidates:
-        m = re.search(r'Total wall time:\s*(\d+):(\d+):(\d+)', path.read_text())
+    """Return total simulation wall time in seconds.
+
+    Sums actual LAMMPS compute time from numbered log files (log2.lammps, …),
+    excluding log_make_surf.lammps which times surface creation only.
+
+    For each log:
+      - If 'Total wall time: H:M:S' is present (job completed cleanly), use it.
+      - Otherwise sum all 'Loop time of X …' lines (robust to SLURM kills,
+        user restarts, and error-gap periods — only counts actual MD compute time).
+    """
+    import re as _re
+    sim_dir = Path(sim_dir)
+
+    # Numbered logs only (log2.lammps, log3.lammps, …) — exclude log_make_surf etc.
+    numbered = [p for p in sim_dir.glob('log*.lammps')
+                if _re.match(r'log\d+\.lammps$', p.name)]
+    plain = sim_dir / 'log.lammps'
+    if plain.exists():
+        numbered.append(plain)
+
+    if not numbered:
+        return None
+
+    total_s = 0.0
+    for path in sorted(numbered):
+        text = path.read_text()
+        m = _re.search(r'Total wall time:\s*(\d+):(\d+):(\d+)', text)
         if m:
             h, mn, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            return float(h * 3600 + mn * 60 + s)
-    return None
+            total_s += h * 3600 + mn * 60 + s
+        else:
+            # Sum all 'Loop time of X' entries — counts only actual MD compute,
+            # immune to timestamps and restart gaps.
+            total_s += sum(float(lm.group(1))
+                           for lm in _re.finditer(r'^Loop time of (\S+)', text,
+                                                   _re.MULTILINE))
+
+    return total_s if total_s > 0 else None
 
 
 # ── per-impact sequence helpers ───────────────────────────────────────────────
@@ -62,8 +89,26 @@ def _ion_etch_sequence(nc_records: List[Dict]) -> List[float]:
 
     is_cycling = any(r['cn'] > 0 for r in nc_records)
     if not is_cycling:
-        # single-species: diffs between consecutive records
-        carbons = [r['n_carbon'] for r in nc_records]
+        # single-species: diffs between consecutive records.
+        # The first record (impact=0) is the make_surf baseline; use it only
+        # when its n_carbon is within one ML of the first simulation record,
+        # i.e. when they are from the same box.  If the box changed between
+        # runs (legacy data) the first diff would be garbage, so skip it.
+        sim_recs = [r for r in nc_records if r['impact'] > 0]
+        if not sim_recs:
+            return []
+        make_surf = next((r for r in nc_records if r['impact'] == 0), None)
+        if make_surf is not None:
+            delta = abs(make_surf['n_carbon'] - sim_recs[0]['n_carbon'])
+            ml_est = max(1, sim_recs[0]['n_carbon'] // 30)  # rough atoms-per-ML guess
+            if delta <= ml_est:
+                # Compatible baseline — include it
+                carbons = [make_surf['n_carbon']] + [r['n_carbon'] for r in sim_recs]
+            else:
+                # Incompatible baseline (different box/run) — skip make_surf row
+                carbons = [r['n_carbon'] for r in sim_recs]
+        else:
+            carbons = [r['n_carbon'] for r in sim_recs]
         return [carbons[i - 1] - carbons[i] for i in range(1, len(carbons))]
 
     # cycling: track last-seen n_carbon before each ion
@@ -140,7 +185,10 @@ def analyze_run(
     # filter to carbon-containing products only
     ep_carbon = [r for r in ep if r['n_C'] > 0]
 
-    is_cyc = any(r['cn'] > 0 for r in nc)
+    has_radicals_nc = any(r['cn'] > 0 for r in nc)
+    # is_cyc: True when spec declares multiple phases (phase breakdown in output).
+    # Distinct from has_radicals_nc (cn>0 rows) which is True only in RIE-style phases.
+    is_cyc = bool(spec is not None and spec.phases)
     n_ion = sum(1 for r in nc if r['cn'] == 0)
     n_radical = sum(1 for r in nc if r['cn'] > 0)
     n0 = nc[0]['n_carbon'] if nc else 0
@@ -154,7 +202,7 @@ def analyze_run(
     stats['etch_yield_per_ion'] = ey_mean
     stats['etch_yield_per_ion_err'] = ey_err
 
-    if is_cyc:
+    if has_radicals_nc:
         rad_yields = _radical_etch_sequence(nc)
         ry_mean, ry_err = block_stats(rad_yields, n_blocks)
         stats['etch_yield_per_radical'] = ry_mean
@@ -341,7 +389,7 @@ def write_summary(stats: Dict, path) -> None:
         return s
 
     is_cyc = stats.get('is_cycling', False)
-    has_radicals = is_cyc and stats.get('n_radical_impacts', 0) > 0
+    has_radicals = stats.get('n_radical_impacts', 0) > 0
     per_phase = stats.get('per_phase', {})
     lines = ['# DiamondEtchMD Analysis Summary', '']
 
@@ -350,6 +398,9 @@ def write_summary(stats: Dict, path) -> None:
     lines.append(
         f"Cumulative etch (MLs):{_fmt(stats.get('etch_depth_ml'))}"
     )
+    n_ion_s = stats.get('n_ion_impacts', 0)
+    ml_s = stats.get('ml', 1) or 1
+    lines.append(f"Total ion dose (MLs):{_fmt(n_ion_s / ml_s)}")
     lines.append(
         f"Etch yield (C/ion):{_fmt(stats.get('etch_yield_per_ion'), stats.get('etch_yield_per_ion_err'))}"
     )
@@ -442,7 +493,7 @@ def write_summary(stats: Dict, path) -> None:
     if ipd is not None:
         lines.append(f'Ion impacts per day:{_fmt(ipd)}')
     else:
-        lines.append('Ion impacts per day:  N/A  (log.lammps not found)')
+        lines.append('Ion impacts per day:  N/A')
     ml_day = stats.get('ml_per_day')
     if ml_day is not None:
         lines.append(f'Monolayers per day:{_fmt(ml_day)}')
@@ -452,8 +503,6 @@ def write_summary(stats: Dict, path) -> None:
         cpd = stats.get('cycles_per_day')
         if cpd is not None:
             lines.append(f'Cycles per day:{_fmt(cpd)}')
-        else:
-            lines.append('Cycles per day:  N/A')
     lines.append(f"Total ion impacts:  {stats.get('n_ion_impacts', 'N/A')}")
     if has_radicals:
         lines.append(f"Total radical impacts:  {stats.get('n_radical_impacts', 'N/A')}")

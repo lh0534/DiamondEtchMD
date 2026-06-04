@@ -45,29 +45,35 @@ def parse_ncarbon(path) -> List[Dict[str, Any]]:
         impact (int), cn (int, 0 for single-species),
         n_carbon (int), n_hydrogen (int), n_oxygen (int)
     """
-    records = []
+    # Use an ordered dict keyed by (impact, cn) so that if the same impact+cn
+    # appears more than once (e.g. a legacy 4-col entry followed by a 5-col
+    # re-run from a restart), the LAST occurrence wins (5-col overwrites 4-col).
+    by_key: dict = {}
     for line in Path(path).read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split()
         if len(parts) == 5:
-            records.append({
+            rec = {
                 "impact":     int(parts[0]),
                 "cn":         int(parts[1]),
                 "n_carbon":   int(parts[2]),
                 "n_hydrogen": int(parts[3]),
                 "n_oxygen":   int(parts[4]),
-            })
+            }
         elif len(parts) >= 4:
-            records.append({
+            rec = {
                 "impact":     int(parts[0]),
                 "cn":         0,
                 "n_carbon":   int(parts[1]),
                 "n_hydrogen": int(parts[2]),
                 "n_oxygen":   int(parts[3]),
-            })
-    return records
+            }
+        else:
+            continue
+        by_key[(rec["impact"], rec["cn"])] = rec
+    return list(by_key.values())
 
 
 def is_cycling_format(path) -> bool:
@@ -106,10 +112,15 @@ def parse_ncarbon_cycling(path, spec=None) -> List[Dict[str, Any]]:
             phase_boundaries.append((cum, p.species))
 
     records = []
-    prev_ion_nc = raw[0]['n_carbon']
+    # Use the first simulation record (impact > 0) as baseline, not the make_surf
+    # row (impact == 0), which may come from a different box size / prior run.
+    sim_start = next((r for r in raw if r['impact'] > 0), raw[0])
+    prev_ion_nc = sim_start['n_carbon']
     last_radical_nc = prev_ion_nc
 
     for r in raw:
+        if r['impact'] == 0:
+            continue  # skip make_surf row
         if r['cn'] == 0:
             # ion impact
             ion_etch = last_radical_nc - r['n_carbon']
