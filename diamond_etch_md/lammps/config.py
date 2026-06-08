@@ -14,7 +14,7 @@ from ..spec import SimSpec, CyclePhase
 def get_config_lmp(spec: SimSpec) -> str:
     """Generate the contents of config.lmp for the given SimSpec.
 
-    Handles both theory-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
+    Handles both ion-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
     When flux_ratio > 0, additional radical-related variables are appended.
     """
     species = SPECIES[spec.species]

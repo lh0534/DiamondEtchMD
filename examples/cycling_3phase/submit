@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=100_Oether_3phase_Ar50_O1_O2_20_x5
+#SBATCH --job-name=100_Oether_3phase_Ar50_O1_R5_O2_20_R2_x5
 #SBATCH --nodes=1
 #SBATCH --mem=16G
 #SBATCH --ntasks=1
@@ -44,7 +44,7 @@ fi
 n_lat_0=$(grep ' atoms' impact_snaps/0.data | awk '{print $1}')
 n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $1}')
 n_complete=${n_complete:-0}
-cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk 'NF>=5{print $2} NF<5{print 0}')
+cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk '{print $2}')
 cn_start=${cn_start:-0}
 data_file=$(ls -t impact_snaps/*.data | head -1)
 log_file=log$(echo "$(ls | grep -c .lammps)+1" | bc).lammps

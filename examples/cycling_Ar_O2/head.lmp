@@ -56,6 +56,7 @@ if "${pot} == REAX" then &
 "pair_coeff 4 4 zbl 18.0 18.0" &
 "group nonargon type 1 2 3" &
 "fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"
+variable    prev_needs_zbl equal 1
 
 # Restart state
 variable    c equal ${n_complete}
@@ -114,6 +115,7 @@ variable current_M_ion equal ${M_O}
 variable current_flux_ratio equal ${phase_1_flux_ratio}
 variable current_radical_energy equal ${phase_1_radical_energy}
 variable current_needs_removal equal 0
+variable current_needs_zbl equal 0
 
 if "${idx_in_cycle} < ${phase_0_end}" then &
 "variable current_ion_type equal 4" &
@@ -122,12 +124,33 @@ if "${idx_in_cycle} < ${phase_0_end}" then &
 "variable current_M_ion equal ${M_Ar}" &
 "variable current_flux_ratio equal ${phase_0_flux_ratio}" &
 "variable current_radical_energy equal ${phase_0_radical_energy}" &
-"variable current_needs_removal equal 1"
+"variable current_needs_removal equal 1" &
+"variable current_needs_zbl equal 1"
 
-# Ion and radical velocities for current phase
+# Ion velocities for current phase
 variable    vel_ion equal sqrt(2*${current_ion_energy}*6.02214129*1.0e+7/${current_M_ion}/6242)/1000
 variable    velz_ion equal cos(${angl}*PI/180)*${vel_ion}
 variable    vely_ion equal sin(${angl}*PI/180)*${vel_ion}
+
+# Switch pair potential when moving between Ar and non-Ar phases
+if "${prev_needs_zbl} == 1 && ${current_needs_zbl} == 0" then &
+"unfix reax_qeq" &
+"pair_style reaxff NULL mincap 200 safezone 1.5" &
+"pair_coeff * * ffield.reax C H O NULL" &
+"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"
+if "${prev_needs_zbl} == 0 && ${current_needs_zbl} == 1" then &
+"unfix reax_qeq" &
+"pair_style hybrid reaxff NULL mincap 200 safezone 1.5 zbl 5.0 6.0" &
+"pair_coeff * * reaxff ffield.reax C H O NULL" &
+"pair_coeff 1 4 zbl 6.0 18.0" &
+"pair_coeff 2 4 zbl 1.0 18.0" &
+"pair_coeff 3 4 zbl 8.0 18.0" &
+"pair_coeff 4 4 zbl 18.0 18.0" &
+"group nonargon type 1 2 3" &
+"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"
+variable prev_needs_zbl equal ${current_needs_zbl}
+
+# Radical velocities for current phase
 variable    vel_chem equal sqrt(2*${current_radical_energy}*6.02214129*1.0e+7/${M_O}/6242)/1000
 variable    velz_chem equal cos(${angl}*PI/180)*${vel_chem}
 variable    vely_chem equal sin(${angl}*PI/180)*${vel_chem}

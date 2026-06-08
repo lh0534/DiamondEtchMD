@@ -119,20 +119,20 @@ spec3 = SimSpec(
     temperature = 300.0,
 
     ml          = ml,
-    box_x       = 8,
-    box_y       = 8,
-    box_depth   = 6,           # 6 for 50 eV Ar+
+    box_x       = 6,
+    box_y       = 6,
+    box_depth   = 4,           # 4 for 50 eV Ar+
 
     phases = [
         CyclePhase(species="Ar", energy=50.0, fluence_ml=5),
         CyclePhase(species="O",  energy=1.0,  fluence_ml=3, flux_ratio=5),
         CyclePhase(species="O2", energy=20.0, fluence_ml=5,
-                   flux_ratio=10, radical_energy=0.2),
+                   flux_ratio=2, radical_energy=0.2),
     ],
-    cycles     = 5,
+    cycles     = 3,
     wall_hours = 48,
     account    = "dgraves",
-    name       = "100_Oether_3phase_Ar50_O1_O2_20_x5",
+    name       = "100_Oether_3phase_Ar50_O1_R5_O2_20_R2_x5",
 )
 
 validate(spec3)

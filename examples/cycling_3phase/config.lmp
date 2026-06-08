@@ -1,11 +1,11 @@
 # DiamondEtchMD generated config (cycling mode)
 # orientation=100  surface=O_ether  T=300.0K
-# phases: Ar@50.0eV×5ML, O@1.0eV×3ML+O•R5, O2@20.0eV×5ML+O•R10
-# 5 cycle(s) × 13 ML/cycle = 65 ML total
+# phases: Ar@50.0eV×5ML, O@1.0eV×3ML+O•R5, O2@20.0eV×5ML+O•R2
+# 3 cycle(s) × 13 ML/cycle = 39 ML total
 
 variable    ML equal 64            # atoms per monolayer
-variable    cycles equal 5
-variable    end_fluence equal 65  # total ML
+variable    cycles equal 3
+variable    end_fluence equal 39  # total ML
 
 variable    angl equal 0.0       # incident angle (deg from normal)
 variable    T equal 300.0    # substrate temperature (K)
@@ -17,9 +17,9 @@ variable    starting_data_file string data.truncated
 if "${pot} == REAX" then &
 "variable    lat_a file lat_a.txt"
 
-variable    x equal 8
-variable    y equal 8
-variable    lat_top equal 6
+variable    x equal 6
+variable    y equal 6
+variable    lat_top equal 4
 variable    z equal ${lat_top}+5
 
 variable    reconstruct equal false
@@ -51,5 +51,5 @@ variable    phase_1_flux_ratio equal 5
 variable    phase_1_radical_energy equal 0.2
 variable    phase_2_ml equal 5       # ML per cycle (O2)
 variable    phase_2_energy equal 10.0 # eV/atom
-variable    phase_2_flux_ratio equal 10
+variable    phase_2_flux_ratio equal 2
 variable    phase_2_radical_energy equal 0.2

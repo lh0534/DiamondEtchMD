@@ -7,7 +7,7 @@ with the package (ffield.reax, lat_a.txt, sweep.lmp, thermalize.lmp, addfix.lmp)
 All surface templates are package-bundled; no external dfiles directory is needed.
 
 Routing by etch mode (from spec.py etch_mode()):
-  theory-etch  — spec.phases is None, flux_ratio == 0
+  ion-etch  — spec.phases is None, flux_ratio == 0
   rie-etch     — spec.phases is None, flux_ratio > 0
   cycle-etch   — spec.phases is not None
   ALE-etch     — cycle-etch with exactly 2 phases; use make_ale() factory
@@ -140,7 +140,7 @@ def make_ale(spec: SimSpec, outdir: Path) -> None:
     if spec.phases is None:
         sys.exit(
             "make_ale() requires spec.phases to be set with exactly 2 CyclePhase entries. "
-            "Use make_sim() for single-species (theory-etch or RIE-etch) simulations."
+            "Use make_sim() for single-species (ion-etch or RIE-etch) simulations."
         )
     if len(spec.phases) != 2:
         sys.exit(

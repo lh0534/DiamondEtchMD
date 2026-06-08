@@ -5,11 +5,11 @@ head.lmp is the top-level script passed to lmp via -in.  It includes config.lmp,
 sets up atom groups, the force field, computes, and runs the per-impact outer loop.
 
 Supports two single-species modes:
-  theory-etch  (flux_ratio == 0): ions only; 4-col ncarbon.txt format.
+  ion-etch  (flux_ratio == 0): ions only; 4-col ncarbon.txt format.
   RIE-etch     (flux_ratio > 0) : O• radicals deposited before each ion impact;
                5-col ncarbon.txt format (same as cycle-etch).
 
-  For each impact (theory-etch):
+  For each impact (ion-etch):
     1. deposit incident particle
     2. adaptive-timestep NVE until impact_time reached or cluster separates
     3. thermalize substrate
@@ -19,7 +19,7 @@ Supports two single-species modes:
   For each impact (RIE-etch) — adds a radical pre-exposure loop:
     0. deposit flux_ratio O• radicals; after each: write 5-col ncarbon.txt,
        save impact_snaps/${c}_${cn}.data
-    1–5. same as theory-etch, but ncarbon.txt uses 5-col; save impact_snaps/${c}_0.data
+    1–5. same as ion-etch, but ncarbon.txt uses 5-col; save impact_snaps/${c}_0.data
 
 The lattice command and bottom expression embedded in head.lmp are
 orientation-specific and are pulled from the ORIENT registry.
@@ -169,7 +169,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
 def get_head_lmp(spec: SimSpec) -> str:
     """Generate the contents of head.lmp for the given SimSpec.
 
-    Supports theory-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
+    Supports ion-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
     """
     cfg = ORIENT[spec.orientation]
     lattice_cmd = cfg["lattice_cmd"]
@@ -214,7 +214,7 @@ def get_head_lmp(spec: SimSpec) -> str:
             f"\n"
         )
 
-    # ncarbon.txt output format: 5-col for RIE-etch, 4-col for theory-etch
+    # ncarbon.txt output format: 5-col for RIE-etch, 4-col for ion-etch
     if is_rie:
         ncarbon_print = f'print "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}_0.data nofix nocoeff\n"
@@ -226,7 +226,7 @@ def get_head_lmp(spec: SimSpec) -> str:
     radical_loop = _radical_loop_block(spec) if is_rie else ""
 
     # In RIE-etch mode, ion counter is NOT incremented at top of loop (radicals run first)
-    # In theory-etch mode, increment happens in place
+    # In ion-etch mode, increment happens in place
     loop_counter_line = f"variable    c equal ${{c}}+1\n"
 
     return (

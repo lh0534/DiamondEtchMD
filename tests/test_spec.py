@@ -151,9 +151,9 @@ def test_simspec_defaults():
 
 # ─── etch_mode() ──────────────────────────────────────────────────────────────
 
-def test_etch_mode_theory_etch():
+def test_etch_mode_ion_etch():
     s = SimSpec(orientation="100", surface="1x1", species="O", ml=81)
-    assert etch_mode(s) == "theory-etch"
+    assert etch_mode(s) == "ion-etch"
 
 
 def test_etch_mode_rie_etch():

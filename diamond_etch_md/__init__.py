@@ -6,7 +6,7 @@ surfaces using the ReaxFF potential within the LAMMPS radicals framework.
 
 Simulation modes
 ----------------
-theory-etch  — single species, ions only, no radicals (flux_ratio == 0).
+ion-etch  — single species, ions only, no radicals (flux_ratio == 0).
 RIE-etch     — single species, ions with O• radical pre-exposure (flux_ratio > 0).
 cycle-etch   — multi-phase cycling (spec.phases is not None).
 ALE-etch     — cycle-etch with exactly 2 phases; use make_ale() factory.

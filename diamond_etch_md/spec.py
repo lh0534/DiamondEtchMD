@@ -3,7 +3,7 @@ spec.py — SimSpec dataclass, ML formula, and validation.
 
 Simulation modes
 ----------------
-theory-etch  — single species, ions only, no radicals (flux_ratio == 0, phases is None).
+ion-etch  — single species, ions only, no radicals (flux_ratio == 0, phases is None).
 RIE-etch     — single species, ions with O• radicals before each impact (flux_ratio > 0,
                phases is None). Requires a non-Ar species.
 cycle-etch   — multi-phase cycling (phases is not None).
@@ -63,7 +63,7 @@ class SimSpec:
     remove_ar:           bool  = True   # delete Ar atoms after each impact; set False to retain
     seed_adjust:         int   = 0      # random seed offset; increment for independent replicas
     # ── RIE-etch mode (single-species with radical pre-exposure) ──────────────
-    flux_ratio:          int   = 0      # O• radicals per ion impact (0 = theory-etch; >0 = RIE-etch)
+    flux_ratio:          int   = 0      # O• radicals per ion impact (0 = ion-etch; >0 = RIE-etch)
     radical_energy:      float = 0.2    # eV per O• radical (RIE-etch only)
     # ── Cycling mode ──────────────────────────────────────────────────────────
     phases:              Optional[List[CyclePhase]] = None  # None = single-species mode
@@ -82,7 +82,7 @@ def etch_mode(spec: "SimSpec") -> str:
     """Return the etch mode string for a SimSpec.
 
     Returns:
-        "theory-etch"  — single species, no radicals (flux_ratio == 0, phases is None)
+        "ion-etch"  — single species, no radicals (flux_ratio == 0, phases is None)
         "rie-etch"     — single species with O• radicals (flux_ratio > 0, phases is None)
         "cycle-etch"   — multi-phase cycling (phases is not None)
     """
@@ -90,7 +90,7 @@ def etch_mode(spec: "SimSpec") -> str:
         return "cycle-etch"
     if spec.flux_ratio > 0:
         return "rie-etch"
-    return "theory-etch"
+    return "ion-etch"
 
 
 def validate(spec: "SimSpec") -> None:
@@ -134,7 +134,7 @@ def validate(spec: "SimSpec") -> None:
             if p.flux_ratio < 0:
                 sys.exit(f"Phase {i}: flux_ratio must be >= 0, got {p.flux_ratio}.")
     else:
-        # ── Single-species-mode validation (theory-etch or RIE-etch) ──────
+        # ── Single-species-mode validation (ion-etch or RIE-etch) ──────
         if spec.species not in SPECIES:
             sys.exit(f"Unknown species '{spec.species}'. Choose from: {list(SPECIES)}")
         if spec.flux_ratio < 0:

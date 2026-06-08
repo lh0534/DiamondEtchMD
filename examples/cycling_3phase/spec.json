@@ -7,18 +7,22 @@
   "angle": 0.0,
   "fluence": 50,
   "ml": 64,
-  "box_x": 8,
-  "box_y": 8,
-  "box_depth": 6,
+  "box_x": 6,
+  "box_y": 6,
+  "box_depth": 4,
   "impact_time": 2000.0,
   "thermalization_time": 500.0,
   "inter_neutral_time": 1000.0,
   "wall_hours": 48,
-  "name": "100_Oether_3phase_Ar50_O1_O2_20_x5",
+  "name": "100_Oether_3phase_Ar50_O1_R5_O2_20_R2_x5",
   "account": "dgraves",
   "email": "",
   "lammps_module": "lammps/kokkos/gpu_della9_2022",
   "plot_interval_hours": 12,
+  "remove_ar": true,
+  "seed_adjust": 0,
+  "flux_ratio": 0,
+  "radical_energy": 0.2,
   "phases": [
     {
       "species": "Ar",
@@ -38,9 +42,9 @@
       "species": "O2",
       "energy": 20.0,
       "fluence_ml": 5,
-      "flux_ratio": 10,
+      "flux_ratio": 2,
       "radical_energy": 0.2
     }
   ],
-  "cycles": 5
+  "cycles": 3
 }

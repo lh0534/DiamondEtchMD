@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--flux-ratio", type=int, default=0, dest="flux_ratio", metavar="N",
         help=(
             "RIE-etch: number of O• radicals deposited before each ion impact "
-            "(0 = theory-etch, no radicals; default: 0)"
+            "(0 = ion-etch, no radicals; default: 0)"
         ),
     )
     bomb.add_argument(

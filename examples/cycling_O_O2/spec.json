@@ -19,6 +19,10 @@
   "email": "",
   "lammps_module": "lammps/kokkos/gpu_della9_2022",
   "plot_interval_hours": 12,
+  "remove_ar": true,
+  "seed_adjust": 0,
+  "flux_ratio": 0,
+  "radical_energy": 0.2,
   "phases": [
     {
       "species": "O",

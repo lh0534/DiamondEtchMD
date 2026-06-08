@@ -115,10 +115,12 @@ if "${idx_in_cycle} < ${phase_0_end}" then &
 "variable current_flux_ratio equal ${phase_0_flux_ratio}" &
 "variable current_radical_energy equal ${phase_0_radical_energy}"
 
-# Ion and radical velocities for current phase
+# Ion velocities for current phase
 variable    vel_ion equal sqrt(2*${current_ion_energy}*6.02214129*1.0e+7/${current_M_ion}/6242)/1000
 variable    velz_ion equal cos(${angl}*PI/180)*${vel_ion}
 variable    vely_ion equal sin(${angl}*PI/180)*${vel_ion}
+
+# Radical velocities for current phase
 variable    vel_chem equal sqrt(2*${current_radical_energy}*6.02214129*1.0e+7/${M_O}/6242)/1000
 variable    velz_chem equal cos(${angl}*PI/180)*${vel_chem}
 variable    vely_chem equal sin(${angl}*PI/180)*${vel_chem}

@@ -47,7 +47,7 @@ def _final_plot_block(ml_var: str = "$ML") -> str:
 def get_submit_script(spec: SimSpec) -> str:
     """Generate the contents of the SLURM submit script for the given SimSpec.
 
-    Handles both theory-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
+    Handles both ion-etch (flux_ratio == 0) and RIE-etch (flux_ratio > 0).
     For RIE-etch, reads cn_start (col 2 of last ncarbon.txt line) and passes
     -var neut_complete $cn_start to LAMMPS for mid-radical-loop restarts.
     """

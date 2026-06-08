@@ -2,7 +2,7 @@
 
 Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics
 simulations of diamond surface etching. Handles three physically relevant
-bombardment regimes — **theory-etch** (ion-only baseline), **RIE-etch**
+bombardment regimes — **ion-etch** (ion-only baseline), **RIE-etch**
 (reactive-ion etching with simultaneous radical exposure), and **cycle-etch**
 (multi-phase alternating-species cycling, including **ALE-etch**) — across four
 crystal orientations and a range of surface reconstructions and terminations.
@@ -11,7 +11,7 @@ run locally (requires a GPU).
 
 | Mode | What it models |
 |---|---|
-| **theory-etch** | Ion bombardment with no radicals for understanding etch thresholds and facet-dependence. |
+| **ion-etch** | Ion bombardment with no radicals for understanding etch thresholds and facet-dependence. |
 | **RIE-etch** | O• radicals deposited between each ion impact for modelling plasma reactive-ion etching (RIE). |
 | **cycle-etch / ALE-etch** | Alternating phases of different ionic species, flux ratios, and/or conditions. Atomic layer etching (ALE) is a 2-phase cycle. |
 
@@ -19,12 +19,12 @@ run locally (requires a GPU).
 
 ## Etching modes
 
-### theory-etch — ion bombardment baseline
+### ion-etch — ion bombardment baseline
 
 Single-species ion bombardment with no radical co-exposure. Ions of one type
 (O⁺, O₂⁺, or Ar⁺) are delivered one at a time at a specified energy and angle.
 
-Use theory-etch to calculate facet-dependent ion energy etch thresholds, angle-dependence, or temperature-dependence.
+Use ion-etch to calculate facet-dependent ion energy etch thresholds, angle-dependence, or temperature-dependence.
 
 ### RIE-etch — reactive-ion etching
 
@@ -48,9 +48,9 @@ for `cycles` repetitions.
 phases — typically a surface modification phase followed by a layer-removal
 phase. Use `make_ale()` in place of `make_sim()` to enforce the 2-phase
 constraint. ALE-etch with `flux_ratio=0` in every phase reduces to alternating
-theory-etch cycles.
+ion-etch cycles.
 
-`etch_mode(spec)` returns `"theory-etch"`, `"rie-etch"`, or `"cycle-etch"` for
+`etch_mode(spec)` returns `"ion-etch"`, `"rie-etch"`, or `"cycle-etch"` for
 any `SimSpec`.
 
 ---
@@ -188,7 +188,7 @@ The CLI (`diamond-etch-md`) exists for scripted use but is not recommended for
 most research workflows — set parameters in Python where they are
 version-controlled alongside your analysis code.
 
-### theory-etch
+### ion-etch
 
 [`examples/O_radical_100.py`](examples/O_radical_100.py) — O⁺ bombardment
 of C(100) O-ether surface at 0.5 eV, no radical co-exposure.
@@ -245,7 +245,7 @@ spec = SimSpec(
 validate(spec)
 make_sim(spec, Path("RIE_O20eV_R5"))
 
-# Matched theory-etch baseline for ion-radical synergy analysis:
+# Matched ion-etch baseline for ion-radical synergy analysis:
 import dataclasses
 spec_base = dataclasses.replace(spec, flux_ratio=0, name="100_1x1_O20eV_theory")
 make_sim(spec_base, Path("theory_O20eV"))
@@ -379,7 +379,7 @@ diamond_etch_md/
   cli.py           diamond-etch-md, diamond-etch-md-plot entry points
   lammps/
     config.py         get_config_lmp(), get_config_lmp_cycle_etch()
-    head.py           get_head_lmp()            — theory-etch and RIE-etch driver
+    head.py           get_head_lmp()            — ion-etch and RIE-etch driver
     head_cycling.py   get_head_lmp_cycle_etch() — cycle-etch multi-phase driver
     submit.py         get_submit_script(), get_submit_script_cycle_etch()
     templates/
@@ -408,7 +408,7 @@ diamond_etch_md/
 | `energy` | float | `0.5` | Incident particle energy (eV); total dimer KE for O₂ |
 | `angle` | float | `0.0` | Incidence angle from surface normal (degrees) |
 | `fluence` | int | `50` | Total fluence in ML (single-species modes) |
-| `flux_ratio` | int | `0` | O• radicals per ion impact — `0` = theory-etch, `>0` = RIE-etch |
+| `flux_ratio` | int | `0` | O• radicals per ion impact — `0` = ion-etch, `>0` = RIE-etch |
 | `radical_energy` | float | `0.2` | eV per O• radical (RIE-etch only) |
 | `ml` | int | `0` | Atoms per monolayer; `0` triggers `compute_ml()` |
 | `box_x` | int | `9` | Lateral box size, x (lattice units) |
@@ -503,7 +503,7 @@ depths = etch_depth(nc, ml=81, box_x=9, box_y=9, orientation="100")
 impact#  n_C  n_H  n_O
 ```
 
-**`ncarbon.txt`** — theory-etch (4 columns):
+**`ncarbon.txt`** — ion-etch (4 columns):
 ```
 impact#  n_carbon  n_hydrogen  n_oxygen
 ```
@@ -524,17 +524,17 @@ annotations on every field.
 
 | File | Mode | What it demonstrates |
 |---|---|---|
-| [`O_radical_100.py`](examples/O_radical_100.py) | theory-etch | O⁺ on C(100) O-ether surface |
-| [`Ar_sputtering_100.py`](examples/Ar_sputtering_100.py) | theory-etch | Ar⁺ physical sputtering of C(100) 1×1 at 100 eV |
-| [`O2_bombardment_111.py`](examples/O2_bombardment_111.py) | theory-etch | O₂⁺ dimer on C(111) Pandey chain |
-| [`O_terminated_111_pandey.py`](examples/O_terminated_111_pandey.py) | theory-etch | C(111) Pandey chain + O-terminated |
-| [`O_etching_113.py`](examples/O_etching_113.py) | theory-etch | C(113) O-terminated surface |
-| [`O_etching_110.py`](examples/O_etching_110.py) | theory-etch | C(110) bare and O-terminated |
-| [`angled_Ar_100.py`](examples/angled_Ar_100.py) | theory-etch | 45° off-normal Ar⁺ incidence |
-| [`high_energy_O_100.py`](examples/high_energy_O_100.py) | theory-etch | 200 eV O⁺ with deep slab |
+| [`O_radical_100.py`](examples/O_radical_100.py) | ion-etch | O⁺ on C(100) O-ether surface |
+| [`Ar_sputtering_100.py`](examples/Ar_sputtering_100.py) | ion-etch | Ar⁺ physical sputtering of C(100) 1×1 at 100 eV |
+| [`O2_bombardment_111.py`](examples/O2_bombardment_111.py) | ion-etch | O₂⁺ dimer on C(111) Pandey chain |
+| [`O_terminated_111_pandey.py`](examples/O_terminated_111_pandey.py) | ion-etch | C(111) Pandey chain + O-terminated |
+| [`O_etching_113.py`](examples/O_etching_113.py) | ion-etch | C(113) O-terminated surface |
+| [`O_etching_110.py`](examples/O_etching_110.py) | ion-etch | C(110) bare and O-terminated |
+| [`angled_Ar_100.py`](examples/angled_Ar_100.py) | ion-etch | 45° off-normal Ar⁺ incidence |
+| [`high_energy_O_100.py`](examples/high_energy_O_100.py) | ion-etch | 200 eV O⁺ with deep slab |
 | [`RIE_etching_100.py`](examples/RIE_etching_100.py) | RIE-etch | O⁺ at 20 eV + O• pre-exposure (flux_ratio=5) |
 | [`cycling_Ar_O2_100.py`](examples/cycling_Ar_O2_100.py) | cycle/ALE | Ar⁺→O₂⁺, O⁺→O₂⁺, 3-phase Ar⁺→O⁺→O₂⁺ |
-| [`make_all_surfaces.py`](examples/make_all_surfaces.py) | theory-etch | Generate a simulation directory for every supported surface |
+| [`make_all_surfaces.py`](examples/make_all_surfaces.py) | ion-etch | Generate a simulation directory for every supported surface |
 
 ---
 

@@ -399,8 +399,8 @@ def test_config_rie_contains_inter_neutral_time():
     assert "variable    inter_neutral_time equal 800.0" in cfg
 
 
-def test_config_theory_etch_no_flux_ratio_variable():
-    """theory-etch (flux_ratio==0) must NOT have flux_ratio LAMMPS variable."""
+def test_config_ion_etch_no_flux_ratio_variable():
+    """ion-etch (flux_ratio==0) must NOT have flux_ratio LAMMPS variable."""
     cfg = get_config_lmp(make_spec(ml=81))
     assert "flux_ratio" not in cfg
 
@@ -428,8 +428,8 @@ def test_head_rie_5col_ncarbon_format():
     assert "${c} 0 ${ncarbon} ${nhydrogen} ${noxygen}" in head
 
 
-def test_head_theory_etch_4col_ncarbon_format():
-    """theory-etch should write 4-col ncarbon.txt: c ncarbon nhydrogen noxygen."""
+def test_head_ion_etch_4col_ncarbon_format():
+    """ion-etch should write 4-col ncarbon.txt: c ncarbon nhydrogen noxygen."""
     head = get_head_lmp(make_spec(ml=81))
     assert "${c} ${ncarbon} ${nhydrogen} ${noxygen}" in head
     assert "${c} 0 ${ncarbon}" not in head
@@ -441,15 +441,15 @@ def test_head_rie_data_file_with_cn_suffix():
     assert "impact_snaps/${c}_0.data" in head
 
 
-def test_head_theory_etch_data_file_no_suffix():
-    """theory-etch snapshot goes to impact_snaps/${c}.data (no _cn suffix)."""
+def test_head_ion_etch_data_file_no_suffix():
+    """ion-etch snapshot goes to impact_snaps/${c}.data (no _cn suffix)."""
     head = get_head_lmp(make_spec(ml=81))
     assert "impact_snaps/${c}.data" in head
     assert "impact_snaps/${c}_0.data" not in head
 
 
 def test_head_rie_no_neutral_loop_when_zero_flux():
-    """theory-etch must NOT contain the radical loop labels."""
+    """ion-etch must NOT contain the radical loop labels."""
     head = get_head_lmp(make_spec(ml=81))
     assert "neutral_loop" not in head
     assert "skip_radicals" not in head
@@ -468,7 +468,7 @@ def test_submit_rie_reads_cn_start():
     assert "awk '{print $2}'" in sub
 
 
-def test_submit_theory_etch_no_neut_complete():
+def test_submit_ion_etch_no_neut_complete():
     sub = get_submit_script(make_spec(ml=81))
     assert "neut_complete" not in sub
     assert "cn_start" not in sub
