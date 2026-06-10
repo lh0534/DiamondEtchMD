@@ -57,4 +57,4 @@ spec1 = SimSpec(
 
 validate(spec1)
 print(f"etch_mode = {etch_mode(spec1)}")    # → "multi-rie-etch"
-make_sim(spec1, Path("MULTI_RIE_100_Oether_O_50p_20eV_O2_50p_40eV_R2"))
+make_sim(spec1, Path("MULTI_RIE_100_Oether_O_O2"))

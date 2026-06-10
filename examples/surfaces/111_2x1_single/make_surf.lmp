@@ -24,13 +24,10 @@ region          anchor block INF INF INF INF ${bottom} ${sublat} units lattice #
 if "${use_starting_data_file}" then &
     "read_data       ${starting_data_file} add merge" &
     "group carbon type 1" &
-    "variable        n_lat_0  equal $(count(carbon)) # n_lat_0 is the starting number of carbon" &
 else &
     "create_atoms    1 region lbox" &
-    "variable        n_lat_0  equal $(12*v_x*v_y*v_lat_top) # 12 times the number of unit cells for 111"
 
 set group all charge 0.0
-print 'N_LAT_0 ${n_lat_0}'
 
 # Groups
 group 	anchor region anchor
@@ -73,12 +70,17 @@ if "!${use_starting_data_file}" then &
 "group row1 delete"
 
 if "${O_terminate} && !${use_starting_data_file}" then &
-"variable term_top equal ${lat_top}+3/8" &
-"variable term_bottom equal ${lat_top}+1/8" &
+"variable term_top equal ${lat_top}+(1/8/${lat_az})" &
+"variable term_bottom equal ${lat_top}" &
 "region term block 0 ${x} 0 ${y} ${term_bottom} ${term_top} units lattice" &
 "create_atoms 3 region term" &
+"#variable row0 atom (round(x/${lat_ax}*2)%2==0)&&(z>((${lat_top})*${lat_az}))&&(z<((${lat_top}+1/4)*${lat_az}))" &
+"#group row0 variable row0" &
+"#delete_atoms group row0" &
+"#group row0 clear" &
 "group O type 3" &
-"displace_atoms O move 0.0 0.0 $(1/4) units lattice" &
+"#displace_atoms O move 0.0 0.25 0.05 units lattice" &
+"displace_atoms O move -0.15 -0.4 -0.06 units lattice" &
 "group O delete"
 
 minimize 1.0e-5 1.0e-6 1000 10000
@@ -101,9 +103,11 @@ if "!${use_starting_data_file}" then &
 "reset_timestep  0 time 0.0 # pretend this never happened"
 
 # write initial values
+variable n_lat_0 equal $(count(carbon))
+print 'N_LAT_0 ${n_lat_0}'
 write_data      111_2x1SC_${T}K.dat nofix nocoeff
 write_data      impact_snaps/0.data nofix nocoeff
-write_dump      all custom ML_impacts.dump id type x y z vx vy vz modify sort id
+write_dump      all custom ML_impacts.dump id type q x y z vx vy vz modify sort id
 
 print "0 0 ${n_lat_0} 0 0" append ncarbon.txt
 print "0 ${bottom} ${n_lat_0}" append bottom_tracker.txt

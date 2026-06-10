@@ -1,0 +1,40 @@
+{
+  "orientation": "100",
+  "surface": "O_ether",
+  "temperature": 300.0,
+  "species": "O",
+  "energy": 0.5,
+  "angle": 0.0,
+  "fluence": 20,
+  "ml": 36,
+  "box_x": 6,
+  "box_y": 6,
+  "box_depth": 4,
+  "impact_time": 1000.0,
+  "thermalization_time": 500.0,
+  "inter_neutral_time": 1000.0,
+  "wall_hours": 24,
+  "name": "MULTI_RIE_100_Oether_O_50p_20eV_O2_50p_40eV_R5",
+  "account": "dgraves",
+  "email": "",
+  "lammps_module": "lammps/kokkos/gpu_della9_2022",
+  "plot_interval_hours": 12,
+  "remove_ar": true,
+  "seed_adjust": 0,
+  "flux_ratio": 2,
+  "radical_energy": 0.2,
+  "phases": null,
+  "cycles": 1,
+  "ion_mix": [
+    {
+      "species": "O",
+      "fraction": 0.5,
+      "energy": 20.0
+    },
+    {
+      "species": "O2",
+      "fraction": 0.5,
+      "energy": 40.0
+    }
+  ]
+}

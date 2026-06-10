@@ -44,7 +44,7 @@ mass        4 ${M_Ar}
 # Potential
 if "${pot} == REAX" then &
 "pair_style reaxff NULL mincap 200 safezone 1.5" &
-"pair_coeff * * ffield.reax C H O NULL" &
+"pair_coeff * * ffield.reax C H O C" &
 "fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"
 
 # Pre-run counters
@@ -91,7 +91,6 @@ print "${c}" file begin.txt
 
 # ========================= Begin Per-Impact Outer Loop =========================
 label		loop
-
 dump current_dump all custom 100 etch_event_trajs/event_dump_${event_count}.dump id type x y z vx vy vz fx fy fz q
 
 group       insert clear
@@ -118,16 +117,29 @@ variable    time_elapsed equal time-${t0}
 fix         thalt all halt 1 v_time_elapsed > ${impact_time} error continue message yes
 
 run         0 post no
+variable    n_channelled equal 0
 # =========================== begin inner loop ===========================
-variable    cn equal 0
 label		continue_impact
 
 run         1000000000 pre no post no
-if "$(time-v_t0) > ${impact_time}" then "run 0"
-if "${one_clust} == 0" then "include sweep.lmp"
+run         0
 if "$(c_nclusts) > ${starting_nclusts}" then &
 "variable event_count equal ${event_count}+1" &
 "variable starting_nclusts equal $(c_nclusts)"
+if "${one_clust} == 0" then &
+"include sweep.lmp" &
+"region channelled block INF INF INF INF INF ${bottom} units lattice" &
+"group channelled_group region channelled" &
+"variable n_channelled equal count(channelled_group)" &
+"region channelled delete" &
+
+if "${n_channelled} > 0" then &
+"delete_atoms group channelled_group" &
+"run 0" &
+"group channelled_group delete" &
+"variable n_channelled equal 0" &
+"include notify_channeled.lmp"
+
 if "$(time-v_t0) < ${impact_time}" then "jump SELF continue_impact"
 unfix thalt
 # ============================ end inner loop ============================
@@ -161,7 +173,7 @@ print "C_COUNT: ${ncarbon}"
 print "${c} ${ncarbon} ${nhydrogen} ${noxygen}" append ncarbon.txt
 
 write_data impact_snaps/${c}.data nofix nocoeff
-if '$(v_c%v_ML) == 0' then "write_dump all custom ML_impacts.dump id type x y z vx vy vz modify sort id append yes"
+if '$(v_c%v_ML) == 0' then "write_dump all custom ML_impacts.dump id type q x y z vx vy vz modify sort id append yes"
 
 undump current_dump
 # ========================= End Per-Impact Outer Loop =========================

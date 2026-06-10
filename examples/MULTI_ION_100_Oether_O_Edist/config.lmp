@@ -1,0 +1,37 @@
+# DiamondEtchMD generated config (multi-ion)
+# orientation=100  surface=O_ether  T=300.0K
+# ions: O@20.0eV×60%, O@30.0eV×30%, O@50.0eV×10%
+
+variable    ML equal 36            # atoms per monolayer
+variable    end_fluence equal 50   # in ML
+
+variable    angl equal 0.0       # incident angle (deg from normal)
+variable    T equal 300.0    # substrate temperature (K)
+variable    pot string REAX
+
+variable    use_starting_data_file equal false
+variable    starting_data_file string data.truncated
+
+if "${pot} == REAX" then &
+"variable    lat_a file lat_a.txt"
+
+variable    x equal 6
+variable    y equal 6
+variable    lat_top equal 4
+variable    z equal ${lat_top}+5
+
+variable    reconstruct equal false
+variable    O_terminate equal false
+variable    O_ether_terminate equal true
+
+variable    i_above equal 6.0            # Å above surface to inject ion
+variable    impact_time equal 1000.0
+variable    thermalization_time equal 500.0
+
+variable    M_C equal 12.011
+variable    M_H equal 1.00784
+variable    M_O equal 16.0
+variable    M_Ar equal 39.948
+
+variable    seed_adjust equal 0
+variable    simdepo equal 1

@@ -29,7 +29,7 @@ CASES = [
     ("100", "O_ether"),
     # C(110)
     ("110", ""),
-    ("110", "O"),
+    # ("110", "O"),
     # C(111)
     ("111", "1x1"),
     ("111", "2x1_single"),
@@ -59,6 +59,7 @@ for orient, surface in CASES:
         box_y       = dy,
         box_depth   = dz,
         wall_hours  = 1,
+        fluence     = 0,
         name        = dirname,
     )
 

@@ -1,9 +1,9 @@
-# DiamondEtchMD generated config
+# DiamondEtchMD generated config (single-species)
 # orientation=113  surface=O
 # species=O  energy=0.5eV  angle=0.0deg  T=300.0K
 
 variable    ML equal 108            # atoms per monolayer
-variable    end_fluence equal 50   # in ML
+variable    end_fluence equal 0   # in ML
 
 variable    energ equal 0.5     # incident energy per atom (eV)
 variable    angl equal 0.0       # incident particle angle (deg from normal)

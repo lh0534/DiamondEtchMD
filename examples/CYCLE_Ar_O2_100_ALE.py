@@ -52,7 +52,7 @@ spec1 = SimSpec(
     cycles     = 3,
     wall_hours = 48,
     account    = "dgraves",
-    name       = "100_Oether_Ar30eV_O2_12eV_R1",
+    name       = "CYCLE_100_Oether_Ar30eV_O2_12eV_R1",
 )
 
 validate(spec1)

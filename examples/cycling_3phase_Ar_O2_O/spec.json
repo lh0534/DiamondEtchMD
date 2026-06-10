@@ -1,0 +1,51 @@
+{
+  "orientation": "100",
+  "surface": "O_ether",
+  "temperature": 300.0,
+  "species": "O",
+  "energy": 0.5,
+  "angle": 0.0,
+  "fluence": 50,
+  "ml": 36,
+  "box_x": 6,
+  "box_y": 6,
+  "box_depth": 4,
+  "impact_time": 2000.0,
+  "thermalization_time": 500.0,
+  "inter_neutral_time": 1000.0,
+  "wall_hours": 72,
+  "name": "CYCLE3_100_Oether_Ar_30eV_O2_10eV_O_8eV",
+  "account": "dgraves",
+  "email": "",
+  "lammps_module": "lammps/kokkos/gpu_della9_2022",
+  "plot_interval_hours": 12,
+  "remove_ar": true,
+  "seed_adjust": 0,
+  "flux_ratio": 0,
+  "radical_energy": 0.2,
+  "phases": [
+    {
+      "species": "Ar",
+      "energy": 30.0,
+      "fluence_ml": 5,
+      "flux_ratio": 0,
+      "radical_energy": 0.2
+    },
+    {
+      "species": "O2",
+      "energy": 10.0,
+      "fluence_ml": 5,
+      "flux_ratio": 0,
+      "radical_energy": 0.2
+    },
+    {
+      "species": "O",
+      "energy": 8.0,
+      "fluence_ml": 5,
+      "flux_ratio": 0,
+      "radical_energy": 0.2
+    }
+  ],
+  "cycles": 2,
+  "ion_mix": null
+}
