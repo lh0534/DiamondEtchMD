@@ -21,7 +21,8 @@ from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim, validate
 
 # C(110) default box: 4×6 lattice units, 96 atoms/ML
-ml = compute_ml("110", 4, 6)   # 96
+nx, ny = 4, 6
+ml = compute_ml("110", nx, ny)   # 96 atoms/ML for 4×6 box
 
 # ---------------------------------------------------------------------------
 # Bare C(110) surface
@@ -38,8 +39,8 @@ spec_bare = SimSpec(
 
     fluence     = 50,
     ml          = ml,
-    box_x       = 4,
-    box_y       = 6,
+    box_x       = nx,
+    box_y       = ny,
     box_depth   = 5,
 
     impact_time         = 2000.0,
@@ -67,8 +68,8 @@ spec_O = SimSpec(
 
     fluence     = 50,
     ml          = ml,
-    box_x       = 4,
-    box_y       = 6,
+    box_x       = nx,
+    box_y       = ny,
     box_depth   = 5,
 
     impact_time         = 2000.0,

@@ -17,6 +17,7 @@ OUTDIR = Path("examples")
 # ---------------------------------------------------------------------------
 # Example 1: O radical bombardment — 2x1 reconstructed + O terminated C(100)
 # ---------------------------------------------------------------------------
+nx, ny = 8, 8
 
 spec_O = SimSpec(
     # --- surface ---
@@ -39,14 +40,14 @@ spec_O = SimSpec(
 
     # --- simulation size ---
     fluence        = 50,           # total fluence (monolayers)
-    box_x          = 9,            # lateral box size, x (lattice units)
-    box_y          = 9,            # lateral box size, y (lattice units)
+    box_x          = nx,           # lateral box size, x (lattice units)
+    box_y          = ny,           # lateral box size, y (lattice units)
     box_depth      = 3,            # slab depth — lat_top (lattice units)
                                    # recommended: ≤20 eV → 5, 50 eV → 6, 100 eV → 10, 200 eV → 12
 
     # ml is computed automatically from orientation and box dimensions;
     # override only if you know the exact atom count from a reference data file
-    ml             = compute_ml("100", 9, 9),  # 81 for 100, 9×9 box
+    ml             = compute_ml("100", nx, ny),  # 64 for 100, 8×8 box
 
     # --- timing ---
     impact_time         = 2000.0,  # simulation time per impact event (fs)
@@ -76,9 +77,9 @@ spec_Ar = SimSpec(
     angle          = 0.0,
 
     fluence        = 50,
-    ml             = compute_ml("100", 9, 9),
-    box_x          = 9,
-    box_y          = 9,
+    ml             = compute_ml("100", nx, ny),
+    box_x          = nx,
+    box_y          = ny,
     box_depth      = 10,           # deeper slab needed for high-energy Ar
 
     impact_time         = 2000.0,
@@ -93,6 +94,7 @@ make_sim(spec_Ar, OUTDIR / "Ar_sputtering")
 # ---------------------------------------------------------------------------
 # Example 3: O2+ ion bombardment — dimer injection
 # ---------------------------------------------------------------------------
+nx, ny = 5, 9
 
 spec_O2 = SimSpec(
     orientation    = "111",
@@ -105,9 +107,9 @@ spec_O2 = SimSpec(
     angle          = 0.0,
 
     fluence        = 50,
-    ml             = compute_ml("111", 5, 9),
-    box_x          = 5,
-    box_y          = 9,
+    ml             = compute_ml("111", nx, ny),
+    box_x          = nx,
+    box_y          = ny,
     box_depth      = 6,
 
     impact_time         = 2000.0,

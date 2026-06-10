@@ -22,7 +22,8 @@ Three cycle-etch examples are included:
 from pathlib import Path
 from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_sim, validate
 
-ml = compute_ml("100", 8, 8)   # 64 atoms/ML for 8×8 box
+nx, ny = 8, 8
+ml = compute_ml("100", nx, ny)   # 64 atoms/ML for 8×8 box
 
 # ---------------------------------------------------------------------------
 # Example 1: Ar+ → O2+ cycling (physical sputtering + chemical etching)
@@ -37,8 +38,8 @@ spec1 = SimSpec(
     temperature = 300.0,
 
     ml          = ml,
-    box_x       = 8,
-    box_y       = 8,
+    box_x       = nx,
+    box_y       = ny,
     box_depth   = 5,           # 5 = adequate for ≤30 eV Ar+
 
     phases = [
@@ -78,8 +79,8 @@ spec2 = SimSpec(
     temperature = 300.0,
 
     ml          = ml,
-    box_x       = 8,
-    box_y       = 8,
+    box_x       = nx,
+    box_y       = ny,
     box_depth   = 3,           # low-energy O+ — shallow depth is fine
 
     phases = [
@@ -109,6 +110,8 @@ make_sim(spec2, Path("cycling_O_O2"))
 # ---------------------------------------------------------------------------
 # Example 3: Ar+ → O+ → O2+ three-phase cycling
 # ---------------------------------------------------------------------------
+nx, ny = 6, 6
+ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 # Phase 1 (Ar+): physical sputtering to remove passivation layer.
 # Phase 2 (O+):  low-energy oxygen to build up surface O coverage.
 # Phase 3 (O2+): energetic O2+ with radical pre-exposure to etch oxidised C.
@@ -119,8 +122,8 @@ spec3 = SimSpec(
     temperature = 300.0,
 
     ml          = ml,
-    box_x       = 6,
-    box_y       = 6,
+    box_x       = nx,
+    box_y       = ny,
     box_depth   = 4,           # 4 for 50 eV Ar+
 
     phases = [

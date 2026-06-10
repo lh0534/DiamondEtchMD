@@ -17,7 +17,8 @@ This example uses:
 from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim, validate, etch_mode
 
-ml = compute_ml("100", 6, 6)   # 36 atoms/ML for 6×6 box
+nx, ny = 6, 6
+ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 
 spec = SimSpec(
     orientation    = "100",
@@ -30,8 +31,8 @@ spec = SimSpec(
 
     fluence        = 50,        # 50 ML total ion impacts
     ml             = ml,
-    box_x          = 6,
-    box_y          = 6,
+    box_x          = nx,
+    box_y          = ny,
     box_depth      = 5,         # adequate for 20 eV O+
 
     # RIE-etch parameters: 5 O• radicals at 0.2 eV before each O+ impact

@@ -12,10 +12,12 @@ receives half internally. So 50 eV here means 25 eV per oxygen atom.
 from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim
 
+nx, ny = 5, 9
+
 spec = SimSpec(
     orientation    = "111",
     surface         = "2x1_pandey",
-    
+
     temperature    = 300.0,
 
     species        = "O2",
@@ -23,9 +25,9 @@ spec = SimSpec(
     angle          = 0.0,
 
     fluence        = 50,
-    ml             = compute_ml("111", 5, 9),
-    box_x          = 5,
-    box_y          = 9,
+    ml             = compute_ml("111", nx, ny),
+    box_x          = nx,
+    box_y          = ny,
     box_depth      = 6,
 
     impact_time         = 2000.0,

@@ -12,10 +12,12 @@ Angled bombardment affects sputter yield and surface morphology.
 from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim
 
+nx, ny = 8, 8
+
 spec = SimSpec(
     orientation    = "100",
     surface         = "1x1",
-    
+
     temperature    = 300.0,
 
     species        = "Ar",
@@ -23,9 +25,9 @@ spec = SimSpec(
     angle          = 45.0,         # degrees from surface normal
 
     fluence        = 50,
-    ml             = compute_ml("100", 9, 9),
-    box_x          = 9,
-    box_y          = 9,
+    ml             = compute_ml("100", nx, ny),
+    box_x          = nx,
+    box_y          = ny,
     box_depth      = 10,
 
     impact_time         = 2000.0,

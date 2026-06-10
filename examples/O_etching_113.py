@@ -10,6 +10,8 @@ C(113) surface keys: "" (unterminated) and "O" (O-terminated).
 from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim
 
+nx, ny = 9, 3
+
 spec = SimSpec(
     orientation    = "113",
     surface        = "O",
@@ -20,9 +22,9 @@ spec = SimSpec(
     angle          = 0.0,
 
     fluence        = 50,
-    ml             = compute_ml("113", 9, 3),
-    box_x          = 9,
-    box_y          = 3,
+    ml             = compute_ml("113", nx, ny),
+    box_x          = nx,
+    box_y          = ny,
     box_depth      = 3,
 
     impact_time         = 2000.0,
