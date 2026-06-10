@@ -14,7 +14,7 @@
   "thermalization_time": 500.0,
   "inter_neutral_time": 1000.0,
   "wall_hours": 48,
-  "name": "CYCLE_100_Oether_Ar30eV_O2_12eV_R1",
+  "name": "CYCLE_100_Oether_Ar_30eV_O2_12eV_R1",
   "account": "dgraves",
   "email": "",
   "lammps_module": "lammps/kokkos/gpu_della9_2022",

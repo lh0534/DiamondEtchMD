@@ -245,11 +245,6 @@ unfix thalt
 unfix   depo
 unfix   ats
 
-# Remove any Ar atoms deposited this impact (guarded: may be 0 if non-Ar was selected)
-group       IonRemove type 4
-if "$(count(IonRemove)) > 0" then "delete_atoms group IonRemove"
-group       IonRemove delete
-
 include thermalize.lmp
 
 unfix       2

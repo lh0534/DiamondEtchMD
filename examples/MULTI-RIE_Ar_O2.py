@@ -11,7 +11,7 @@ RIE_{surf}_{ion0}_{pct0}p_{e0}eV_{ion1}_{pct1}p_{e1}eV_R{FR}
 Ar+/O2+ sputtering mix with O• radicals (requires ZBL hybrid potential)
 
 python examples/multi_RIE_etch.py
-sbatch RIE_100_O_ether_Ar_30p_50eV_O2_70p_50eV_R2/submit
+sbatch MULTI_RIE_100_Oether_Ar_O2/submit
 """
 
 from pathlib import Path
@@ -52,9 +52,9 @@ spec2 = SimSpec(
 
     wall_hours     = 24,
     account        = "dgraves",
-    name           = "MULTI_RIE_100_O_ether_Ar_30p_50eV_O2_70p_50eV_R2",
+    name           = "MULTI_RIE_100_Oether_Ar_30p_50eV_O2_70p_50eV_R2",
 )
 
 validate(spec2)
 print(f"etch_mode = {etch_mode(spec2)}")    # → "multi-rie-etch"
-make_sim(spec2, Path("MULTI_RIE_100_O_ether_Ar_O2"))
+make_sim(spec2, Path("MULTI_RIE_100_Oether_Ar_O2"))

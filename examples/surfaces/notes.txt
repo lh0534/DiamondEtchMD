@@ -1,5 +1,0 @@
-1. 100_2x1 needs to have an even number of unit cells (make this a restriction/warning)
-2. 110 O termination needs to be done by hand
-3. 111 O termination revised
-4. 111 2x1_pandey chain O termination revised
-5. 111 2x1_single chain O termination revised

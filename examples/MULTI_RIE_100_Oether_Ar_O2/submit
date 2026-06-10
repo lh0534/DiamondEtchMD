@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=MULTI_RIE_100_O_ether_Ar_30p_50eV_O2_70p_50eV_R2
+#SBATCH --job-name=MULTI_RIE_100_Oether_Ar_30p_50eV_O2_70p_50eV_R2
 #SBATCH --nodes=1
 #SBATCH --mem=16G
 #SBATCH --ntasks=1

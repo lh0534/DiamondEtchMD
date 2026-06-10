@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=CYCLE_100_Oether_Ar30eV_O2_12eV_R1
+#SBATCH --job-name=CYCLE_100_Oether_Ar_30eV_O2_12eV_R1
 #SBATCH --nodes=1
 #SBATCH --mem=16G
 #SBATCH --ntasks=1

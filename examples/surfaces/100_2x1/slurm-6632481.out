@@ -1,6 +1,0 @@
-Loading lammps/kokkos/gpu_della9_2022
-  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
-    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
-srun: error: della-l02g12: task 0: Exited with exit code 1
-srun: Terminating StepId=6632481.0
-LAMMPS exited with code 1 — not re-submitting.

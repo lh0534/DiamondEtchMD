@@ -153,11 +153,6 @@ unfix thalt
 unfix   depo
 unfix   ats
 
-# Remove Ar (inert, does not participate in chemistry)
-group       IonRemove type 4
-delete_atoms group IonRemove
-group       IonRemove delete
-
 # Thermalize
 include thermalize.lmp
 

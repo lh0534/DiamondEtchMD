@@ -14,7 +14,7 @@
   "thermalization_time": 500.0,
   "inter_neutral_time": 1000.0,
   "wall_hours": 24,
-  "name": "MULTI_RIE_100_O_ether_Ar_30p_50eV_O2_70p_50eV_R2",
+  "name": "MULTI_RIE_100_Oether_Ar_30p_50eV_O2_70p_50eV_R2",
   "account": "dgraves",
   "email": "",
   "lammps_module": "lammps/kokkos/gpu_della9_2022",
