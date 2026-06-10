@@ -8,7 +8,7 @@ type, surface flags (reconstruct, O_terminate, O_ether_terminate), and timing.
 
 from ..orientations import ORIENT
 from ..species import SPECIES
-from ..spec import SimSpec, CyclePhase
+from ..spec import SimSpec, CyclePhase, IonComponent
 
 
 def get_config_lmp(spec: SimSpec) -> str:
@@ -75,6 +75,78 @@ def get_config_lmp(spec: SimSpec) -> str:
         cfg += (
             f"\n"
             f"# RIE-etch: O• radical pre-exposure before each ion impact\n"
+            f"variable    flux_ratio equal {spec.flux_ratio}\n"
+            f"variable    radical_energy equal {spec.radical_energy}\n"
+            f"variable    chemical_i_above equal 6.0\n"
+            f"variable    inter_neutral_time equal {spec.inter_neutral_time}\n"
+        )
+
+    return cfg
+
+
+def get_config_lmp_multi_ion(spec: SimSpec) -> str:
+    """Generate config.lmp for a multi-ion (ion_mix) SimSpec.
+
+    Unlike single-species config, energ/M_incident/incident_type_index are NOT
+    defined here — they are set dynamically per-impact by the ion selection block
+    in head.lmp.  All mass variables are always defined so head.lmp can reference
+    them regardless of which ion is selected.
+    """
+    surf = ORIENT[spec.orientation]["surfaces"][spec.surface]
+    recon_flag = "true" if surf["reconstruct"] else "false"
+    o_flag     = "true" if surf["O_terminate"] else "false"
+    o_eth_flag = "true" if surf["O_ether"]     else "false"
+
+    mix = spec.ion_mix
+    total = sum(c.fraction for c in mix)
+    ion_summary = ", ".join(
+        f"{c.species}@{c.energy}eV×{c.fraction/total:.0%}" for c in mix
+    )
+
+    cfg = (
+        f"# DiamondEtchMD generated config (multi-ion)\n"
+        f"# orientation={spec.orientation}  surface={spec.surface}  T={spec.temperature}K\n"
+        f"# ions: {ion_summary}\n"
+        f"\n"
+        f"variable    ML equal {spec.ml}            # atoms per monolayer\n"
+        f"variable    end_fluence equal {spec.fluence}   # in ML\n"
+        f"\n"
+        f"variable    angl equal {spec.angle}       # incident angle (deg from normal)\n"
+        f"variable    T equal {spec.temperature}    # substrate temperature (K)\n"
+        f"variable    pot string REAX\n"
+        f"\n"
+        f"variable    use_starting_data_file equal false\n"
+        f"variable    starting_data_file string data.truncated\n"
+        f"\n"
+        f'if "${{pot}} == REAX" then &\n'
+        f'"variable    lat_a file lat_a.txt"\n'
+        f"\n"
+        f"variable    x equal {spec.box_x}\n"
+        f"variable    y equal {spec.box_y}\n"
+        f"variable    lat_top equal {spec.box_depth}\n"
+        f"variable    z equal ${{lat_top}}+5\n"
+        f"\n"
+        f"variable    reconstruct equal {recon_flag}\n"
+        f"variable    O_terminate equal {o_flag}\n"
+        f"variable    O_ether_terminate equal {o_eth_flag}\n"
+        f"\n"
+        f"variable    i_above equal 6.0            # Å above surface to inject ion\n"
+        f"variable    impact_time equal {spec.impact_time}\n"
+        f"variable    thermalization_time equal {spec.thermalization_time}\n"
+        f"\n"
+        f"variable    M_C equal 12.011\n"
+        f"variable    M_H equal 1.00784\n"
+        f"variable    M_O equal 16.0\n"
+        f"variable    M_Ar equal 39.948\n"
+        f"\n"
+        f"variable    seed_adjust equal {spec.seed_adjust}\n"
+        f"variable    simdepo equal 1\n"
+    )
+
+    if spec.flux_ratio > 0:
+        cfg += (
+            f"\n"
+            f"# Multi-ion RIE: O• radical pre-exposure before each ion impact\n"
             f"variable    flux_ratio equal {spec.flux_ratio}\n"
             f"variable    radical_energy equal {spec.radical_energy}\n"
             f"variable    chemical_i_above equal 6.0\n"

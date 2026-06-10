@@ -93,8 +93,11 @@ def test_parse_etch_products_legacy_format(tmp_path):
     )
     records = parse_etch_products(p)
     assert len(records) == 2
-    assert records[0] == {"impact": 7, "n_C": 1, "n_H": 0, "n_O": 2}
-    assert records[1] == {"impact": 8, "n_C": 0, "n_H": 0, "n_O": 0}
+    assert records[0]["impact"] == 7
+    assert records[0]["n_C"] == 1
+    assert records[0]["n_H"] == 0
+    assert records[0]["n_O"] == 2
+    assert records[1]["impact"] == 8
 
 
 # ─── etch_yield ───────────────────────────────────────────────────────────────

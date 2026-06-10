@@ -1,0 +1,1 @@
+print "Impact ${c}: atom channeled deep into lattice (lat_top=${lat_top}). Consider increasing box_depth." append ATOM_CHANNELED

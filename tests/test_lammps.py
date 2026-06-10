@@ -8,9 +8,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from diamond_etch_md.spec import SimSpec
-from diamond_etch_md.lammps.config import get_config_lmp
-from diamond_etch_md.lammps.head import get_head_lmp
+from diamond_etch_md.spec import SimSpec, IonComponent
+from diamond_etch_md.lammps.config import get_config_lmp, get_config_lmp_multi_ion
+from diamond_etch_md.lammps.head import get_head_lmp, get_head_lmp_multi_ion
 from diamond_etch_md.lammps.submit import get_submit_script
 from diamond_etch_md.orientations import ORIENT
 
@@ -465,10 +465,182 @@ def test_submit_rie_contains_neut_complete():
 def test_submit_rie_reads_cn_start():
     sub = get_submit_script(make_rie_spec())
     assert "cn_start" in sub
-    assert "awk '{print $2}'" in sub
+    assert "NF>=5{print $2}" in sub
 
 
 def test_submit_ion_etch_no_neut_complete():
     sub = get_submit_script(make_spec(ml=81))
     assert "neut_complete" not in sub
     assert "cn_start" not in sub
+
+
+# ─── Multi-ion tests ──────────────────────────────────────────────────────────
+
+def make_multi_ion_spec(flux_ratio=5, **kw):
+    defaults = dict(
+        orientation="100", surface="1x1", ml=81,
+        flux_ratio=flux_ratio, radical_energy=0.2,
+        ion_mix=[
+            IonComponent(species="O",  fraction=0.5, energy=50.0),
+            IonComponent(species="O2", fraction=0.5, energy=100.0),
+        ],
+    )
+    defaults.update(kw)
+    return SimSpec(**defaults)
+
+
+def test_multi_ion_config_no_single_energ():
+    cfg = get_config_lmp_multi_ion(make_multi_ion_spec())
+    assert "variable    energ" not in cfg
+    assert "incident_type_index" not in cfg
+
+
+def test_multi_ion_config_has_i_above():
+    cfg = get_config_lmp_multi_ion(make_multi_ion_spec())
+    assert "i_above" in cfg
+
+
+def test_multi_ion_config_has_mass_vars():
+    cfg = get_config_lmp_multi_ion(make_multi_ion_spec())
+    for var in ("M_C", "M_H", "M_O", "M_Ar"):
+        assert var in cfg
+
+
+def test_multi_ion_config_rie_vars_present():
+    cfg = get_config_lmp_multi_ion(make_multi_ion_spec(flux_ratio=5))
+    assert "flux_ratio" in cfg
+    assert "radical_energy" in cfg
+
+
+def test_multi_ion_config_no_rie_vars_when_ion_etch():
+    cfg = get_config_lmp_multi_ion(make_multi_ion_spec(flux_ratio=0))
+    assert "flux_ratio" not in cfg
+
+
+def test_multi_ion_head_has_ion_sel_labels():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec())
+    assert "label       ion_sel_0" in head
+    assert "label       ion_sel_1" in head
+    assert "label       ion_sel_done" in head
+
+
+def test_multi_ion_head_has_random_var():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec())
+    assert "variable    r equal random" in head
+
+
+def test_multi_ion_head_has_ion_impacts_print():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec())
+    assert "ion_impacts.txt" in head
+    assert "${cur_ion}" in head
+
+
+def test_multi_ion_head_conditional_deposit():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec())
+    assert "cur_ion_is_mol" in head
+    assert "mol O2" in head
+
+
+def test_multi_ion_head_no_zbl_for_o_o2_mix():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec())
+    assert "zbl" not in head
+
+
+def test_multi_ion_head_zbl_for_ar_mix():
+    spec = SimSpec(
+        ml=81,
+        ion_mix=[
+            IonComponent("Ar", 0.5, 100.0),
+            IonComponent("O",  0.5, 50.0),
+        ],
+        flux_ratio=0,
+    )
+    head = get_head_lmp_multi_ion(spec)
+    assert "zbl" in head
+    assert "nonargon" in head
+
+
+def test_multi_ion_head_ar_removal_block():
+    spec = SimSpec(
+        ml=81,
+        ion_mix=[
+            IonComponent("Ar", 0.5, 100.0),
+            IonComponent("O",  0.5, 50.0),
+        ],
+        flux_ratio=0,
+        remove_ar=True,
+    )
+    head = get_head_lmp_multi_ion(spec)
+    assert "IonRemove" in head
+    assert "count(IonRemove)" in head
+
+
+def test_multi_ion_head_no_ar_removal_when_disabled():
+    spec = SimSpec(
+        ml=81,
+        ion_mix=[
+            IonComponent("Ar", 0.5, 100.0),
+            IonComponent("O",  0.5, 50.0),
+        ],
+        flux_ratio=0,
+        remove_ar=False,
+    )
+    head = get_head_lmp_multi_ion(spec)
+    assert "IonRemove" not in head
+
+
+def test_multi_ion_head_has_radical_loop_when_rie():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec(flux_ratio=5))
+    assert "neutral_loop" in head
+
+
+def test_multi_ion_head_no_radical_loop_when_ion_etch():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec(flux_ratio=0))
+    assert "neutral_loop" not in head
+
+
+def test_multi_ion_head_ncarbon_4col_when_ion_etch():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec(flux_ratio=0))
+    assert '"${c} ${ncarbon} ${nhydrogen} ${noxygen}" append ncarbon.txt' in head
+
+
+def test_multi_ion_head_ncarbon_5col_when_rie():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec(flux_ratio=5))
+    assert '"${c} 0 ${ncarbon} ${nhydrogen} ${noxygen}" append ncarbon.txt' in head
+
+
+def test_multi_ion_head_molecule_decl_for_o2():
+    head = get_head_lmp_multi_ion(make_multi_ion_spec())
+    assert "molecule O2 O2.molecule" in head
+
+
+def test_multi_ion_head_no_molecule_decl_for_o_only():
+    spec = SimSpec(
+        ml=81,
+        ion_mix=[
+            IonComponent("O", 0.6, 50.0),
+            IonComponent("O", 0.4, 100.0),
+        ],
+        flux_ratio=0,
+    )
+    head = get_head_lmp_multi_ion(spec)
+    assert "molecule O2" not in head
+
+
+def test_multi_ion_head_three_ions_all_labels():
+    spec = SimSpec(
+        ml=81,
+        ion_mix=[
+            IonComponent("O",  0.1, 20.0),
+            IonComponent("O",  0.2, 10.0),
+            IonComponent("O",  0.7, 5.0),
+        ],
+        flux_ratio=0,
+    )
+    head = get_head_lmp_multi_ion(spec)
+    assert "label       ion_sel_0" in head
+    assert "label       ion_sel_1" in head
+    assert "label       ion_sel_2" in head
+    # Two cumulative-threshold if-checks and one fallback jump
+    assert head.count('if "${r} <') == 2
+    assert "jump        SELF ion_sel_2" in head

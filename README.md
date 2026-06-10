@@ -1,9 +1,10 @@
 # DiamondEtchMD
 
 Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics
-simulations of diamond surface etching. Handles three physically relevant
+simulations of diamond surface etching. Handles four physically relevant
 bombardment regimes — **ion-etch** (ion-only baseline), **RIE-etch**
-(reactive-ion etching with simultaneous radical exposure), and **cycle-etch**
+(reactive-ion etching with simultaneous radical exposure), **multi-ion-etch /
+multi-RIE-etch** (stochastic multi-component ion mixes), and **cycle-etch**
 (multi-phase alternating-species cycling, including **ALE-etch**) — across four
 crystal orientations and a range of surface reconstructions and terminations.
 Produces simulation directories that are ready to submit to a SLURM cluster or
@@ -11,9 +12,11 @@ run locally (requires a GPU).
 
 | Mode | What it models |
 |---|---|
-| **ion-etch** | Ion bombardment with no radicals for understanding etch thresholds and facet-dependence. |
-| **RIE-etch** | O• radicals deposited between each ion impact for modelling plasma reactive-ion etching (RIE). |
-| **cycle-etch / ALE-etch** | Alternating phases of different ionic species, flux ratios, and/or conditions. Atomic layer etching (ALE) is a 2-phase cycle. |
+| **ion-etch** | Single-species ion bombardment with no radicals. |
+| **RIE-etch** | O• radicals deposited between each ion impact for plasma-assisted etching. |
+| **multi-ion-etch** | Stochastic multi-component ion mix (e.g. 50% O⁺ + 50% O₂⁺), no radicals. |
+| **multi-RIE-etch** | Multi-component ion mix with O• radical pre-exposure. |
+| **cycle-etch / ALE-etch** | Alternating phases of different ionic species, flux ratios, and/or conditions. |
 
 ---
 
@@ -37,6 +40,27 @@ atomistic model for plasma-assisted reactive-ion etching of carbon.
 the kinetic energy of each radical. The default of 0.2 eV is hyperthermal (~95th percentile of the Maxwell–Boltzmann
 distribution at 600 K) to simulate higher flux ratios.
 
+### multi-ion-etch / multi-RIE-etch — stochastic multi-component ion mix
+
+A plasma often contains more than one ion species (e.g. an O₂ discharge produces
+both O⁺ and O₂⁺). In multi-ion mode each impact randomly samples from a set of
+`IonComponent` entries according to their `fraction` weights, so the statistical
+mix converges to the specified composition over many impacts.
+
+Each component specifies its own `energy`, allowing energy distributions to be
+modelled too (e.g. 10% ions at 20 eV, 20% at 10 eV, 70% at 5 eV).
+
+With `flux_ratio == 0` this is **multi-ion-etch** (no radicals); with
+`flux_ratio > 0` it is **multi-RIE-etch** (O• radicals before every ion impact,
+regardless of which ion was selected).
+
+Each impact appends one line to `ion_impacts.txt`: `{impact_number} {ion_type}`,
+enabling per-species yield decomposition in post-processing.
+
+`multi_ion_dir_name(spec)` returns a canonical directory name:
+- **RIE** prefix when `flux_ratio > 0`: `RIE_O_50p_50eV_O2_50p_100eV_R5`
+- **ION** prefix when `flux_ratio == 0`: `ION_O_50p_50eV_O2_50p_100eV`
+
 ### cycle-etch / ALE-etch — multi-phase cycling
 
 Two or more ion species (or the same species at different conditions) alternate
@@ -50,8 +74,8 @@ phase. Use `make_ale()` in place of `make_sim()` to enforce the 2-phase
 constraint. ALE-etch with `flux_ratio=0` in every phase reduces to alternating
 ion-etch cycles.
 
-`etch_mode(spec)` returns `"ion-etch"`, `"rie-etch"`, or `"cycle-etch"` for
-any `SimSpec`.
+`etch_mode(spec)` returns `"ion-etch"`, `"rie-etch"`, `"multi-ion-etch"`,
+`"multi-rie-etch"`, or `"cycle-etch"` for any `SimSpec`.
 
 ---
 
@@ -251,6 +275,50 @@ spec_base = dataclasses.replace(spec, flux_ratio=0, name="100_1x1_O20eV_theory")
 make_sim(spec_base, Path("theory_O20eV"))
 ```
 
+### multi-ion-etch / multi-RIE-etch
+
+```python
+from pathlib import Path
+from diamond_etch_md import SimSpec, IonComponent, compute_ml, validate, make_sim, multi_ion_dir_name
+
+ml = compute_ml("100", 9, 9)
+
+# 50% O⁺ @ 50 eV + 50% O₂⁺ @ 100 eV, 5 O• radicals before each ion impact
+spec = SimSpec(
+    orientation = "100",
+    surface     = "1x1",
+    temperature = 300.0,
+    ml=ml, box_x=9, box_y=9, box_depth=6,
+    ion_mix = [
+        IonComponent(species="O",  fraction=0.5, energy=50.0),
+        IonComponent(species="O2", fraction=0.5, energy=100.0),
+    ],
+    flux_ratio     = 5,
+    radical_energy = 0.2,
+    fluence        = 50,
+    wall_hours     = 48,
+    name           = "O_O2_mix_R5",
+)
+validate(spec)
+outdir = Path(multi_ion_dir_name(spec))   # "RIE_O_50p_50eV_O2_50p_100eV_R5"
+make_sim(spec, outdir)
+
+# Energy-distribution example: 10% at 20 eV, 20% at 10 eV, 70% at 5 eV (O⁺ only)
+spec_dist = SimSpec(
+    orientation = "100", surface = "1x1",
+    ml=ml, box_x=9, box_y=9, box_depth=5,
+    ion_mix = [
+        IonComponent("O", 0.10, 20.0),
+        IonComponent("O", 0.20, 10.0),
+        IonComponent("O", 0.70,  5.0),
+    ],
+    flux_ratio = 0,   # no radicals
+    fluence    = 50,
+    name       = "O_dist",
+)
+make_sim(spec_dist, Path(multi_ion_dir_name(spec_dist)))  # "ION_O_10p_20eV_O_20p_10eV_O_70p_5eV"
+```
+
 ### cycle-etch / ALE-etch
 
 [`examples/cycling_Ar_O2_100.py`](examples/cycling_Ar_O2_100.py) — three
@@ -427,6 +495,7 @@ diamond_etch_md/
 | `plot_interval_hours` | int | `12` | Hours between auto-plot runs during job (0 = disabled) |
 | `phases` | list\|None | `None` | `CyclePhase` list for cycle-etch; `None` = single-species |
 | `cycles` | int | `1` | Number of phase-list repetitions (cycle-etch only) |
+| `ion_mix` | list\|None | `None` | `IonComponent` list for multi-ion mode; `None` = single-species |
 
 ### Atoms per monolayer
 
@@ -464,6 +533,22 @@ For low-energy radicals (< 1 eV) the default of 3 is sufficient.
 
 When no phase uses Ar, plain ReaxFF (3 atom types) is used — faster than the
 4-type ZBL hybrid.
+
+---
+
+## IonComponent fields
+
+Used with `SimSpec.ion_mix` for multi-ion-etch / multi-RIE-etch mode.
+
+| Field | Type | Description |
+|---|---|---|
+| `species` | str | Ion species: `"O"`, `"O2"`, `"Ar"` |
+| `fraction` | float | Probability weight for this species (all fractions must sum to 1.0) |
+| `energy` | float | Ion energy in eV (total dimer energy for O₂) |
+
+Use `normalize_ion_mix(mix)` to auto-normalize if weights don't sum exactly to 1.
+If any component is Ar, the hybrid ReaxFF+ZBL pair style is activated automatically.
+Each impact writes `{impact_number} {species}` to `ion_impacts.txt`.
 
 ---
 

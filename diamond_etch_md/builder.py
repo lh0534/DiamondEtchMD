@@ -25,12 +25,37 @@ from pathlib import Path
 from .orientations import ORIENT
 from .species import SPECIES
 from .spec import SimSpec, etch_mode
-from .lammps.config import get_config_lmp, get_config_lmp_cycle_etch
-from .lammps.head import get_head_lmp
+from .lammps.config import get_config_lmp, get_config_lmp_cycle_etch, get_config_lmp_multi_ion
+from .lammps.head import get_head_lmp, get_head_lmp_multi_ion
 from .lammps.head_cycling import get_head_lmp_cycle_etch
 from .lammps.submit import get_submit_script, get_submit_script_cycle_etch
 
 _TEMPLATES = Path(__file__).parent / "lammps" / "templates"
+
+
+def multi_ion_dir_name(spec: SimSpec) -> str:
+    """Return a canonical directory name for a multi-ion run.
+
+    Format (with radicals, flux_ratio > 0): RIE_{ion0}_{pct0}p_{e0}eV_..._R{FR}
+    Format (no radicals, flux_ratio == 0):  ION_{ion0}_{pct0}p_{e0}eV_...
+
+    Example (50% O@50eV + 50% O2@100eV, flux_ratio=5): RIE_O_50p_50eV_O2_50p_100eV_R5
+    Example (same mix, no radicals):                    ION_O_50p_50eV_O2_50p_100eV
+
+    Fractions are normalized before computing percentages so un-normalized mixes
+    produce the same name as their normalized equivalents.
+    """
+    if spec.ion_mix is None:
+        raise ValueError("multi_ion_dir_name requires spec.ion_mix to be set")
+    total = sum(c.fraction for c in spec.ion_mix)
+    parts = []
+    for comp in spec.ion_mix:
+        pct = round(comp.fraction / total * 100)
+        parts.append(f"{comp.species}_{pct}p_{int(comp.energy)}eV")
+    body = "_".join(parts)
+    if spec.flux_ratio > 0:
+        return f"RIE_{body}_R{spec.flux_ratio}"
+    return f"ION_{body}"
 
 
 def get_make_surf_source(spec: SimSpec) -> Path:
@@ -49,6 +74,7 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
 
     # symlink shared LAMMPS scripts and data files from package templates
     for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp",
+                  "notify_channeled.lmp",
                   "ffield.reax", "lat_a.txt", "lmp_env.sh", "auto-plot.py",
                   "make_impact_dump.py"):
         dst = outdir / fname
@@ -88,8 +114,42 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
         print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")
         print(f"  T={spec.temperature} K  angle={spec.angle}°")
         print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
+    elif spec.ion_mix is not None:
+        # ── Multi-ion-etch or multi-RIE-etch mode ─────────────────────────────
+        (outdir / "head.lmp").write_text(get_head_lmp_multi_ion(spec))
+        (outdir / "config.lmp").write_text(get_config_lmp_multi_ion(spec))
+        submit = outdir / "submit"
+        submit.write_text(get_submit_script(spec))
+        submit.chmod(0o755)
+
+        # Symlink molecule files for all molecule species in the mix
+        for comp in spec.ion_mix:
+            mol = SPECIES[comp.species]["molecule_file"]
+            if mol:
+                mol_dst = outdir / mol
+                if not mol_dst.exists():
+                    mol_dst.symlink_to(_TEMPLATES / mol)
+
+        total = sum(c.fraction for c in spec.ion_mix)
+        mix_str = " + ".join(
+            f"{c.species}@{c.energy}eV({c.fraction/total:.0%})"
+            for c in spec.ion_mix
+        )
+        rie_str = (
+            f"  flux_ratio:  {spec.flux_ratio} O• radicals/impact  "
+            f"(radical_energy={spec.radical_energy} eV)\n"
+        ) if mode == "multi-rie-etch" else ""
+
+        print(f"Simulation created at: {outdir}  [{mode}]")
+        print(f"  surface:     {spec.orientation}  {surface_label}")
+        print(f"  ion mix:     {mix_str}  angle={spec.angle}°  T={spec.temperature} K")
+        if rie_str:
+            print(rie_str, end="")
+        print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")
+        print(f"  fluence:     {spec.fluence} ML  ({spec.fluence * spec.ml} total impacts)")
+        print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
     else:
-        # ── Theory-etch or RIE-etch mode ──────────────────────────────────────
+        # ── Ion-etch or RIE-etch mode ──────────────────────────────────────────
         (outdir / "head.lmp").write_text(get_head_lmp(spec))
         (outdir / "config.lmp").write_text(get_config_lmp(spec))
         submit = outdir / "submit"

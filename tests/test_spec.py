@@ -8,7 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from diamond_etch_md.spec import SimSpec, CyclePhase, compute_ml, validate, etch_mode
+from diamond_etch_md.spec import SimSpec, CyclePhase, IonComponent, compute_ml, validate, etch_mode, normalize_ion_mix
+from diamond_etch_md.builder import multi_ion_dir_name
 
 
 # ─── ML computation ──────────────────────────────────────────────────────────
@@ -227,3 +228,98 @@ def test_simspec_custom_fields():
     assert s.name == "test_job"
     assert s.account == "mygroup"
     assert s.email == "user@example.com"
+
+
+# ─── Multi-ion mode ───────────────────────────────────────────────────────────
+
+def _make_multi_ion_spec(flux_ratio=5, **kw):
+    defaults = dict(
+        orientation="100", surface="1x1", ml=81,
+        flux_ratio=flux_ratio, radical_energy=0.2,
+        ion_mix=[
+            IonComponent(species="O",  fraction=0.5, energy=50.0),
+            IonComponent(species="O2", fraction=0.5, energy=100.0),
+        ],
+    )
+    defaults.update(kw)
+    return SimSpec(**defaults)
+
+
+def test_etch_mode_multi_ion_etch():
+    s = _make_multi_ion_spec(flux_ratio=0)
+    assert etch_mode(s) == "multi-ion-etch"
+
+
+def test_etch_mode_multi_rie_etch():
+    s = _make_multi_ion_spec(flux_ratio=5)
+    assert etch_mode(s) == "multi-rie-etch"
+
+
+def test_multi_ion_validate_passes():
+    validate(_make_multi_ion_spec())
+
+
+def test_multi_ion_validate_bad_species():
+    with pytest.raises(SystemExit):
+        validate(_make_multi_ion_spec(ion_mix=[
+            IonComponent("O", 0.5, 50.0),
+            IonComponent("Xenon", 0.5, 50.0),
+        ]))
+
+
+def test_multi_ion_validate_fractions_not_sum_to_1():
+    with pytest.raises(SystemExit):
+        validate(_make_multi_ion_spec(ion_mix=[
+            IonComponent("O",  0.3, 50.0),
+            IonComponent("O2", 0.3, 100.0),
+        ]))
+
+
+def test_multi_ion_validate_only_one_component():
+    with pytest.raises(SystemExit):
+        validate(_make_multi_ion_spec(ion_mix=[
+            IonComponent("O", 1.0, 50.0),
+        ]))
+
+
+def test_multi_ion_validate_negative_fraction():
+    with pytest.raises(SystemExit):
+        validate(_make_multi_ion_spec(ion_mix=[
+            IonComponent("O",  -0.1, 50.0),
+            IonComponent("O2",  1.1, 100.0),
+        ]))
+
+
+def test_multi_ion_validate_zero_radical_energy_with_flux():
+    with pytest.raises(SystemExit):
+        validate(_make_multi_ion_spec(flux_ratio=5, radical_energy=0.0))
+
+
+def test_normalize_ion_mix():
+    raw = [IonComponent("O", 1.0, 50.0), IonComponent("O2", 3.0, 100.0)]
+    normed = normalize_ion_mix(raw)
+    assert abs(normed[0].fraction - 0.25) < 1e-9
+    assert abs(normed[1].fraction - 0.75) < 1e-9
+
+
+def test_multi_ion_dir_name_rie():
+    s = _make_multi_ion_spec(flux_ratio=5)
+    assert multi_ion_dir_name(s) == "RIE_O_50p_50eV_O2_50p_100eV_R5"
+
+
+def test_multi_ion_dir_name_ion_etch():
+    s = _make_multi_ion_spec(flux_ratio=0)
+    assert multi_ion_dir_name(s) == "ION_O_50p_50eV_O2_50p_100eV"
+
+
+def test_multi_ion_dir_name_three_component():
+    s = SimSpec(
+        ml=81,
+        ion_mix=[
+            IonComponent("O",  0.1, 20.0),
+            IonComponent("O",  0.2, 10.0),
+            IonComponent("O",  0.7, 5.0),
+        ],
+        flux_ratio=0,
+    )
+    assert multi_ion_dir_name(s) == "ION_O_10p_20eV_O_20p_10eV_O_70p_5eV"
