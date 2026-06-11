@@ -2,15 +2,21 @@
 
 ## Etch statistics
 Cumulative etch (MLs):  0.3125
-Total ion dose (MLs):  6.031
-Etch yield (C/ion):  0.05216 ± 0.017
-  Phase 0 (Ar): 0.05195 ± 0.017 C/ion
+Total ion dose (MLs):  6.656
+Etch yield (C/ion):  0.04723 ± 0.014
+  Phase 0 (Ar): 0.04706 ± 0.014 C/ion
   Phase 1 (O2): 0 ± 0 C/ion
 
 ## Surface oxygen
 Avg phase-end O uptake (MLs):
   Phase 0 (Ar):  0
   Phase 1 (O2):  0
+
+## Amorphous carbon (CNA)
+Amorphous C (MLs):  0.3366 ± 0.077
+Amorphous layer thickness (Å):  2.133 ± 0.28
+  Phase 0 (Ar): amorphous C  0.3259, thickness  2.086 Å
+  Phase 1 (O2): amorphous C  0, thickness  0.9 Å
 
 ## Carbon-containing product composition
 Avg O:C ratio:  1.535
@@ -20,7 +26,7 @@ n products:  12
   Phase 0 (Ar): O:C = 1.535, avg C = 1.667, avg O = 2.083, n = 12
 
 ## Throughput
-Ion impacts per day:  629.3
-Monolayers per day:  9.833
-Cycles per day:  0.1967
-Total ion impacts:  386
+Ion impacts per day:  626.3
+Monolayers per day:  9.785
+Cycles per day:  0.1957
+Total ion impacts:  426

@@ -61,10 +61,10 @@ region r3 block INF INF INF INF 3 ${ztop} units box
 region r3 block INF INF INF INF 3 8 units box
 group temp region r${zname}
 group temp region r3
-322 atoms in group temp
+323 atoms in group temp
 group g${zname} subtract temp anchor
 group g3 subtract temp anchor
-322 atoms in group g3
+323 atoms in group g3
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r3 delete 
@@ -94,10 +94,10 @@ region r8 block INF INF INF INF 8 ${ztop} units box
 region r8 block INF INF INF INF 8 13 units box
 group temp region r${zname}
 group temp region r8
-273 atoms in group temp
+267 atoms in group temp
 group g${zname} subtract temp anchor
 group g8 subtract temp anchor
-273 atoms in group g8
+267 atoms in group g8
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r8 delete 
@@ -127,10 +127,10 @@ region r13 block INF INF INF INF 13 ${ztop} units box
 region r13 block INF INF INF INF 13 18 units box
 group temp region r${zname}
 group temp region r13
-6 atoms in group temp
+11 atoms in group temp
 group g${zname} subtract temp anchor
 group g13 subtract temp anchor
-6 atoms in group g13
+11 atoms in group g13
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r13 delete 
@@ -182,7 +182,7 @@ group g18 delete
 
 # run thermostats
 log ${log_file} append # ok log this part
-log log2.lammps append 
+log log3.lammps append 
 
 variable zbottom equal ${zbottom0}
 variable zbottom equal -2
@@ -237,4 +237,4 @@ variable zbottom equal 13+5
 if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
 # ================================= end UNthermostat setting loop ========
 log ${log_file} append
-log log2.lammps append
+log log3.lammps append

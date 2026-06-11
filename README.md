@@ -404,7 +404,7 @@ DiamondEtchMD uses LAMMPS with the **Kokkos/GPU** backend and requires at
 least one GPU per job. On Princeton's Della cluster, LAMMPS is loaded via
 environment module: `module load lammps/kokkos/gpu_della9_2022`
 
-For portability — other clusters, workstations, or containers — LAMMPS can be
+(TODO): For portability — other clusters, workstations, or containers — LAMMPS can be
 run through an **Apptainer/Singularity** SIF image. The `container_image` field
 on `SimSpec` (planned; see TODO) will wrap the `lmp` invocation automatically.
 The `lmp_env.sh` template (symlinked into every simulation directory) sets
@@ -424,34 +424,20 @@ correction applied to Ar-involved interactions. The parameterisation
 
 ---
 
-## Supported surfaces and species
+# Getting Started
 
-### Crystal orientations and surface states
+## Installation
 
-| Orientation | Surface key | Description |
-|---|---|---|
-| `100` | `1x1` | Unreconstructed |
-| `100` | `2x1` | 2×1 dimer-row reconstruction |
-| `100` | `2x1_O` | 2×1 + ketone O atop surface C |
-| `100` | `O_ether` | O bridging between adjacent surface C |
-| `110` | `""` | Unterminated |
-| `110` | `O` | O-terminated (TODO) |
-| `111` | `1x1` | Unreconstructed |
-| `111` | `2x1_single` | 2×1 single-chain |
-| `111` | `2x1_pandey` | 2×1 Pandey chain |
-| `111` | `1x1_O` | 1×1 + O |
-| `111` | `2x1_single_O` | 2×1 single-chain + O |
-| `111` | `2x1_pandey_O` | 2×1 Pandey chain + O |
-| `113` | `""` | Unterminated |
-| `113` | `O` | O-terminated |
+```bash
+pip install -e .
+```
 
-### Ion species
+Requires Python ≥ 3.9. Core package has no third-party dependencies.
+Analysis and plotting require numpy and matplotlib:
 
-| Species | Force field | Notes |
-|---|---|---|
-| `O` | ReaxFF | High-energy O⁺ ion or low-energy O• radical |
-| `O2` | ReaxFF | Injected as dimer; `energy` is total dimer KE (halved per atom) |
-| `Ar` | ReaxFF + ZBL | Inert; removed after each impact by default|
+```bash
+pip install -e ".[analysis]"
+```
 
 ---
 
@@ -626,9 +612,8 @@ script, and symlinks to shared templates into the output directory.
 ### SLURM (Della or any SLURM cluster)
 
 ```bash
-sbatch ALE_Ar_O2/submit
-sbatch RIE_O20eV_R5/submit
-sbatch theory_O_0.5eV/submit
+cd run_directory && sbatch submit
+cd 100_3phase_Ar_O_O2 && sbatch submit
 ```
 
 The submit script:
@@ -642,12 +627,12 @@ The submit script:
 
 ### Plain bash (no scheduler)
 
-The submit script can be run directly as a bash script — the `#SBATCH` header
+(TODO) The submit script can be run directly as a bash script — the `#SBATCH` header
 lines are silently ignored. Replace `srun lmp` with a plain `lmp` call if
 `srun` is not available:
 
 ```bash
-bash ALE_Ar_O2/submit
+cd ALE_Ar_O2 && bash submit
 ```
 
 (A `use_slurm=False` option that emits a pure `run.sh` is planned; see TODO.)
@@ -667,21 +652,6 @@ python ALE_Ar_O2/auto-plot.py --cna-stride 10
 
 ```bash
 python ALE_Ar_O2/make_impact_dump.py          # → ALE_Ar_O2/all_impacts.dump
-```
-
----
-
-## Installation
-
-```bash
-pip install -e .
-```
-
-Requires Python ≥ 3.9. Core package has no third-party dependencies.
-Analysis and plotting require numpy and matplotlib:
-
-```bash
-pip install -e ".[analysis]"
 ```
 
 ---
@@ -712,6 +682,37 @@ diamond_etch_md/
     plot.py           make_plots()
     summary.py        analyze_run(), write_summary()
 ```
+
+---
+
+## Supported surfaces and species
+
+### Crystal orientations and surface states
+
+| Orientation | Surface key | Description |
+|---|---|---|
+| `100` | `1x1` | Unreconstructed |
+| `100` | `2x1` | 2×1 dimer-row reconstruction |
+| `100` | `2x1_O` | 2×1 + ketone O atop surface C |
+| `100` | `O_ether` | O bridging between adjacent surface C |
+| `110` | `""` | Unterminated |
+| `110` | `O` | O-terminated (TODO) |
+| `111` | `1x1` | Unreconstructed |
+| `111` | `2x1_single` | 2×1 single-chain |
+| `111` | `2x1_pandey` | 2×1 Pandey chain |
+| `111` | `1x1_O` | 1×1 + O |
+| `111` | `2x1_single_O` | 2×1 single-chain + O |
+| `111` | `2x1_pandey_O` | 2×1 Pandey chain + O |
+| `113` | `""` | Unterminated |
+| `113` | `O` | O-terminated |
+
+### Ion species
+
+| Species | Force field | Notes |
+|---|---|---|
+| `O` | ReaxFF | High-energy O⁺ ion or low-energy O• radical |
+| `O2` | ReaxFF | Injected as dimer; `energy` is total dimer KE (halved per atom) |
+| `Ar` | ReaxFF + ZBL | Inert; removed after each impact by default|
 
 ---
 

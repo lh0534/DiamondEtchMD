@@ -8,6 +8,10 @@ Etch yield (C/ion):  1.296 ± 0.24
 ## Surface oxygen
 Avg O uptake (MLs):  0.9366 ± 0.066
 
+## Amorphous carbon (CNA)
+Amorphous C (MLs):  1.583 ± 0.074
+Amorphous layer thickness (Å):  5.277 ± 0.4
+
 ## Carbon-containing product composition
 Avg O:C ratio:  1.757
 Avg O per product:  2.108

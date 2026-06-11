@@ -28,10 +28,10 @@ region r_12 block INF INF INF INF -12 ${ztop} units box
 region r_12 block INF INF INF INF -12 -7 units box
 group temp region r${zname}
 group temp region r_12
-215 atoms in group temp
+214 atoms in group temp
 group g${zname} subtract temp anchor
 group g_12 subtract temp anchor
-215 atoms in group g_12
+214 atoms in group g_12
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r_12 delete 
@@ -61,10 +61,10 @@ region r_7 block INF INF INF INF -7 ${ztop} units box
 region r_7 block INF INF INF INF -7 -2 units box
 group temp region r${zname}
 group temp region r_7
-181 atoms in group temp
+182 atoms in group temp
 group g${zname} subtract temp anchor
 group g_7 subtract temp anchor
-181 atoms in group g_7
+182 atoms in group g_7
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r_7 delete 
@@ -94,10 +94,10 @@ region r_2 block INF INF INF INF -2 ${ztop} units box
 region r_2 block INF INF INF INF -2 3 units box
 group temp region r${zname}
 group temp region r_2
-215 atoms in group temp
+213 atoms in group temp
 group g${zname} subtract temp anchor
 group g_2 subtract temp anchor
-215 atoms in group g_2
+213 atoms in group g_2
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r_2 delete 
@@ -127,10 +127,10 @@ region r3 block INF INF INF INF 3 ${ztop} units box
 region r3 block INF INF INF INF 3 8 units box
 group temp region r${zname}
 group temp region r3
-78 atoms in group temp
+64 atoms in group temp
 group g${zname} subtract temp anchor
 group g3 subtract temp anchor
-78 atoms in group g3
+64 atoms in group g3
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r3 delete 

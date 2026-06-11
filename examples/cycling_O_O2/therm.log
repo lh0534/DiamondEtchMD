@@ -28,10 +28,10 @@ region r_4 block INF INF INF INF -4 ${ztop} units box
 region r_4 block INF INF INF INF -4 1 units box
 group temp region r${zname}
 group temp region r_4
-383 atoms in group temp
+381 atoms in group temp
 group g${zname} subtract temp anchor
 group g_4 subtract temp anchor
-383 atoms in group g_4
+381 atoms in group g_4
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r_4 delete 
@@ -61,10 +61,10 @@ region r1 block INF INF INF INF 1 ${ztop} units box
 region r1 block INF INF INF INF 1 6 units box
 group temp region r${zname}
 group temp region r1
-321 atoms in group temp
+323 atoms in group temp
 group g${zname} subtract temp anchor
 group g1 subtract temp anchor
-321 atoms in group g1
+323 atoms in group g1
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r1 delete 
@@ -94,10 +94,10 @@ region r6 block INF INF INF INF 6 ${ztop} units box
 region r6 block INF INF INF INF 6 11 units box
 group temp region r${zname}
 group temp region r6
-297 atoms in group temp
+295 atoms in group temp
 group g${zname} subtract temp anchor
 group g6 subtract temp anchor
-297 atoms in group g6
+295 atoms in group g6
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r6 delete 
@@ -183,58 +183,3 @@ group g16 delete
 # run thermostats
 log ${log_file} append # ok log this part
 log log2.lammps append 
-
-variable zbottom equal ${zbottom0}
-variable zbottom equal -4
-# =============================== begin thermostat UNsetting loop ========
-label unset_loop_start
-if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
-variable zname string _$(abs(v_zbottom))
-variable zname string _4
-unfix t${zname}
-unfix t_4
-group g${zname} delete
-group g_4 delete
-variable zbottom equal ${zbottom}+${dz}
-variable zbottom equal -4+${dz}
-variable zbottom equal -4+5
-if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
-jump SELF unset_loop_start
-if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
-variable zname string $(abs(v_zbottom))
-variable zname string 1
-unfix t${zname}
-unfix t1
-group g${zname} delete
-group g1 delete
-variable zbottom equal ${zbottom}+${dz}
-variable zbottom equal 1+${dz}
-variable zbottom equal 1+5
-if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
-jump SELF unset_loop_start
-if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
-variable zname string $(abs(v_zbottom))
-variable zname string 6
-unfix t${zname}
-unfix t6
-group g${zname} delete
-group g6 delete
-variable zbottom equal ${zbottom}+${dz}
-variable zbottom equal 6+${dz}
-variable zbottom equal 6+5
-if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
-jump SELF unset_loop_start
-if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
-variable zname string $(abs(v_zbottom))
-variable zname string 11
-unfix t${zname}
-unfix t11
-group g${zname} delete
-group g11 delete
-variable zbottom equal ${zbottom}+${dz}
-variable zbottom equal 11+${dz}
-variable zbottom equal 11+5
-if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
-# ================================= end UNthermostat setting loop ========
-log ${log_file} append
-log log2.lammps append

@@ -31,6 +31,8 @@ _resubmit() {
     if [ "$nc" -lt "$ec" ]; then
         echo "Wall-time signal: $nc / $ec impacts done — re-submitting."
         [ -n "$_PLOT_PID" ] && kill "$_PLOT_PID" 2>/dev/null; wait "$_PLOT_PID" 2>/dev/null || true
+[ -n "$_CNA_PID" ]  && kill "$_CNA_PID"  2>/dev/null; wait "$_CNA_PID"  2>/dev/null || true
+[ -n "$_DUMP_PID" ] && kill "$_DUMP_PID" 2>/dev/null; wait "$_DUMP_PID" 2>/dev/null || true
         sbatch "$0"
         _resubmitted=1
     fi
@@ -79,9 +81,25 @@ _PLOT_PID=""
       python3 auto-plot.py --no-cna 2>>plot.log || true
   done ) &
 _PLOT_PID=$!
+# CNA analysis every 12 h (cna_stride from spec.json)
+_CNA_PID=""
+( while true; do
+      sleep 43200
+      python3 auto-plot.py --cna-run 2>>plot.log || true
+  done ) &
+_CNA_PID=$!
+# Rebuild all_impacts.dump every 12 h
+_DUMP_PID=""
+( while true; do
+      sleep 43200
+      python3 make_impact_dump.py . 2>>plot.log || true
+  done ) &
+_DUMP_PID=$!
 wait $SRUN_PID
 lmp_exit=$?
 [ -n "$_PLOT_PID" ] && kill "$_PLOT_PID" 2>/dev/null; wait "$_PLOT_PID" 2>/dev/null || true
+[ -n "$_CNA_PID" ]  && kill "$_CNA_PID"  2>/dev/null; wait "$_CNA_PID"  2>/dev/null || true
+[ -n "$_DUMP_PID" ] && kill "$_DUMP_PID" 2>/dev/null; wait "$_DUMP_PID" 2>/dev/null || true
 
 [ $_resubmitted -eq 1 ] && exit 0
 

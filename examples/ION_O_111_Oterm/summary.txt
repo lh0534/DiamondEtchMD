@@ -8,6 +8,10 @@ Etch yield (C/ion):  0
 ## Surface oxygen
 Avg O uptake (MLs):  0.8713 ± 0.012
 
+## Amorphous carbon (CNA)
+Amorphous C (MLs):  0
+Amorphous layer thickness (Å):  0.6611 ± 0.0078
+
 ## Throughput
 Ion impacts per day:  997.3
 Monolayers per day:  11.08
