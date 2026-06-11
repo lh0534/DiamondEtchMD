@@ -25,17 +25,16 @@ group       small_clust variable in_small_clust
 group       carbon type 1
 group       hydrogen type 2
 group       oxygen type 3
+group       argon type 4
 group       clust_carbon intersect carbon small_clust
 group       clust_hydrogen intersect hydrogen small_clust
 group       clust_oxygen intersect oxygen small_clust
-
-# if "$(count(clust_oxygen) > 1) && $(vcm(small_clust,z) > 0)" then &
-# "variable event_count equal ${event_count}+1"
+group       clust_argon intersect argon small_clust
 
 # if the center of mass is higher than the top atom, the cluster's z velocity is positive,
 # and there are actually atoms in both the surface and the leaving cluster, then print the etch product and delete the cluster
-if "$(xcm(small_clust,z) > c_top_surf) && $(vcm(small_clust,z) > 0) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)) > 0" then &
-"print '${c} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen))' append etch_products.txt" &
+if "$(xcm(small_clust,z) > c_top_surf) && $(vcm(small_clust,z) > 0) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)+count(clust_argon)) > 0" then &
+"print '${c} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen)) $(count(clust_argon))' append etch_products.txt" &
 "delete_atoms group small_clust" &
 "change_box      all z final $(zlo) $(zhi) units box" &
 "region          bbox delete" &
@@ -45,6 +44,7 @@ group small_clust clear
 group clust_carbon clear
 group clust_hydrogen clear
 group clust_oxygen clear
+group clust_argon clear
 group unchecked clear
 group unchecked subtract all checked
 if "$(count(unchecked)) > 0" then "jump SELF resweep" # continue until all unchecked atoms have been checked
@@ -59,6 +59,7 @@ group small_clust delete
 group clust_carbon delete
 group clust_hydrogen delete
 group clust_oxygen delete
+group clust_argon delete
 
 # reset thermo_style and run 0 to reinitialize everything
 thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts

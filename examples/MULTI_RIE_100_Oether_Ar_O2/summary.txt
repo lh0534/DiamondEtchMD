@@ -1,0 +1,24 @@
+# DiamondEtchMD Analysis Summary
+
+## Etch statistics
+Cumulative etch (MLs):  8.444
+Total ion dose (MLs):  5.694
+Etch yield (C/ion):  1.186 ± 0.07
+  Ion etch yield (C/ion):  1.186 ± 0.07
+  Radical etch yield (C/radical):  0.1195 ± 0.023
+  Total etch yield:  0.4749
+
+## Surface oxygen
+Avg O uptake (MLs):  1.032 ± 0.026
+
+## Carbon-containing product composition
+Avg O:C ratio:  2.027
+Avg O per product:  2.121
+Avg C per product:  1.082
+n products:  281
+
+## Throughput
+Ion impacts per day:  421.1
+Monolayers per day:  11.7
+Total ion impacts:  205
+Total radical impacts:  410

@@ -124,7 +124,7 @@ def test_make_sim_Ar(tmp_path):
     head = (outdir / "head.lmp").read_text()
     assert "hybrid reaxff" in head
     assert "zbl" in head
-    assert "delete_atoms group IonRemove" in head
+    assert "IonRemove" not in head
 
     cfg = (outdir / "config.lmp").read_text()
     assert "incident_type_index equal 4" in cfg

@@ -30,7 +30,7 @@ spec = SimSpec(
     thermalization_time = 500.0,
     wall_hours     = 24,
     account        = "dgraves",
-    name           = "ION_111pandey_O2_50eV",
+    name           = "ION_111p_O2_50eV",
 )
 
 make_sim(spec, Path("ION_O2_111p"))

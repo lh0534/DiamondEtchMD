@@ -8,9 +8,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from diamond_etch_md.spec import SimSpec, IonComponent
+from diamond_etch_md.spec import SimSpec, IonComponent, CyclePhase
 from diamond_etch_md.lammps.config import get_config_lmp, get_config_lmp_multi_ion
 from diamond_etch_md.lammps.head import get_head_lmp, get_head_lmp_multi_ion
+from diamond_etch_md.lammps.head_cycling import get_head_lmp_cycle_etch
 from diamond_etch_md.lammps.submit import get_submit_script
 from diamond_etch_md.orientations import ORIENT
 
@@ -227,9 +228,10 @@ def test_head_Ar_qeq_nonargon():
     assert "fix reax_qeq all" not in head
 
 
-def test_head_Ar_remove_after_impact():
+def test_head_Ar_no_explicit_removal():
+    # Ar is now swept by sweep.lmp, not force-deleted post-impact
     head = get_head_lmp(make_spec(species="Ar", ml=81))
-    assert "delete_atoms group IonRemove" in head
+    assert "IonRemove" not in head
 
 
 def test_head_Ar_nonargon_regroup_in_loop():
@@ -560,7 +562,8 @@ def test_multi_ion_head_zbl_for_ar_mix():
     assert "nonargon" in head
 
 
-def test_multi_ion_head_ar_removal_block():
+def test_multi_ion_head_no_explicit_ar_removal():
+    # Ar is now swept by sweep.lmp; no IonRemove block should appear in head.lmp
     spec = SimSpec(
         ml=81,
         ion_mix=[
@@ -568,22 +571,6 @@ def test_multi_ion_head_ar_removal_block():
             IonComponent("O",  0.5, 50.0),
         ],
         flux_ratio=0,
-        remove_ar=True,
-    )
-    head = get_head_lmp_multi_ion(spec)
-    assert "IonRemove" in head
-    assert "count(IonRemove)" in head
-
-
-def test_multi_ion_head_no_ar_removal_when_disabled():
-    spec = SimSpec(
-        ml=81,
-        ion_mix=[
-            IonComponent("Ar", 0.5, 100.0),
-            IonComponent("O",  0.5, 50.0),
-        ],
-        flux_ratio=0,
-        remove_ar=False,
     )
     head = get_head_lmp_multi_ion(spec)
     assert "IonRemove" not in head
@@ -644,3 +631,35 @@ def test_multi_ion_head_three_ions_all_labels():
     # Two cumulative-threshold if-checks and one fallback jump
     assert head.count('if "${r} <') == 2
     assert "jump        SELF ion_sel_2" in head
+
+
+# ─── cycle-etch head: potential switching ────────────────────────────────────
+
+def _make_3phase_spec():
+    return SimSpec(
+        ml=64,
+        box_x=8, box_y=8,
+        phases=[
+            CyclePhase(species="Ar", energy=50.0, fluence_ml=5),
+            CyclePhase(species="O2", energy=20.0, fluence_ml=5, flux_ratio=2, radical_energy=0.2),
+            CyclePhase(species="O",  energy=1.0,  fluence_ml=3),
+        ],
+        cycles=2,
+    )
+
+
+def test_cycle_head_zbl_to_plain_uses_C_not_NULL():
+    # Regression: switching Ar→O2 must use "C H O C", not "C H O NULL"
+    # "C H O NULL" is only valid in hybrid pair_style and causes
+    # "All pair coeffs are not set" when plain reaxff is active.
+    head = get_head_lmp_cycle_etch(_make_3phase_spec())
+    # The ZBL→plain switch block
+    assert '"pair_coeff * * ffield.reax C H O C"' in head
+    # The plain→ZBL switch block still uses NULL (correct for hybrid)
+    assert '"pair_coeff * * reaxff ffield.reax C H O NULL"' in head
+
+
+def test_cycle_head_has_potential_switch_block():
+    head = get_head_lmp_cycle_etch(_make_3phase_spec())
+    assert "prev_needs_zbl" in head
+    assert "current_needs_zbl" in head

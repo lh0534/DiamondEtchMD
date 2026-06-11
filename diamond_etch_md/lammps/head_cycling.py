@@ -52,7 +52,7 @@ def _potential_switch_block() -> str:
         f'if "${{prev_needs_zbl}} == 1 && ${{current_needs_zbl}} == 0" then &\n'
         f'"unfix reax_qeq" &\n'
         f'"pair_style reaxff NULL mincap 200 safezone 1.5" &\n'
-        f'"pair_coeff * * ffield.reax C H O NULL" &\n'
+        f'"pair_coeff * * ffield.reax C H O C" &\n'
         f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         f'if "${{prev_needs_zbl}} == 0 && ${{current_needs_zbl}} == 1" then &\n'
         f'"unfix reax_qeq" &\n'

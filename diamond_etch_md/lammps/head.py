@@ -187,17 +187,6 @@ def get_head_lmp(spec: SimSpec) -> str:
     if species["needs_zbl"]:
         nonargon_regroup = f"group nonargon type 1 2 3\n"
 
-    # Post-impact removal for inert species (Ar); gated by spec.remove_ar
-    removal_block = ""
-    if species["remove_after_impact"] and spec.remove_ar:
-        removal_block = (
-            f"\n"
-            f"# Remove {spec.species} (inert, does not participate in chemistry)\n"
-            f"group       IonRemove type {species['type_index']}\n"
-            f"delete_atoms group IonRemove\n"
-            f"group       IonRemove delete\n"
-        )
-
     # RIE-etch: cn (radical counter) restart variables before the loop
     rie_pre_loop = ""
     if is_rie:
@@ -381,7 +370,6 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"\n"
         f"unfix   depo\n"
         f"unfix   ats\n"
-        f"{removal_block}"
         f"\n"
         f"# Thermalize\n"
         f"include thermalize.lmp\n"
@@ -513,9 +501,8 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
     bottom_expr  = cfg["bottom_expr"]
 
     mix     = spec.ion_mix
-    has_zbl      = any(SPECIES[c.species]["needs_zbl"]           for c in mix)
-    has_molecule = any(SPECIES[c.species]["is_molecule"]          for c in mix)
-    has_removal  = any(SPECIES[c.species]["remove_after_impact"]  for c in mix)
+    has_zbl      = any(SPECIES[c.species]["needs_zbl"]   for c in mix)
+    has_molecule = any(SPECIES[c.species]["is_molecule"] for c in mix)
     is_rie       = spec.flux_ratio > 0
 
     # Potential block — Ar mix needs hybrid ZBL; O/O2 mix uses plain ReaxFF
@@ -523,17 +510,6 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
 
     molecule_decl   = "molecule O2 O2.molecule\n" if has_molecule else ""
     nonargon_regroup = "group nonargon type 1 2 3\n" if has_zbl else ""
-
-    if has_removal and spec.remove_ar:
-        removal_block = (
-            f"\n"
-            f"# Remove any Ar atoms deposited this impact (guarded: may be 0 if non-Ar was selected)\n"
-            f"group       IonRemove type 4\n"
-            f'if "$(count(IonRemove)) > 0" then "delete_atoms group IonRemove"\n'
-            f"group       IonRemove delete\n"
-        )
-    else:
-        removal_block = ""
 
     rie_pre_loop = ""
     rie_loop_top = ""
@@ -696,7 +672,6 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"\n"
         f"unfix   depo\n"
         f"unfix   ats\n"
-        f"{removal_block}"
         f"\n"
         f"include thermalize.lmp\n"
         f"\n"

@@ -147,7 +147,7 @@ variable    vely_ion equal sin(${angl}*PI/180)*${vel_ion}
 if "${prev_needs_zbl} == 1 && ${current_needs_zbl} == 0" then &
 "unfix reax_qeq" &
 "pair_style reaxff NULL mincap 200 safezone 1.5" &
-"pair_coeff * * ffield.reax C H O NULL" &
+"pair_coeff * * ffield.reax C H O C" &
 "fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"
 if "${prev_needs_zbl} == 0 && ${current_needs_zbl} == 1" then &
 "unfix reax_qeq" &

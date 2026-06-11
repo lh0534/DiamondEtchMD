@@ -55,6 +55,7 @@ def test_parse_etch_products_first_record(etch_products_file):
     assert r["n_C"] == 1
     assert r["n_H"] == 0
     assert r["n_O"] == 0
+    assert r["n_Ar"] == 0
 
 
 def test_parse_etch_products_second_record(etch_products_file):
@@ -63,12 +64,14 @@ def test_parse_etch_products_second_record(etch_products_file):
     assert r["n_C"] == 2
     assert r["n_H"] == 1
     assert r["n_O"] == 0
+    assert r["n_Ar"] == 0
 
 
 def test_parse_etch_products_oxygen_cluster(etch_products_file):
     r = parse_etch_products(etch_products_file)[2]
     assert r["n_C"] == 0
     assert r["n_O"] == 1
+    assert r["n_Ar"] == 0
 
 
 def test_parse_etch_products_empty_file(tmp_path):
@@ -97,7 +100,21 @@ def test_parse_etch_products_legacy_format(tmp_path):
     assert records[0]["n_C"] == 1
     assert records[0]["n_H"] == 0
     assert records[0]["n_O"] == 2
+    assert records[0]["n_Ar"] == 0
     assert records[1]["impact"] == 8
+
+
+def test_parse_etch_products_five_col_with_ar(tmp_path):
+    p = tmp_path / "ep.txt"
+    p.write_text("15 0 0 0 1\n20 1 0 0 0\n")
+    records = parse_etch_products(p)
+    assert len(records) == 2
+    assert records[0]["impact"] == 15
+    assert records[0]["n_C"] == 0
+    assert records[0]["n_Ar"] == 1
+    assert records[1]["impact"] == 20
+    assert records[1]["n_C"] == 1
+    assert records[1]["n_Ar"] == 0
 
 
 # ─── etch_yield ───────────────────────────────────────────────────────────────
