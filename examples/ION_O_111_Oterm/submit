@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ION_111_Oterm_O_4eV
+#SBATCH --job-name=ION_111_Oterm_O_15eV
 #SBATCH --nodes=1
 #SBATCH --mem=16G
 #SBATCH --ntasks=1

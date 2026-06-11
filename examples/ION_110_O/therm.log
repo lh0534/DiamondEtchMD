@@ -225,10 +225,10 @@ region r34 block INF INF INF INF 34 ${ztop} units box
 region r34 block INF INF INF INF 34 40 units box
 group temp region r${zname}
 group temp region r34
-432 atoms in group temp
+423 atoms in group temp
 group g${zname} subtract temp anchor
 group g34 subtract temp anchor
-432 atoms in group g34
+423 atoms in group g34
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r34 delete 
@@ -258,10 +258,10 @@ region r40 block INF INF INF INF 40 ${ztop} units box
 region r40 block INF INF INF INF 40 46 units box
 group temp region r${zname}
 group temp region r40
-2 atoms in group temp
+4 atoms in group temp
 group g${zname} subtract temp anchor
 group g40 subtract temp anchor
-2 atoms in group g40
+4 atoms in group g40
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r40 delete 

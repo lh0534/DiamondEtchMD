@@ -8,21 +8,16 @@ sbatch ION_110_O/submit
 from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim, validate
 
-# C(110) default box: 4×6 lattice units, 96 atoms/ML
 nx, ny = 4, 6
 ml = compute_ml("110", nx, ny)   # 96 atoms/ML for 4×6 box
 
-# ---------------------------------------------------------------------------
-# Bare C(110) surface
-# ---------------------------------------------------------------------------
-
-spec_bare = SimSpec(
+spec = SimSpec(
     orientation = "110",
     surface     = "",              # unterminated C(110)
     temperature = 300.0,
 
     species     = "O",
-    energy      = 5,             # eV — thermal radical
+    energy      = 5,              # eV
     angle       = 0.0,
 
     fluence     = 20,
@@ -38,5 +33,5 @@ spec_bare = SimSpec(
     name        = "ION_110_bare_O_5eV",
 )
 
-validate(spec_bare)
-make_sim(spec_bare, Path("ION_110_O"))
+validate(spec)
+make_sim(spec, Path("ION_110_O"))

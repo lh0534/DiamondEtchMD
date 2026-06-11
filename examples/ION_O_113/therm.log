@@ -94,10 +94,10 @@ region r8 block INF INF INF INF 8 ${ztop} units box
 region r8 block INF INF INF INF 8 13 units box
 group temp region r${zname}
 group temp region r8
-462 atoms in group temp
+444 atoms in group temp
 group g${zname} subtract temp anchor
 group g8 subtract temp anchor
-462 atoms in group g8
+444 atoms in group g8
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r8 delete 
@@ -127,10 +127,10 @@ region r13 block INF INF INF INF 13 ${ztop} units box
 region r13 block INF INF INF INF 13 18 units box
 group temp region r${zname}
 group temp region r13
-508 atoms in group temp
+528 atoms in group temp
 group g${zname} subtract temp anchor
 group g13 subtract temp anchor
-508 atoms in group g13
+528 atoms in group g13
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r13 delete 
@@ -160,10 +160,10 @@ region r18 block INF INF INF INF 18 ${ztop} units box
 region r18 block INF INF INF INF 18 23 units box
 group temp region r${zname}
 group temp region r18
-86 atoms in group temp
+77 atoms in group temp
 group g${zname} subtract temp anchor
 group g18 subtract temp anchor
-86 atoms in group g18
+77 atoms in group g18
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r18 delete 

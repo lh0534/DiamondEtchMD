@@ -14,9 +14,259 @@ run locally (requires a GPU).
 |---|---|
 | **ion-etch** | Single-species ion bombardment with no radicals. |
 | **RIE-etch** | O• radicals deposited between each ion impact for plasma-assisted etching. |
-| **multi-ion-etch** | Stochastic multi-component ion mix (e.g. 50% O⁺ + 50% O₂⁺), no radicals. |
+| **multi-ion-etch** | Stochastic multi-component ion mix (e.g. 50% O⁺ + 50% O₂⁺, or trimodal energy distribution), no radicals. |
 | **multi-RIE-etch** | Multi-component ion mix with O• radical pre-exposure. |
 | **cycle-etch / ALE-etch** | Alternating phases of different ionic species, flux ratios, and/or conditions. |
+
+---
+
+## Example simulations
+
+### 1. O₂⁺ ion etch — C(111) Pandey-Chain Reconstruction
+
+![ION_O2_111p](examples/ION_O2_111p/etch_trajectory.png)
+
+```python
+# examples/ION_O2_111p.py
+from pathlib import Path
+from diamond_etch_md import SimSpec, compute_ml, make_sim
+
+nx, ny = 5, 9
+
+spec = SimSpec(
+    orientation    = "111",
+    surface        = "2x1_pandey",
+    temperature    = 300.0,
+    species        = "O2",
+    energy         = 50.0,                          # 50 eV total -> 25 eV per O atom
+    angle          = 0.0,
+    fluence        = 20,
+    ml             = compute_ml("111", nx, ny),
+    box_x          = nx,
+    box_y          = ny,
+    box_depth      = 6,
+    impact_time         = 2000.0,
+    thermalization_time = 500.0,
+    wall_hours     = 24,
+    account        = "dgraves",
+    name           = "ION_111p_O2_50eV",
+)
+
+make_sim(spec, Path("ION_O2_111p"))
+```
+
+---
+
+### 2. Multi-ion O⁺ etch — trimodal energy distribution
+
+![MULTI_ION_100_Oether_O_Edist](examples/MULTI_ION_100_Oether_O_Edist/etch_trajectory.png)
+
+```python
+# examples/MULTI-ION_O_Edist.py
+from pathlib import Path
+from diamond_etch_md import SimSpec, IonComponent, compute_ml, make_sim, validate, etch_mode
+
+nx, ny = 6, 6
+ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
+
+spec = SimSpec(
+    orientation    = "100",
+    surface        = "O_ether",
+    temperature    = 300.0,
+
+    ion_mix = [
+        IonComponent(species="O", fraction=0.60, energy=20.0),
+        IonComponent(species="O", fraction=0.30, energy=30.0),
+        IonComponent(species="O", fraction=0.10, energy=50.0),
+    ],
+
+    fluence        = 50,
+    ml             = ml,
+    box_x          = nx,
+    box_y          = ny,
+    box_depth      = 4,
+    impact_time         = 1000.0,
+    thermalization_time = 500.0,
+    wall_hours     = 24,
+    account        = "dgraves",
+    name           = "MULTI_ION_100_Oether_O_60p_20eV_30p_30eV_10p_50eV",
+)
+
+validate(spec)
+print(f"etch_mode = {etch_mode(spec)}")    # → "multi-ion-etch"
+make_sim(spec, Path("MULTI_ION_100_Oether_O_Edist"))
+```
+
+---
+
+### 3. O⁺ RIE on C(100) 2×1 Reconstruction
+
+![RIE_O_20eV_R5](examples/RIE_O_20eV_R5/etch_trajectory.png)
+
+```python
+# examples/RIE_O_100.py
+from pathlib import Path
+from diamond_etch_md import SimSpec, compute_ml, make_sim, validate, etch_mode
+
+nx, ny = 6, 6
+ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
+
+spec = SimSpec(
+    orientation    = "100",
+    surface        = "2x1",
+    temperature    = 300.0,
+    species        = "O",
+    energy         = 20.0,
+    angle          = 0.0,
+    fluence        = 20,
+    ml             = ml,
+    box_x          = nx,
+    box_y          = ny,
+    box_depth      = 3,
+    flux_ratio     = 5,
+    radical_energy = 0.2,
+    impact_time         = 1000.0,
+    thermalization_time = 500.0,
+    inter_neutral_time  = 1000.0,
+    wall_hours     = 24,
+    account        = "dgraves",
+    name           = "RIE_100_2x1_O_20eV_R5",
+)
+
+validate(spec)
+print(f"etch_mode = {etch_mode(spec)}")   # → "rie-etch"
+make_sim(spec, Path("RIE_O_20eV_R5"))
+```
+
+---
+
+### 4. Multi-RIE etch — Ar⁺ + O₂⁺ mixed beam
+
+![MULTI_RIE_100_Oether_Ar_O2](examples/MULTI_RIE_100_Oether_Ar_O2/etch_trajectory.png)
+
+```python
+# examples/MULTI-RIE_Ar_O2.py
+from pathlib import Path
+from diamond_etch_md import SimSpec, IonComponent, compute_ml, make_sim, validate, etch_mode
+
+nx, ny = 6, 6
+ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
+
+spec = SimSpec(
+    orientation    = "100",
+    surface        = "O_ether",
+    temperature    = 300.0,
+
+    ion_mix = [
+        IonComponent(species="Ar", fraction=0.30, energy=50.0),
+        IonComponent(species="O2", fraction=0.70, energy=50.0),  # 25 eV per O atom
+    ],
+
+    flux_ratio     = 2,
+    radical_energy = 0.2,
+    fluence        = 50,
+    ml             = ml,
+    box_x          = nx,
+    box_y          = ny,
+    box_depth      = 5,
+    impact_time         = 1000.0,
+    thermalization_time = 500.0,
+    inter_neutral_time  = 1000.0,
+    wall_hours     = 24,
+    account        = "dgraves",
+    name           = "MULTI_RIE_100_Oether_Ar_30p_50eV_O2_70p_50eV_R2",
+)
+
+validate(spec)
+print(f"etch_mode = {etch_mode(spec)}")    # → "multi-rie-etch"
+make_sim(spec, Path("MULTI_RIE_100_Oether_Ar_O2"))
+```
+
+---
+
+### 5. Cycle etch — Ar⁺ / O₂⁺ ALE/IDLE
+
+![cycling_Ar_O2_IDLE](examples/cycling_Ar_O2_IDLE/etch_trajectory.png)
+
+```python
+# examples/CYCLE_Ar_O2_100_IDLE.py
+from pathlib import Path
+from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_sim, validate
+
+nx, ny = 8, 8
+ml = compute_ml("100", nx, ny)   # 64 atoms/ML for 8×8 box
+
+spec = SimSpec(
+    orientation = "100",
+    surface     = "O_ether",
+    temperature = 300.0,
+    ml          = ml,
+    box_x       = nx,
+    box_y       = ny,
+    box_depth   = 3,
+
+    phases = [
+        CyclePhase(
+            species    = "Ar",
+            energy     = 30.0,    # eV — above sputtering threshold
+            fluence_ml = 20,      # 20 ML Ar+ per cycle
+            flux_ratio = 0,       # no radicals during Ar phase
+        ),
+        CyclePhase(
+            species        = "O2",
+            energy         = 12.0,   # eV total dimer — sub-threshold oxidation
+            fluence_ml     = 30,     # 30 ML O2+ to fully oxidise surface
+            flux_ratio     = 1,
+            radical_energy = 0.2,
+        ),
+    ],
+    cycles     = 3,
+    wall_hours = 48,
+    account    = "dgraves",
+    name       = "CYCLE_100_Oether_Ar_30eV_O2_12eV_R1",
+)
+
+validate(spec)
+make_sim(spec, Path("cycling_Ar_O2_IDLE"))
+```
+
+---
+
+### 6. 3-Phase cycle etch — Ar⁺ / O₂⁺ / O⁺
+
+![cycling_3phase_Ar_O2_O](examples/cycling_3phase_Ar_O2_O/etch_trajectory.png)
+
+```python
+# examples/CYCLE_Ar_O2_O_100.py
+from pathlib import Path
+from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_sim, validate
+
+nx, ny = 6, 6
+ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
+
+spec = SimSpec(
+    orientation = "100",
+    surface     = "O_ether",
+    temperature = 300.0,
+    ml          = ml,
+    box_x       = nx,
+    box_y       = ny,
+    box_depth   = 4,
+
+    phases = [
+        CyclePhase(species="Ar", energy=30.0, fluence_ml=5),
+        CyclePhase(species="O2", energy=10.0, fluence_ml=5),
+        CyclePhase(species="O",  energy=8.0,  fluence_ml=5),
+    ],
+    cycles     = 2,
+    wall_hours = 72,
+    account    = "dgraves",
+    name       = "CYCLE3_100_Oether_Ar_30eV_O2_10eV_O_8eV",
+)
+
+validate(spec)
+make_sim(spec, Path("cycling_3phase_Ar_O2_O"))
+```
 
 ---
 

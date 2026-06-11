@@ -1,33 +1,20 @@
 """
-Multi-RIE-etch: stochastic Ar+/O2+ mixed beam with O• radical pre-exposure.
+Multi-RIE-etch: stochastic Ar+/O2+ mixed beam with O• radical co-exposure.
 
-Combines the mixed-ion stochastic selection of multi-ion-etch with the radical
-flooding of RIE-etch. Before each ion impact, flux_ratio O• radicals are
-deposited; then one ion is drawn at random from the mix.
+O• radicals are co-deposited with the ion beam (flux_ratio per impact); one ion
+is drawn at random from the mix. Requires hybrid ReaxFF+ZBL pair style for Ar.
 
-The output directory name encodes both the ion mix and the flux ratio:
-RIE_{surf}_{ion0}_{pct0}p_{e0}eV_{ion1}_{pct1}p_{e1}eV_R{FR}
-
-Ar+/O2+ sputtering mix with O• radicals (requires ZBL hybrid potential)
-
-python examples/multi_RIE_etch.py
+python examples/MULTI-RIE_Ar_O2.py
 sbatch MULTI_RIE_100_Oether_Ar_O2/submit
 """
 
 from pathlib import Path
-from diamond_etch_md import (
-    SimSpec, IonComponent, compute_ml,
-    make_sim, validate, etch_mode,
-)
+from diamond_etch_md import SimSpec, IonComponent, compute_ml, make_sim, validate, etch_mode
 
 nx, ny = 6, 6
 ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 
-# ---------------------------------------------------------------------------
-# Ar+/O2+ mix with O• radicals
-# ---------------------------------------------------------------------------
-
-spec2 = SimSpec(
+spec = SimSpec(
     orientation    = "100",
     surface        = "O_ether",
     temperature    = 300.0,
@@ -49,12 +36,11 @@ spec2 = SimSpec(
     impact_time         = 1000.0,
     thermalization_time = 500.0,
     inter_neutral_time  = 1000.0,
-
     wall_hours     = 24,
     account        = "dgraves",
     name           = "MULTI_RIE_100_Oether_Ar_30p_50eV_O2_70p_50eV_R2",
 )
 
-validate(spec2)
-print(f"etch_mode = {etch_mode(spec2)}")    # → "multi-rie-etch"
-make_sim(spec2, Path("MULTI_RIE_100_Oether_Ar_O2"))
+validate(spec)
+print(f"etch_mode = {etch_mode(spec)}")    # → "multi-rie-etch"
+make_sim(spec, Path("MULTI_RIE_100_Oether_Ar_O2"))

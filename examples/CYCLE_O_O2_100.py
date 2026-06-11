@@ -1,11 +1,5 @@
 """
-Cycle-etch simulation: O+ chemical etching alternating with
-O2+ chemical etching on C(100) O-ether surface.
-
-Each cycle runs 5 ML of O+ (15 eV) followed by 5 ML of O2+ (12 eV) with
-2 O• radicals per O2+ ion impact. Three cycles = 30 ML total fluence.
-
-O+ → O2+ (2-phase)
+Cycle-etch: O+ chemical etching alternating with O2+ etching on C(100) O-ether surface.
 
 python examples/CYCLE_O_O2_100.py
 sbatch cycling_O_O2/submit
@@ -17,11 +11,7 @@ from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_sim, validate
 nx, ny = 8, 8
 ml = compute_ml("100", nx, ny)   # 64 atoms/ML for 8×8 box
 
-# ---------------------------------------------------------------------------
-# O+ → O2+ cycling
-# ---------------------------------------------------------------------------
-
-spec2 = SimSpec(
+spec = SimSpec(
     orientation = "100",
     surface     = "O_ether",
     temperature = 300.0,
@@ -29,7 +19,7 @@ spec2 = SimSpec(
     ml          = ml,
     box_x       = nx,
     box_y       = ny,
-    box_depth   = 3,           # low-energy O+ — shallow depth is fine
+    box_depth   = 3,
 
     phases = [
         CyclePhase(
@@ -52,5 +42,5 @@ spec2 = SimSpec(
     name       = "CYCLE_100_Oether_O_15eV_O2_12eV_R2",
 )
 
-validate(spec2)
-make_sim(spec2, Path("cycling_O_O2"))
+validate(spec)
+make_sim(spec, Path("cycling_O_O2"))

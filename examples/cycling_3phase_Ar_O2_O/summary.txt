@@ -1,0 +1,28 @@
+# DiamondEtchMD Analysis Summary
+
+## Etch statistics
+Cumulative etch (MLs):  0.05556
+Total ion dose (MLs):  3.889
+Etch yield (C/ion):  0.01429 ± 0.01
+  Phase 0 (Ar): 0.01439 ± 0.01 C/ion
+  Phase 1 (O2): 0 ± 0 C/ion
+  Phase 2 (O): 0 ± 0 C/ion
+
+## Surface oxygen
+Avg phase-end O uptake (MLs):
+  Phase 0 (Ar):  0
+  Phase 1 (O2):  0
+  Phase 2 (O):  0
+
+## Carbon-containing product composition
+Avg O:C ratio:  2
+Avg O per product:  2
+Avg C per product:  1
+n products:  2
+  Phase 0 (Ar): O:C = 2, avg C = 1, avg O = 2, n = 2
+
+## Throughput
+Ion impacts per day:  658.2
+Monolayers per day:  18.28
+Cycles per day:  1.219
+Total ion impacts:  140

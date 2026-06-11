@@ -27,10 +27,10 @@ region r_4 block INF INF INF INF -4 ${ztop} units box
 region r_4 block INF INF INF INF -4 1 units box
 group temp region r${zname}
 group temp region r_4
-494 atoms in group temp
+488 atoms in group temp
 group g${zname} subtract temp anchor
 group g_4 subtract temp anchor
-494 atoms in group g_4
+488 atoms in group g_4
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r_4 delete 
@@ -93,10 +93,10 @@ region r6 block INF INF INF INF 6 ${ztop} units box
 region r6 block INF INF INF INF 6 11 units box
 group temp region r${zname}
 group temp region r6
-488 atoms in group temp
+474 atoms in group temp
 group g${zname} subtract temp anchor
 group g6 subtract temp anchor
-488 atoms in group g6
+474 atoms in group g6
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r6 delete 
@@ -126,10 +126,10 @@ region r11 block INF INF INF INF 11 ${ztop} units box
 region r11 block INF INF INF INF 11 16 units box
 group temp region r${zname}
 group temp region r11
-412 atoms in group temp
+426 atoms in group temp
 group g${zname} subtract temp anchor
 group g11 subtract temp anchor
-412 atoms in group g11
+426 atoms in group g11
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r11 delete 
@@ -192,10 +192,10 @@ region r21 block INF INF INF INF 21 ${ztop} units box
 region r21 block INF INF INF INF 21 26 units box
 group temp region r${zname}
 group temp region r21
-450 atoms in group temp
+451 atoms in group temp
 group g${zname} subtract temp anchor
 group g21 subtract temp anchor
-450 atoms in group g21
+451 atoms in group g21
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r21 delete 
@@ -225,10 +225,10 @@ region r26 block INF INF INF INF 26 ${ztop} units box
 region r26 block INF INF INF INF 26 31 units box
 group temp region r${zname}
 group temp region r26
-372 atoms in group temp
+343 atoms in group temp
 group g${zname} subtract temp anchor
 group g26 subtract temp anchor
-372 atoms in group g26
+343 atoms in group g26
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r26 delete 
@@ -258,10 +258,10 @@ region r31 block INF INF INF INF 31 ${ztop} units box
 region r31 block INF INF INF INF 31 36 units box
 group temp region r${zname}
 group temp region r31
-216 atoms in group temp
+122 atoms in group temp
 group g${zname} subtract temp anchor
 group g31 subtract temp anchor
-216 atoms in group g31
+122 atoms in group g31
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r31 delete 
@@ -291,10 +291,10 @@ region r36 block INF INF INF INF 36 ${ztop} units box
 region r36 block INF INF INF INF 36 41 units box
 group temp region r${zname}
 group temp region r36
-23 atoms in group temp
+30 atoms in group temp
 group g${zname} subtract temp anchor
 group g36 subtract temp anchor
-23 atoms in group g36
+30 atoms in group g36
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r36 delete 

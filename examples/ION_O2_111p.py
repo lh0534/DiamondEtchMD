@@ -1,19 +1,19 @@
 """
 O2+ ion bombardment of C(111) Pandey-chain reconstructed surface.
 
-python examples/ION_O2_111.py
+python examples/ION_O2_111p.py
 sbatch ION_O2_111p/submit
 """
 
 from pathlib import Path
-from diamond_etch_md import SimSpec, compute_ml, make_sim
+from diamond_etch_md import SimSpec, compute_ml, make_sim, validate
 
 nx, ny = 5, 9
+ml = compute_ml("111", nx, ny)
 
 spec = SimSpec(
     orientation    = "111",
-    surface         = "2x1_pandey",
-
+    surface        = "2x1_pandey",
     temperature    = 300.0,
 
     species        = "O2",
@@ -21,7 +21,7 @@ spec = SimSpec(
     angle          = 0.0,
 
     fluence        = 20,
-    ml             = compute_ml("111", nx, ny),
+    ml             = ml,
     box_x          = nx,
     box_y          = ny,
     box_depth      = 6,
@@ -33,4 +33,5 @@ spec = SimSpec(
     name           = "ION_111p_O2_50eV",
 )
 
+validate(spec)
 make_sim(spec, Path("ION_O2_111p"))

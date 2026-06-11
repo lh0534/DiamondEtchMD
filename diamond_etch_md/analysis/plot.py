@@ -4,7 +4,7 @@ analysis/plot.py — analysis plots for DiamondEtchMD simulations.
 Main entry point: make_plots(sim_dir, spec=None)
 
 Produces PNGs in sim_dir:
-  etch_trajectory.png    — etched C + O uptake vs ion dose; amorphous C lines when CNA
+  etch_trajectory.png    — etched C + O uptake vs ion dose; amorphous C layer
   product_grid.png       — bubble chart: n_C vs n_O per ejected cluster
   product_trajectory.png — cumulative yield per product species vs dose, phase-shaded
   etch_per_cycle.png     — etch per cycle (cycling only)
@@ -49,6 +49,7 @@ _SPECIES_COLOR = {
     "O2": "#e87034",
 }
 _FALLBACK_COLORS = ["#3aaa3a", "#d62728", "#9467bd", "#8c564b"]
+_AMORPH_COLOR    = "#7c52c8"   # purple — amorphous C line and matching axis
 
 
 def _phase_color(species, fallback_idx=0):
@@ -104,11 +105,13 @@ def _parse_ep(path):
 
 
 def _load_spec(spec_path):
-    from ..spec import SimSpec, CyclePhase
+    from ..spec import SimSpec, CyclePhase, IonComponent
     import dataclasses
     data = json.loads(Path(spec_path).read_text())
-    phases_data = data.pop('phases', None)
-    data['phases'] = [CyclePhase(**p) for p in phases_data] if phases_data else None
+    phases_data   = data.pop('phases', None)
+    ion_mix_data  = data.pop('ion_mix', None)
+    data['phases']  = [CyclePhase(**p)    for p in phases_data]  if phases_data  else None
+    data['ion_mix'] = [IonComponent(**c)  for c in ion_mix_data] if ion_mix_data else None
     valid = {f.name for f in dataclasses.fields(SimSpec)}
     data = {k: v for k, v in data.items() if k in valid}
     return SimSpec(**data)
@@ -128,55 +131,304 @@ def _apply_style():
 
 
 def _add_phase_shading(ax, spec):
-    """Fill background with per-species colour bands; return legend patches."""
+    """Fill background with per-phase colour bands; return one legend patch per phase."""
     if spec is None or spec.phases is None:
         return []
-    seen = {}
-    for fi, (x0, x1, sp) in enumerate(_phase_spans(spec)):
-        col = _phase_color(sp, fi)
-        ax.axvspan(x0, x1, color=col, alpha=0.10, lw=0, zorder=0)
-        if sp not in seen:
-            seen[sp] = mpatches.Patch(color=col, alpha=0.5,
-                                       label=f"{_species_ion_label(sp)} phase")
-    return list(seen.values())
+    n_phases = len(spec.phases)
+    cmap = plt.get_cmap('tab10')
+    phase_colors = [cmap(i % 10) for i in range(n_phases)]
+    for fi, (x0, x1, _) in enumerate(_phase_spans(spec)):
+        ax.axvspan(x0, x1, color=phase_colors[fi % n_phases],
+                   alpha=0.12, lw=0, zorder=0)
+    return [mpatches.Patch(color=phase_colors[i], alpha=0.6,
+                           label=f"Phase {i + 1}")
+            for i in range(n_phases)]
 
 
 def _cycle_xlim(max_x_ml, spec):
-    """Return (0, right) snapped to an integer number of cycles.
-
-    Always shows at least one full cycle so the phase structure is visible
-    even for in-progress runs.  When multiple cycles are complete, snaps to
-    the last completed one.
-    """
+    """Return (0, right) snapped to an integer number of cycles."""
     if spec and spec.phases:
         cycle_ml = sum(p.fluence_ml for p in spec.phases)
         n_complete = int(max_x_ml // cycle_ml)
         return 0, max(1, n_complete) * cycle_ml
-    return 0, None  # None → let matplotlib autoscale the right edge
+    return 0, None
+
+
+# ── spec summary and ML-density helpers ──────────────────────────────────────
+
+_SURFACE_LABEL: Dict[tuple, str] = {
+    ("100", "1x1"):           "C(100)",
+    ("100", "2x1"):           "C(100) 2×1",
+    ("100", "2x1_O"):         "O-C(100) 2×1",
+    ("100", "O_ether"):       "Ether-C(100)",
+    ("111", "1x1"):           "C(111)",
+    ("111", "1x1_O"):         "O-C(111)",
+    ("111", "2x1_single"):    "C(111) 2×1",
+    ("111", "2x1_single_O"):  "O-C(111) 2×1",
+    ("111", "2x1_pandey"):    "C(111) Pandey",
+    ("111", "2x1_pandey_O"):  "O-C(111) Pandey",
+    ("113", "1x1"):           "C(113)",
+    ("113", "1x1_O"):         "O-C(113)",
+}
+
+
+def _surface_label(orientation: str, surface: str) -> str:
+    return _SURFACE_LABEL.get((orientation, surface),
+                               f"C({orientation}) {surface}")
+
+
+def _spec_summary_str(spec) -> str:
+    """Build a multi-line summary string for figure suptitles.
+
+    Format (all sim types):
+        Line 1:  "{Surface} {SimType} Simulation"
+        Lines 2+: ion/phase specs
+    Returns a single string with embedded newlines.
+    """
+    if spec is None:
+        return ""
+
+    surf = _surface_label(getattr(spec, 'orientation', '100'),
+                          getattr(spec, 'surface', '1x1'))
+
+    def _ion_label(sp):
+        return _species_ion_label(sp)
+
+    def _ion_line(species, energy, fluence_ml=None, pct=None, flux_ratio=0,
+                  radical_energy=0.2, angle=0.0, prefix=""):
+        """Build one ion-spec line."""
+        parts = [prefix + _ion_label(species)]
+        if pct is not None:
+            parts.append(f"{pct:.0f}%")
+        if energy is not None:
+            parts.append(f"{energy:.4g} eV")
+        if fluence_ml is not None:
+            parts.append(f"{fluence_ml} ML")
+        if angle:
+            parts.append(f"{angle:.4g}°")
+        line = "  ".join(parts)
+        if flux_ratio and flux_ratio > 0:
+            re_s = f", {radical_energy:.4g} eV O$^\\bullet$" if radical_energy else ""
+            line += f"  $J_{{rad^\\bullet}}/J_{{ion^+}}$={flux_ratio}{re_s}"
+        return line
+
+    angle = getattr(spec, 'angle', 0.0)
+
+    # ── Multi-ion ──────────────────────────────────────────────────────────────
+    if getattr(spec, 'ion_mix', None) is not None:
+        fr = getattr(spec, 'flux_ratio', 0)
+        sim_type = "Multi-Ion RIE" if fr and fr > 0 else "Multi-Ion"
+        total = sum(c.fraction for c in spec.ion_mix)
+        fluence = getattr(spec, 'fluence', None)
+        lines = [f"{surf} {sim_type} Simulation"]
+        # One line per ion component — no RIE prefix, no flux ratio
+        for c in spec.ion_mix:
+            pct = c.fraction / total * 100
+            lines.append(f"{_ion_label(c.species)}  {pct:.0f}%  {c.energy:.4g} eV")
+        # Shared RIE / run parameters on a final row
+        rie_parts = []
+        if fr and fr > 0:
+            re_s = f", {getattr(spec, 'radical_energy', 0.2):.4g} eV O$^\\bullet$"
+            rie_parts.append(f"$J_{{rad^\\bullet}}/J_{{ion^+}}$={fr}{re_s}")
+        if fluence:
+            rie_parts.append(f"{fluence} ML total")
+        if angle:
+            rie_parts.append(f"{angle:.4g}°")
+        if rie_parts:
+            lines.append("  ".join(rie_parts))
+        return "\n".join(lines)
+
+    # ── Cycle ──────────────────────────────────────────────────────────────────
+    if spec.phases is not None:
+        lines = [f"{surf} Cycle Simulation"]
+        for i, p in enumerate(spec.phases):
+            rie = p.flux_ratio and p.flux_ratio > 0
+            lines.append(
+                f"Phase {i + 1}:  " + _ion_line(
+                    p.species, p.energy, fluence_ml=p.fluence_ml,
+                    flux_ratio=p.flux_ratio,
+                    radical_energy=getattr(p, 'radical_energy', 0.2),
+                    angle=angle,
+                    prefix="RIE " if rie else "",
+                )
+            )
+        return "\n".join(lines)
+
+    # ── Single ion ─────────────────────────────────────────────────────────────
+    fr = getattr(spec, 'flux_ratio', 0)
+    sim_type = "RIE" if fr and fr > 0 else "Ion Etch"
+    fluence = getattr(spec, 'fluence', None)
+    ion_ln = _ion_line(spec.species, getattr(spec, 'energy', None),
+                       fluence_ml=fluence,
+                       flux_ratio=fr,
+                       radical_energy=getattr(spec, 'radical_energy', 0.2),
+                       angle=angle,
+                       prefix="")
+    return f"{surf} {sim_type} Simulation\n{ion_ln}"
+
+
+def _parse_lammps_data_box(path):
+    """Return (xlo, xhi, ylo, yhi) in Å from a LAMMPS data file header."""
+    xlo = xhi = ylo = yhi = None
+    with open(path) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 4 and parts[2] == 'xlo' and parts[3] == 'xhi':
+                xlo, xhi = float(parts[0]), float(parts[1])
+            elif len(parts) >= 4 and parts[2] == 'ylo' and parts[3] == 'yhi':
+                ylo, yhi = float(parts[0]), float(parts[1])
+            if xlo is not None and ylo is not None:
+                break
+    if None in (xlo, xhi, ylo, yhi):
+        return None
+    return xlo, xhi, ylo, yhi
+
+
+def _ml_density_label(sim_dir, ml) -> str:
+    """'1 ML ≡ X.XX × 10^N #/cm²' from box dims in the *0K.dat* data file."""
+    sim_dir = Path(sim_dir)
+    candidates = (list(sim_dir.glob('*0K.dat*')) +
+                  list(sim_dir.glob('*0K.data')))
+    if not candidates:
+        return ""
+    bounds = _parse_lammps_data_box(candidates[0])
+    if bounds is None:
+        return ""
+    xlo, xhi, ylo, yhi = bounds
+    area_cm2 = (xhi - xlo) * (yhi - ylo) * 1e-16   # Å² → cm²
+    if area_cm2 <= 0:
+        return ""
+    dens = ml / area_cm2
+    exp = int(np.floor(np.log10(max(dens, 1e-30))))
+    mantissa = dens / 10**exp
+    return f"1 ML ≡ {mantissa:.2f} × 10$^{{{exp}}}$ #/cm²"
+
+
+def _amorphous_thickness_from_atoms(z_c, zlo, zhi, area_A2):
+    """Amorphous layer thickness in Å from z-positions of C atoms.
+
+    Uses a 0.5 Å z-density histogram smoothed with a 5-bin box-car filter.
+    Bulk density is estimated from the 15–50% height range of the slab.
+    Thickness = distance between the 10% and 90% bulk-density crossings,
+    scanning from the top of the slab downward.
+    """
+    if len(z_c) < 10 or area_A2 <= 0:
+        return 0.0
+    slab_h = zhi - zlo
+    if slab_h <= 0:
+        return 0.0
+    bin_w  = 0.5
+    n_bins = max(int(slab_h / bin_w), 1)
+    counts, edges = np.histogram(z_c, bins=n_bins, range=(zlo, zhi))
+    z_ctr   = (edges[:-1] + edges[1:]) / 2.0
+    density = counts / (bin_w * area_A2)
+
+    # 5-bin box-car smooth (≈ 2.5 Å)
+    kernel = np.ones(5) / 5.0
+    smooth = np.convolve(density.astype(float), kernel, mode='same')
+
+    # Bulk density: median of density in 15–50% of slab height from bottom
+    z_norm = (z_ctr - zlo) / slab_h
+    bulk_mask = (z_norm > 0.15) & (z_norm < 0.50)
+    if not bulk_mask.any():
+        return 0.0
+    bulk_dens = np.median(smooth[bulk_mask])
+    if bulk_dens <= 0:
+        return 0.0
+    norm = smooth / bulk_dens
+
+    # Scan from top downward: z_10 = first point ≥ 10%; z_90 = first point ≥ 90%
+    z_10 = z_90 = None
+    for i in range(len(z_ctr) - 1, -1, -1):
+        if z_10 is None and norm[i] >= 0.10:
+            z_10 = z_ctr[i]
+        if z_10 is not None and z_90 is None and norm[i] >= 0.90:
+            z_90 = z_ctr[i]
+            break
+    if z_10 is None or z_90 is None or z_10 <= z_90:
+        return 0.0
+    return float(z_10 - z_90)
+
+
+def _parse_ml_dump(dump_path):
+    """Parse ML_impacts.dump; return [(dose_ml, amorphous_thickness_A), ...].
+
+    Each snapshot in the dump corresponds to one ML of fluence (written by
+    head.lmp via 'if $(v_c%v_ML)==0 then write_dump').  Box area is read from
+    each frame's own box bounds so it tracks box extensions over time.
+    """
+    results = []
+    snap = 0
+    with open(dump_path) as f:
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            if 'ITEM: TIMESTEP' not in line:
+                continue
+            f.readline()                           # timestep value
+            f.readline()                           # ITEM: NUMBER OF ATOMS
+            n_atoms = int(f.readline().strip())
+            f.readline()                           # ITEM: BOX BOUNDS ...
+            xlo, xhi = map(float, f.readline().split()[:2])
+            ylo, yhi = map(float, f.readline().split()[:2])
+            zlo, zhi = map(float, f.readline().split()[:2])
+            area_A2  = (xhi - xlo) * (yhi - ylo)
+            header   = f.readline().split()        # ITEM: ATOMS id type ...
+            cols     = header[2:]
+            type_col = cols.index('type') if 'type' in cols else 1
+            z_col    = cols.index('z')    if 'z'    in cols else 5
+            z_c = []
+            for _ in range(n_atoms):
+                parts = f.readline().split()
+                if len(parts) > max(type_col, z_col):
+                    if int(parts[type_col]) == 1:
+                        z_c.append(float(parts[z_col]))
+            thickness = _amorphous_thickness_from_atoms(
+                np.array(z_c), zlo, zhi, area_A2
+            )
+            results.append((snap, thickness))
+            snap += 1
+    return results
 
 
 # ── individual plot functions ─────────────────────────────────────────────────
 
-def plot_etch(nc_records, ml, spec=None, ep_records=None, cna_records=None,
-             lat_a=None, ax=None):
-    """Etched C (ML) and O uptake (ML) vs ion dose.
+def plot_etch(nc_records, ml, spec=None, ep_records=None,
+             cna_records=None, amorphous_rho=None,
+             lat_a=None, spec_summary=None, ml_density_str=None, ax=None):
+    """Etched C (ML) and O uptake (ML) vs ion dose, with amorphous C layer.
 
-    When cna_records are provided, also plots amorphous C (z-density, dashed)
-    and amorphous C (CNA OTHER, dash-dot) on the same left axis.
-    When lat_a is provided, a secondary right axis shows thickness in Å
-    (labeled "Amorphous layer thickness" with CNA, "Etch depth" without).
+    Amorphous C is shown as a step function on a twin right y-axis (blue, C0),
+    labelled in Å but scaled proportionally to the left ML axis so that every
+    tick on the right corresponds to the same number of MLs as the left.
+    Both y-axes share the same upper limit (in ML-equivalent units), expanded
+    automatically if the amorphous C exceeds the etch/uptake range.
+
+    Right y-axis label, ticks, and spine are all colored 'C0' to match the line.
+    cna_records takes priority over amorphous_rho (never both).
+
+    Parameters
+    ----------
+    amorphous_rho   : list of (dose_ml, thickness_A) from _parse_ml_dump
+    spec_summary    : string placed above the figure as suptitle
+    ml_density_str  : '1 ML = … #/cm²' string placed below the figure
     """
     _need_mpl()
     own = ax is None
     if own:
         fig, ax = plt.subplots(figsize=(8, 5))
 
-    # O uptake from ncarbon (ion-impact rows only)
-    ion_recs = [r for r in nc_records if r['cn'] == 0]
+    # Decide amorphous source (never both)
+    use_cna = bool(cna_records)
+    use_rho = bool(amorphous_rho) and not use_cna
+
+    # O uptake from ncarbon (ion-impact rows only; skip impact=0 initial-structure entry)
+    ion_recs = [r for r in nc_records if r['cn'] == 0 and r['impact'] > 0]
     nc_x = np.array([r['impact'] for r in ion_recs]) / ml
     o_ml = np.array([r['n_oxygen'] / ml for r in ion_recs])
 
-    # Etched C: cumulative C from etch products
+    # Etched C from etch products
     carbon_ep = [r for r in (ep_records or []) if r['n_C'] > 0]
     if carbon_ep:
         max_imp = max(r['impact'] for r in carbon_ep)
@@ -191,94 +443,250 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None, cna_records=None,
 
     phase_patches = _add_phase_shading(ax, spec)
 
-    ax.step(depth_x, depth_y, where='post', lw=2, color='k', label='Etched C')
-    ax.plot(nc_x, o_ml, lw=1.5, color=_SPECIES_COLOR["O"], alpha=0.85,
+    ax.step(depth_x, depth_y, where='post', lw=3, alpha=0.7, color='k', label='Etched C')
+    ax.plot(nc_x, o_ml, lw=3, alpha=0.7, color=_SPECIES_COLOR["O"],
             label='O uptake')
 
-    if cna_records:
-        cna_x = np.array([r['impact'] for r in cna_records]) / ml
+    # Etch yield linear fit with block-average error — non-cycling sims only
+    is_cycling = bool(spec and spec.phases)
+    if not is_cycling and len(depth_x) > 5 and float(depth_y[-1]) > 0:
+        skip = max(1, len(depth_x) // 10)       # skip first ~10% (transient)
+        xf, yf = depth_x[skip:], depth_y[skip:]
+        if len(xf) > 4 and xf[-1] > xf[0]:
+            slope, intercept = np.polyfit(xf, yf, 1)
 
-        # Z-density amorphous C count (dashed, blue)
-        if all('n_amorphous_zone' in r for r in cna_records):
-            zdense_ml = np.array([r['n_amorphous_zone'] / ml for r in cna_records])
-            ax.plot(cna_x, zdense_ml, lw=1.5, ls='--', color='C0', alpha=0.85,
-                    label='Amorphous layer thickness')
+            # Block-average SEM: split into N blocks, polyfit each, take std/sqrt(N)
+            n_blocks = max(5, min(20, len(xf) // 5))
+            bs = len(xf) // n_blocks
+            bslopes = [np.polyfit(xf[b*bs:(b+1)*bs], yf[b*bs:(b+1)*bs], 1)[0]
+                       for b in range(n_blocks) if (b+1)*bs <= len(xf)]
+            sem = (np.std(bslopes, ddof=1) / np.sqrt(len(bslopes))
+                   if len(bslopes) > 1 else 0.0)
 
-        # CNA OTHER C (dash-dot, purple)
-        cna_ml = np.array([r['n_amorphous'] / ml for r in cna_records])
-        ax.plot(cna_x, cna_ml, lw=1.5, ls='-.', color='C4', alpha=0.85,
-                label='Amorphous C')
+            # Format as (m ± e) × 10^p C/ion
+            p   = int(np.floor(np.log10(max(abs(slope), 1e-30))))
+            m   = slope / 10**p
+            e   = sem   / 10**p
+            lbl = (f"Yield = ({m:.2f} ± {e:.2f})×10$^{{{p}}}$ C/ion"
+                   if sem > 0 else
+                   f"Yield = {m:.2f}×10$^{{{p}}}$ C/ion")
+            ax.plot(depth_x, slope * depth_x + intercept,
+                    ls='--', lw=1.5, color='0.45', alpha=0.8, label=lbl)
 
     ax.set_xlabel('Ion dose (ML)')
-    ax.set_ylabel('ML')
+    ax.set_ylabel(f"Monolayers (MLs)\n{ml_density_str}" if ml_density_str else "Monolayers (MLs)",
+                  labelpad=15)
     max_x = max(
         depth_x[-1] if len(depth_x) else 0,
         nc_x[-1]    if len(nc_x)    else 0,
     )
     xleft, xright = _cycle_xlim(max_x, spec)
     ax.set_xlim(xleft, xright)
-    ax.set_ylim(bottom=0)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
 
-    if lat_a:
+    # Amorphous C — twin right y-axis in Å, scaled proportionally to left ML axis
+    am_handle = None
+    am_y_A = None   # always in Å so we can set the right ylim proportionally
+    if use_rho or use_cna:
+        ax2 = ax.twinx()
+
+        if use_rho:
+            am_x   = np.array([d for d, _ in amorphous_rho], dtype=float)
+            am_y_A = np.array([t for _, t in amorphous_rho], dtype=float)  # Å
+            am_label  = r'Amorphous C ($\rho$)'
+            am_ylabel = 'Amorphous layer thickness (Å)'
+        else:
+            # CNA data is in ML; store as Å if lat_a known, else keep as ML
+            am_x  = np.array([r['impact'] for r in cna_records]) / ml
+            am_ml = np.array([r['n_amorphous'] / ml for r in cna_records])
+            am_y_A    = am_ml * (lat_a / 4) if lat_a else am_ml
+            am_label  = 'Amorphous C (CNA)'
+            am_ylabel = 'Amorphous layer thickness (Å)' if lat_a else 'Amorphous C (ML)'
+
+        am_line = ax2.scatter(am_x, am_y_A, s=40, alpha=0.7, color='C0',
+                              label=am_label, zorder=3)
+        am_handle = am_line
+        ax2.set_ylabel(am_ylabel, color='C0')
+        ax2.tick_params(axis='y', labelcolor='C0', color='C0')
+        ax2.yaxis.label.set_color('C0')
+        ax2.spines['right'].set_visible(True)
+        ax2.spines['right'].set_color('C0')
+        if xright is not None:
+            ax2.set_xlim(xleft, xright)
+
+    # Compute a shared ML top that accommodates every line
+    left_top = max(
+        float(depth_y[-1]) if len(depth_y) else 0.0,
+        float(np.max(o_ml)) if len(o_ml)    else 0.0,
+    )
+    if am_y_A is not None and len(am_y_A):
+        am_top_ml = float(np.max(am_y_A)) / (lat_a / 4) if lat_a else float(np.max(am_y_A))
+        ylim_top_ml = max(left_top, am_top_ml) * 1.1
+    else:
+        ylim_top_ml = left_top * 1.1
+    ylim_top_ml = max(ylim_top_ml, 0.1)
+
+    ax.set_ylim(0, ylim_top_ml)
+
+    if use_rho or use_cna:
+        # Lock right axis: same ML scale, labelled in Å
+        ax2.set_ylim(0, ylim_top_ml * (lat_a / 4) if lat_a else ylim_top_ml)
+    elif lat_a:
+        # No amorphous data — show Å depth on right axis
         ax.spines['right'].set_visible(True)
         scale = lat_a / 4
         sec = ax.secondary_yaxis(
             'right',
             functions=(lambda y, s=scale: y * s, lambda a, s=scale: a / s),
         )
-        sec.set_ylabel('Amorphous layer thickness (Å)')
+        sec.set_ylabel('Etch depth (Å)')
 
+    # Combined legend
     h1, l1 = ax.get_legend_handles_labels()
-    ax.legend(handles=h1 + phase_patches, frameon=False, fontsize=11, loc='best')
+    extra_handles = [p for p in phase_patches]
+    extra_labels  = [p.get_label() for p in phase_patches]
+    if am_handle is not None:
+        extra_handles.append(am_handle)
+        extra_labels.append(am_handle.get_label())
+    all_handles = h1 + extra_handles
+    all_labels  = l1 + extra_labels
+    ax.legend(handles=all_handles, labels=all_labels,
+              frameon=False, fontsize=11,
+              loc='lower center', bbox_to_anchor=(0.5, 1.02),
+              ncols=max(len(all_handles), 1),
+              handlelength=1.0, handletextpad=0.4,
+              columnspacing=0.8, labelspacing=0.2,
+              borderaxespad=0.0)
 
     if own:
-        plt.tight_layout()
+        if spec_summary:
+            n_spec = spec_summary.count('\n') + 1
+            plt.tight_layout()
+            # Reserve space above axes: ~5% per spec line
+            current_top = fig.subplotpars.top
+            plt.subplots_adjust(top=max(0.40, current_top - 0.05 * n_spec))
+            # First line bold, remaining lines normal weight
+            spec_lines  = spec_summary.split('\n')
+            line_h      = 0.045   # ~fontsize-11 line height in figure coords
+            y_top       = 0.96
+            fig.text(0.5, y_top, spec_lines[0],
+                     ha='center', va='top', fontsize=11, fontweight='bold',
+                     transform=fig.transFigure)
+            if len(spec_lines) > 1:
+                fig.text(0.5, y_top - line_h, '\n'.join(spec_lines[1:]),
+                         ha='center', va='top', fontsize=11, fontweight='normal',
+                         transform=fig.transFigure)
+        else:
+            plt.tight_layout()
         return ax.figure
     return ax
 
 
-def _bubble_panel(ax, records, color, title):
-    """Draw one bubble-chart panel on ax for the given C-containing records."""
-    MAX_C = max((max(r['n_C'] for r in records) if records else 0), 4)
-    MAX_O = max((max(r['n_O'] for r in records) if records else 0), 3)
+def _apply_suptitle(fig, spec_summary, plot_title=None):
+    """Bold first spec line + normal rest + optional plot_title as final line."""
+    lines = (spec_summary.split('\n') if spec_summary else [])
+    if plot_title:
+        lines.append(plot_title)
+    if not lines:
+        plt.tight_layout()
+        return
+    n = len(lines)
+    plt.tight_layout()
+    current_top = fig.subplotpars.top
+    plt.subplots_adjust(top=max(0.40, current_top - 0.05 * n))
+    line_h = 0.045
+    y_top  = 0.96
+    fig.text(0.5, y_top, lines[0], ha='center', va='top', fontsize=11,
+             fontweight='bold', transform=fig.transFigure)
+    if len(lines) > 1:
+        fig.text(0.5, y_top - line_h, '\n'.join(lines[1:]), ha='center', va='top',
+                 fontsize=11, fontweight='normal', transform=fig.transFigure)
 
-    grid = np.zeros((MAX_O + 1, MAX_C + 1))
-    for r in records:
-        if r['n_C'] <= MAX_C and r['n_O'] <= MAX_O:
-            grid[r['n_O'], r['n_C']] += 1
 
-    total = grid.sum()
-    frac  = grid / total if total > 0 else grid
-    max_f = frac.max() if frac.max() > 0 else 1.0
-    scale = (0.45 ** 2) * np.pi / max_f
+def _bubble_panel(ax, records, color, max_c=6, max_o=6,
+                  records2=None, color2=None, label=None, label2=None):
+    """Draw bubble-chart panel on ax.
 
-    for nO in range(MAX_O + 1):
-        for nC in range(MAX_C + 1):
-            f = frac[nO, nC]
-            if f == 0:
-                continue
-            r = np.sqrt(f * scale / np.pi)
-            ax.add_patch(plt.Circle((nC, nO), r, color=color, alpha=0.40, zorder=2))
-            if f >= 0.02:
-                ax.text(nC, nO, f"{_product_label(nC, 0, nO)}\n{f*100:.0f}%",
-                        ha='center', va='center', fontsize=11, color='0.15', zorder=3)
+    If records2/color2 provided, overlays a second dataset (hollow circles)
+    on the same grid — used to compare ion vs radical products on one panel.
+    """
+    all_recs = list(records or []) + list(records2 or [])
+    raw_max_c = max(r['n_C'] for r in all_recs) if all_recs else 0
+    raw_max_o = max(r['n_O'] for r in all_recs) if all_recs else 0
+    MAX_C = min(max(raw_max_c, 4), max_c) if max_c is not None else max(raw_max_c, 4)
+    MAX_O = min(max(raw_max_o, 3), max_o) if max_o is not None else max(raw_max_o, 3)
 
-    if total > 1:
-        nC_v = np.array([r['n_C'] for r in records if r['n_C'] <= MAX_C])
-        nO_v = np.array([r['n_O'] for r in records if r['n_O'] <= MAX_O])
-        mean_C, mean_O = nC_v.mean(), nO_v.mean()
-        w, h = max(4 * nC_v.std(), 0.3), max(4 * nO_v.std(), 0.3)
-        for kw in [
-            dict(facecolor=color, edgecolor='none', alpha=0.10, zorder=1),
-            dict(fill=False, edgecolor=color, lw=2.0, ls='--', alpha=0.8, zorder=1),
-        ]:
-            ax.add_patch(Ellipse((mean_C, mean_O), width=w, height=h, **kw))
-        oc = nO_v.mean() / nC_v.mean() if nC_v.mean() > 0 else 0
-        ax.text(0.03, 0.97, f"O:C = {oc:.2f}", transform=ax.transAxes,
-                fontsize=12, ha='left', va='top', color=color, fontweight='bold',
-                zorder=5, bbox=dict(boxstyle='round,pad=0.25', fc='white',
-                                    alpha=0.85, ec=color, lw=0.8))
+    dual = bool(records2)
+
+    def _build_grid(recs):
+        g = np.zeros((MAX_O + 1, MAX_C + 1))
+        for r in (recs or []):
+            if r['n_C'] <= MAX_C and r['n_O'] <= MAX_O:
+                g[r['n_O'], r['n_C']] += 1
+        return g
+
+    grid1 = _build_grid(records)
+    grid2 = _build_grid(records2) if dual else None
+
+    total1 = grid1.sum()
+    total2 = grid2.sum() if dual else 0
+
+    # Scale bubble sizes relative to whichever dataset has the larger mode
+    combined_max = max(
+        (grid1 / total1).max() if total1 > 0 else 0,
+        (grid2 / total2).max() if (dual and total2 > 0) else 0,
+        1e-9,
+    )
+    scale = (0.45 ** 2) * np.pi / combined_max
+
+    def _draw_bubbles(grid, total, col, hollow=False):
+        frac = grid / total if total > 0 else grid
+        for nO in range(MAX_O + 1):
+            for nC in range(MAX_C + 1):
+                f = frac[nO, nC]
+                if f == 0:
+                    continue
+                radius = np.sqrt(f * scale / np.pi)
+                if hollow:
+                    ax.add_patch(plt.Circle((nC, nO), radius,
+                                            fill=False, edgecolor=col,
+                                            lw=2.0, alpha=0.85, zorder=3))
+                else:
+                    ax.add_patch(plt.Circle((nC, nO), radius,
+                                            color=col, alpha=0.40, zorder=2))
+                if not dual and f >= 0.02:
+                    ax.text(nC, nO, f"{_product_label(nC, 0, nO)}\n{f*100:.0f}%",
+                            ha='center', va='center', fontsize=11,
+                            color='0.15', zorder=4)
+
+    _draw_bubbles(grid1, total1, color, hollow=False)
+    if dual:
+        _draw_bubbles(grid2, total2, color2, hollow=True)
+
+    # Ellipse + O:C annotation (single-dataset only to keep dual clean)
+    for recs, col, corner in (
+        [(records, color, (0.03, 0.97))] +
+        ([(records2, color2, (0.97, 0.97))] if dual else [])
+    ):
+        clipped = [r for r in (recs or []) if r['n_C'] <= MAX_C and r['n_O'] <= MAX_O]
+        if len(clipped) > 1:
+            nC_v = np.array([r['n_C'] for r in clipped])
+            nO_v = np.array([r['n_O'] for r in clipped])
+            if not dual:
+                mean_C, mean_O = nC_v.mean(), nO_v.mean()
+                w = max(4 * nC_v.std(), 0.3)
+                h = max(4 * nO_v.std(), 0.3)
+                for kw in [
+                    dict(facecolor=col, edgecolor='none', alpha=0.10, zorder=1),
+                    dict(fill=False, edgecolor=col, lw=2.0, ls='--', alpha=0.8, zorder=1),
+                ]:
+                    ax.add_patch(Ellipse((mean_C, mean_O), width=w, height=h, **kw))
+            oc = nO_v.mean() / nC_v.mean() if nC_v.mean() > 0 else 0
+            ha = 'left' if corner[0] < 0.5 else 'right'
+            ax.text(*corner, f"O:C = {oc:.2f}", transform=ax.transAxes,
+                    fontsize=12, ha=ha, va='top', color=col, fontweight='bold',
+                    zorder=5, bbox=dict(boxstyle='round,pad=0.25', fc='white',
+                                        alpha=0.85, ec=col, lw=0.8))
 
     for x in np.arange(-0.5, MAX_C + 1):
         ax.axvline(x, color='0.88', lw=0.5, zorder=0)
@@ -292,7 +700,18 @@ def _bubble_panel(ax, records, color, title):
     ax.set_xlabel('C atoms in product')
     ax.set_ylabel('O atoms in product')
     ax.set_aspect('equal')
-    ax.set_title(f"{title}  (n = {int(total):,})", fontsize=11)
+
+    if dual:
+        lbl1 = label  or 'ion'
+        lbl2 = label2 or 'radical'
+        ax.legend(
+            handles=[
+                mpatches.Patch(color=color,  alpha=0.6, label=f"{lbl1} ({int(total1):,})"),
+                mpatches.Patch(color=color2, alpha=0.6, label=f"{lbl2} ({int(total2):,})"),
+            ],
+            frameon=False, fontsize=10, loc='lower right',
+        )
+    return int(total1), int(total2)
 
 
 def _phase_of_impact(impact, spec, ml):
@@ -307,14 +726,14 @@ def _phase_of_impact(impact, spec, ml):
     return len(spec.phases) - 1
 
 
-def plot_product_grid(ep_records, spec=None, ml=0, ax=None):
-    """Bubble chart(s): n_C (x) vs n_O (y) for C-containing ejected clusters.
+def plot_product_grid(ep_records, spec=None, ml=0, ax=None,
+                      spec_summary=None, plot_title="Carbon Products",
+                      max_c=6, max_o=6, panel_title=None):
+    """Bubble chart: n_C (x) vs n_O (y) for C-containing ejected clusters.
 
-    For cycling simulations (spec.phases present), produces one subplot per
-    phase (matching cycle_plots.ipynb style).
-    For non-cycling simulations with radical sweeps (cn>0 records exist),
-    produces three subplots: All / Ion phase / Radical phase.
-    Otherwise produces a single bubble chart.
+    For cycling specs, draws one panel per phase side-by-side.
+    Otherwise draws a single panel.  Caller is responsible for splitting
+    ion vs radical records before calling (pass filtered ep_records).
     """
     _need_mpl()
     ep_c = [r for r in (ep_records or []) if r['n_C'] > 0]
@@ -322,46 +741,47 @@ def plot_product_grid(ep_records, spec=None, ml=0, ax=None):
         return None
 
     is_cyc = spec and spec.phases
-    has_radicals = any(r.get('cn', 0) > 0 for r in ep_c)
+
+    phase_counts = []   # list of (label, n_ion, n_rad) for suptitle n= line
 
     if is_cyc and ml > 0:
-        # Per-phase panels (cycling)
         phases = spec.phases
         n = len(phases)
         fig, axes = plt.subplots(1, n, figsize=(5 * n, 4.5), squeeze=False)
         for pi, p in enumerate(phases):
             phase_recs = [r for r in ep_c if _phase_of_impact(r['impact'], spec, ml) == pi]
             color = _phase_color(p.species, pi)
-            _bubble_panel(axes[0][pi], phase_recs, color,
-                          f"{_species_ion_label(p.species)} phase")
-    elif has_radicals:
-        # Ion / Radical / All panels (RIE with radicals)
-        ion_recs = [r for r in ep_c if r.get('cn', 0) == 0]
-        rad_recs = [r for r in ep_c if r.get('cn', 0) > 0]
-        panels = [
-            ('All products',    ep_c,     '#4e9be6'),
-            ('Ion phase',       ion_recs, '#4e9be6'),
-            ('Radical phase',   rad_recs, '#e87034'),
-        ]
-        fig, axes = plt.subplots(1, 3, figsize=(15, 4.5), squeeze=False)
-        for ax_i, (title, recs, color) in zip(axes[0], panels):
-            _bubble_panel(ax_i, recs, color, title)
+            phase_has_radicals = any(r.get('cn', 0) > 0 for r in phase_recs)
+            lbl = f"Ph.{pi+1}"
+            if phase_has_radicals:
+                ion_recs = [r for r in phase_recs if r.get('cn', 0) == 0]
+                rad_recs = [r for r in phase_recs if r.get('cn', 0) > 0]
+                n1, n2 = _bubble_panel(axes[0][pi], ion_recs, color,
+                                       max_c=max_c, max_o=max_o,
+                                       records2=rad_recs, color2='#e87034',
+                                       label='ion', label2='radical')
+                phase_counts.append(f"{lbl}: ion {n1:,} / rad {n2:,}")
+            else:
+                n1, _ = _bubble_panel(axes[0][pi], phase_recs, color,
+                                      max_c=max_c, max_o=max_o)
+                phase_counts.append(f"{lbl}: n={n1:,}")
     else:
-        # Single panel
         if spec and spec.phases:
             color = _phase_color(spec.phases[0].species)
-        elif spec and spec.species:
+        elif spec and getattr(spec, 'species', None):
             color = _phase_color(spec.species)
         else:
             color = '#4e9be6'
         fig, axes = plt.subplots(1, 1, figsize=(6, 5), squeeze=False)
-        _bubble_panel(axes[0][0], ep_c, color, 'Carbon-containing products')
+        n1, _ = _bubble_panel(axes[0][0], ep_c, color, max_c=max_c, max_o=max_o)
+        phase_counts.append(f"n={n1:,}")
 
-    fig.tight_layout()
+    count_str = "  ".join(phase_counts)
+    _apply_suptitle(fig, spec_summary, f"{plot_title}  ({count_str})")
     return fig
 
 
-def plot_product_trajectory(ep_records, ml, spec=None, ax=None):
+def plot_product_trajectory(ep_records, ml, spec=None, ax=None, spec_summary=None):
     """Cumulative yield (ML) per product species vs dose (ML), phase-shaded."""
     _need_mpl()
     if not ep_records:
@@ -401,7 +821,7 @@ def plot_product_trajectory(ep_records, ml, spec=None, ax=None):
     ax.legend(handles=h1 + phase_patches, frameon=False, fontsize=11, loc='best')
 
     if own:
-        plt.tight_layout()
+        _apply_suptitle(ax.figure, spec_summary, "Carbon Products")
         return ax.figure
     return ax
 
@@ -477,7 +897,7 @@ def plot_etch_per_cycle(nc_records, spec, ml, lat_a=None, ax=None):
         start = cyc * total_cycle_ml
         end   = (cyc + 1) * total_cycle_ml
         if max_impact < end:
-            break  # cycle not yet complete
+            break
         recs = [r for r in ion_recs if start < r['impact'] <= end]
         if recs:
             last = recs[-1]['n_carbon']
@@ -520,7 +940,7 @@ def plot_etch_per_cycle(nc_records, spec, ml, lat_a=None, ax=None):
     return ax
 
 
-def plot_per_phase_yield(nc_records, spec, ml, ax=None):
+def plot_per_phase_yield(nc_records, spec, ml, ax=None, spec_summary=None):
     """Per-phase etch yield: box-and-whisker plot over cycles."""
     _need_mpl()
     if spec is None or spec.phases is None:
@@ -565,12 +985,12 @@ def plot_per_phase_yield(nc_records, spec, ml, ax=None):
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
 
     if own:
-        plt.tight_layout()
+        _apply_suptitle(ax.figure, spec_summary, "Per Phase Yield")
         return ax.figure
     return ax
 
 
-def plot_o_per_cycle(nc_records, spec, ml, ax=None):
+def plot_o_per_cycle(nc_records, spec, ml, ax=None, spec_summary=None):
     """Phase-end O uptake per cycle — same x-axis style as etch_per_cycle."""
     _need_mpl()
     if spec is None or spec.phases is None:
@@ -591,7 +1011,7 @@ def plot_o_per_cycle(nc_records, spec, ml, ax=None):
             lo = cyc * total_cycle_ml + phase_start_ml
             hi = cyc * total_cycle_ml + phase_end_ml
             if max_impact < hi:
-                break  # phase not yet complete
+                break
             recs = [r for r in ion_recs if lo < r['impact'] <= hi]
             if recs:
                 o_end.append(recs[-1]['n_oxygen'] / ml)
@@ -611,7 +1031,7 @@ def plot_o_per_cycle(nc_records, spec, ml, ax=None):
     ax.legend(frameon=False, fontsize=11, loc='best')
 
     if own:
-        plt.tight_layout()
+        _apply_suptitle(ax.figure, spec_summary, "End-phase O Uptake")
         return ax.figure
     return ax
 
@@ -650,8 +1070,6 @@ def make_plots(
 
     nc, _has_radicals_nc = _parse_nc(nc_path)
     ep = _parse_ep(ep_path)
-    # is_cyc: True if spec declares multiple phases (phase shading, per-cycle plots).
-    # Distinct from _has_radicals_nc (cn>0 rows) which can be true in single-phase RIE.
     is_cyc = bool(spec and spec.phases)
     plot_spec = spec if is_cyc else None
 
@@ -663,6 +1081,22 @@ def make_plots(
         except ValueError:
             pass
 
+    # Spec summary for figure titles
+    summary = _spec_summary_str(spec)
+
+    # ML surface density label from initial data file
+    ml_dens = _ml_density_label(sim_dir, ml)
+
+    # Density-based amorphous C (default when CNA not available)
+    amorphous_rho = None
+    if not cna_records:
+        dump_path = sim_dir / 'ML_impacts.dump'
+        if dump_path.exists():
+            try:
+                amorphous_rho = _parse_ml_dump(dump_path) or None
+            except Exception:
+                amorphous_rho = None
+
     figs = {}
 
     def _save(fig, name):
@@ -671,19 +1105,42 @@ def make_plots(
             fig.savefig(sim_dir / f'{name}.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
 
-    ep_carbon = [r for r in ep if r['n_C'] > 0]  # drop O-only clusters globally
+    ep_carbon = [r for r in ep if r['n_C'] > 0]
 
     fig = plot_etch(nc, ml, spec=plot_spec, ep_records=ep_carbon,
-                   cna_records=cna_records, lat_a=lat_a)
+                   cna_records=cna_records, amorphous_rho=amorphous_rho,
+                   lat_a=lat_a, spec_summary=summary, ml_density_str=ml_dens)
     if fig:
         _save(fig, 'etch_trajectory')
 
     if ep_carbon:
-        fig = plot_product_grid(ep_carbon, spec=spec, ml=ml)
-        if fig:
-            _save(fig, 'product_grid')
+        is_rie = bool(spec and not is_cyc and getattr(spec, 'flux_ratio', 0) > 0)
+        has_cn_data = any(r.get('cn', 0) > 0 for r in ep_carbon)
 
-        fig = plot_product_trajectory(ep_carbon, ml, spec=plot_spec)
+        if is_rie and has_cn_data:
+            # Split by radical (cn>0) vs ion (cn==0) impacts
+            ep_ion = [r for r in ep_carbon if r.get('cn', 0) == 0]
+            ep_rad = [r for r in ep_carbon if r.get('cn', 0) > 0]
+            if ep_ion:
+                fig = plot_product_grid(ep_ion, spec=spec, ml=ml,
+                                        spec_summary=summary,
+                                        plot_title="Ion-Phase Carbon Products")
+                if fig:
+                    _save(fig, 'product_grid_ion')
+            if ep_rad:
+                fig = plot_product_grid(ep_rad, spec=spec, ml=ml,
+                                        spec_summary=summary,
+                                        plot_title="Radical-Phase Carbon Products")
+                if fig:
+                    _save(fig, 'product_grid_radical')
+        else:
+            fig = plot_product_grid(ep_carbon, spec=spec, ml=ml,
+                                    spec_summary=summary)
+            if fig:
+                _save(fig, 'product_grid')
+
+        fig = plot_product_trajectory(ep_carbon, ml, spec=plot_spec,
+                                      spec_summary=summary)
         if fig:
             _save(fig, 'product_trajectory')
 
@@ -692,11 +1149,11 @@ def make_plots(
         if fig:
             _save(fig, 'etch_per_cycle')
 
-        fig = plot_per_phase_yield(nc, spec, ml)
+        fig = plot_per_phase_yield(nc, spec, ml, spec_summary=summary)
         if fig:
             _save(fig, 'per_phase_yield')
 
-        fig = plot_o_per_cycle(nc, spec, ml)
+        fig = plot_o_per_cycle(nc, spec, ml, spec_summary=summary)
         if fig:
             _save(fig, 'o_per_cycle')
 

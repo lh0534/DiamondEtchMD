@@ -1,23 +1,22 @@
 """
-Ar+ sputtering at 45-degree off-normal incidence on C(100).
+Ar+ sputtering at 45-degree off-normal incidence on C(100) 2x1 surface.
 
-Non-zero incidence angle is specified in degrees from the surface normal.
-The velocity is decomposed into normal (vz) and lateral (vy) components.
-Angled bombardment affects sputter yield and surface morphology.
+Non-zero angle is in degrees from the surface normal; the velocity is
+decomposed into normal (vz) and lateral (vy) components.
 
-python examples/ION_100_2x1_angled_Ar.py
+python examples/ION_angled_Ar_100.py
 sbatch ION_100_2x1_angled_Ar/submit
 """
 
 from pathlib import Path
-from diamond_etch_md import SimSpec, compute_ml, make_sim
+from diamond_etch_md import SimSpec, compute_ml, make_sim, validate
 
 nx, ny = 8, 8
+ml = compute_ml("100", nx, ny)   # 64 atoms/ML for 8×8 box
 
 spec = SimSpec(
     orientation    = "100",
-    surface         = "2x1",
-
+    surface        = "2x1",
     temperature    = 300.0,
 
     species        = "Ar",
@@ -25,7 +24,7 @@ spec = SimSpec(
     angle          = 45.0,         # degrees from surface normal
 
     fluence        = 20,
-    ml             = compute_ml("100", nx, ny),
+    ml             = ml,
     box_x          = nx,
     box_y          = ny,
     box_depth      = 4,
@@ -37,4 +36,5 @@ spec = SimSpec(
     name           = "ION_100_2x1_Ar_50eV_45deg",
 )
 
+validate(spec)
 make_sim(spec, Path("ION_100_2x1_angled_Ar"))

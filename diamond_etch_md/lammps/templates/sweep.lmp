@@ -34,7 +34,7 @@ group       clust_argon intersect argon small_clust
 # if the center of mass is higher than the top atom, the cluster's z velocity is positive,
 # and there are actually atoms in both the surface and the leaving cluster, then print the etch product and delete the cluster
 if "$(xcm(small_clust,z) > c_top_surf) && $(vcm(small_clust,z) > 0) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)+count(clust_argon)) > 0" then &
-"print '${c} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen)) $(count(clust_argon))' append etch_products.txt" &
+"print '${c} ${cn} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen)) $(count(clust_argon))' append etch_products.txt" &
 "delete_atoms group small_clust" &
 "change_box      all z final $(zlo) $(zhi) units box" &
 "region          bbox delete" &

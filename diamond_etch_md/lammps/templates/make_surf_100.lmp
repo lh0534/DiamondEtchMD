@@ -117,11 +117,15 @@ if "!${use_starting_data_file}" then &
 "reset_timestep  0 time 0.0 # pretend this never happened"
 
 # write initial values
+group       hydrogen type 2
+group       oxygen   type 3
 variable n_lat_0 equal $(count(carbon))
+variable n_lat_H equal $(count(hydrogen))
+variable n_lat_O equal $(count(oxygen))
 print 'N_LAT_0 ${n_lat_0}'
 write_data      100_${T}K.dat nofix nocoeff
 write_data      impact_snaps/0.data nofix nocoeff
 write_dump      all custom ML_impacts.dump id type q x y z vx vy vz modify sort id
 
-print "0 0 ${n_lat_0} 0 0" append ncarbon.txt
+print "0 0 ${n_lat_0} ${n_lat_H} ${n_lat_O}" append ncarbon.txt
 print "0 ${bottom} ${n_lat_0}" append bottom_tracker.txt

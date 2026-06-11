@@ -269,7 +269,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"# Pre-run counters\n"
         f"variable c equal ${{n_complete}}\n"
         f"variable event_count equal ${{n_events}}\n"
-        f"{rie_pre_loop}"
+        f"{rie_pre_loop if rie_pre_loop else 'variable cn equal 0\\n'}"
         f"\n"
         f"# Atom counts\n"
         f"variable\tnfixed   equal count(anchor)\n"

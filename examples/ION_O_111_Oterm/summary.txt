@@ -2,13 +2,13 @@
 
 ## Etch statistics
 Cumulative etch (MLs):  0
-Total ion dose (MLs):  5.822
+Total ion dose (MLs):  0.9
 Etch yield (C/ion):  0
 
 ## Surface oxygen
-Avg O uptake (MLs):  0.9042 ± 0.013
+Avg O uptake (MLs):  0.8713 ± 0.012
 
 ## Throughput
-Ion impacts per day:  1082
-Monolayers per day:  12.02
-Total ion impacts:  524
+Ion impacts per day:  997.3
+Monolayers per day:  11.08
+Total ion impacts:  81
