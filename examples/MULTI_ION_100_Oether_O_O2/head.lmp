@@ -44,6 +44,7 @@ if "${pot} == REAX" then &
 "fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"
 
 variable c equal ${n_complete}
+variable cn equal 0
 variable event_count equal ${n_events}
 
 variable	nfixed   equal count(anchor)

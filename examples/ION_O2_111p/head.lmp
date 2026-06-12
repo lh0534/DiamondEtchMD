@@ -49,6 +49,7 @@ if "${pot} == REAX" then &
 
 # Pre-run counters
 variable c equal ${n_complete}
+variable cn equal 0
 variable event_count equal ${n_events}
 
 # Atom counts

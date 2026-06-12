@@ -61,10 +61,10 @@ region r_6 block INF INF INF INF -6 ${ztop} units box
 region r_6 block INF INF INF INF -6 -1 units box
 group temp region r${zname}
 group temp region r_6
-183 atoms in group temp
+182 atoms in group temp
 group g${zname} subtract temp anchor
 group g_6 subtract temp anchor
-183 atoms in group g_6
+182 atoms in group g_6
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r_6 delete 
@@ -94,10 +94,10 @@ region r_1 block INF INF INF INF -1 ${ztop} units box
 region r_1 block INF INF INF INF -1 4 units box
 group temp region r${zname}
 group temp region r_1
-143 atoms in group temp
+134 atoms in group temp
 group g${zname} subtract temp anchor
 group g_1 subtract temp anchor
-143 atoms in group g_1
+134 atoms in group g_1
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r_1 delete 
@@ -127,10 +127,10 @@ region r4 block INF INF INF INF 4 ${ztop} units box
 region r4 block INF INF INF INF 4 9 units box
 group temp region r${zname}
 group temp region r4
-44 atoms in group temp
+43 atoms in group temp
 group g${zname} subtract temp anchor
 group g4 subtract temp anchor
-44 atoms in group g4
+43 atoms in group g4
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r4 delete 
@@ -160,10 +160,10 @@ region r9 block INF INF INF INF 9 ${ztop} units box
 region r9 block INF INF INF INF 9 14 units box
 group temp region r${zname}
 group temp region r9
-14 atoms in group temp
+10 atoms in group temp
 group g${zname} subtract temp anchor
 group g9 subtract temp anchor
-14 atoms in group g9
+10 atoms in group g9
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r9 delete 
@@ -215,7 +215,7 @@ group g14 delete
 
 # run thermostats
 log ${log_file} append # ok log this part
-log log2.lammps append 
+log log3.lammps append 
 
 variable zbottom equal ${zbottom0}
 variable zbottom equal -11
@@ -282,4 +282,4 @@ variable zbottom equal 9+5
 if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
 # ================================= end UNthermostat setting loop ========
 log ${log_file} append
-log log2.lammps append
+log log3.lammps append

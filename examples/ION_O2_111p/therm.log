@@ -93,10 +93,10 @@ region r6 block INF INF INF INF 6 ${ztop} units box
 region r6 block INF INF INF INF 6 11 units box
 group temp region r${zname}
 group temp region r6
-474 atoms in group temp
+498 atoms in group temp
 group g${zname} subtract temp anchor
 group g6 subtract temp anchor
-474 atoms in group g6
+498 atoms in group g6
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r6 delete 
@@ -126,10 +126,10 @@ region r11 block INF INF INF INF 11 ${ztop} units box
 region r11 block INF INF INF INF 11 16 units box
 group temp region r${zname}
 group temp region r11
-426 atoms in group temp
+402 atoms in group temp
 group g${zname} subtract temp anchor
 group g11 subtract temp anchor
-426 atoms in group g11
+402 atoms in group g11
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r11 delete 
@@ -192,10 +192,10 @@ region r21 block INF INF INF INF 21 ${ztop} units box
 region r21 block INF INF INF INF 21 26 units box
 group temp region r${zname}
 group temp region r21
-451 atoms in group temp
+450 atoms in group temp
 group g${zname} subtract temp anchor
 group g21 subtract temp anchor
-451 atoms in group g21
+450 atoms in group g21
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r21 delete 
@@ -225,10 +225,10 @@ region r26 block INF INF INF INF 26 ${ztop} units box
 region r26 block INF INF INF INF 26 31 units box
 group temp region r${zname}
 group temp region r26
-343 atoms in group temp
+336 atoms in group temp
 group g${zname} subtract temp anchor
 group g26 subtract temp anchor
-343 atoms in group g26
+336 atoms in group g26
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r26 delete 
@@ -258,10 +258,10 @@ region r31 block INF INF INF INF 31 ${ztop} units box
 region r31 block INF INF INF INF 31 36 units box
 group temp region r${zname}
 group temp region r31
-122 atoms in group temp
+121 atoms in group temp
 group g${zname} subtract temp anchor
 group g31 subtract temp anchor
-122 atoms in group g31
+121 atoms in group g31
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r31 delete 
@@ -291,10 +291,10 @@ region r36 block INF INF INF INF 36 ${ztop} units box
 region r36 block INF INF INF INF 36 41 units box
 group temp region r${zname}
 group temp region r36
-30 atoms in group temp
+28 atoms in group temp
 group g${zname} subtract temp anchor
 group g36 subtract temp anchor
-30 atoms in group g36
+28 atoms in group g36
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r36 delete 
@@ -346,7 +346,7 @@ group g41 delete
 
 # run thermostats
 log ${log_file} append # ok log this part
-log log2.lammps append 
+log log3.lammps append 
 
 variable zbottom equal ${zbottom0}
 variable zbottom equal -4
@@ -461,4 +461,4 @@ variable zbottom equal 36+5
 if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
 # ================================= end UNthermostat setting loop ========
 log ${log_file} append
-log log2.lammps append
+log log3.lammps append

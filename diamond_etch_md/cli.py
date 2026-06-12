@@ -202,7 +202,7 @@ def plot_main():
     Reads spec.json (written by make_sim) to recover SimSpec automatically.
     """
     import argparse
-    from .analysis.cna import load_cna_series
+    from .analysis.cna import load_cna_series, update_cna_cache, save_cna_cache, _CACHE_NAME
     from .analysis.plot import make_plots
     from .analysis.summary import analyze_run, write_summary
 
@@ -218,6 +218,14 @@ def plot_main():
     pp.add_argument(
         "--no-cna", action="store_true",
         help="Skip CNA analysis (faster; omits amorphous C plots and stats)",
+    )
+    pp.add_argument(
+        "--cna", action="store_true",
+        help="Plot using existing cna_cache.json without running any new CNA computation",
+    )
+    pp.add_argument(
+        "--cna-run", action="store_true", dest="cna_run",
+        help="Update CNA cache (compute new impacts) using cna_stride from spec.json, then plot",
     )
     pp.add_argument(
         "--cna-stride", type=int, default=1, dest="cna_stride", metavar="N",
@@ -248,10 +256,28 @@ def plot_main():
     data_dir = sim_dir / 'impact_snaps'
     if not data_dir.exists():
         data_dir = sim_dir / 'data_files'
-    if not args.no_cna and data_dir.exists():
-        print(f"Computing CNA from {data_dir} (stride={args.cna_stride}) ...")
-        cna_records = load_cna_series(data_dir, stride=args.cna_stride, verbose=True)
-        print(f"  Done — {len(cna_records)} snapshots analyzed.")
+    if args.cna:
+        import json
+        cache_path = sim_dir / _CACHE_NAME
+        if cache_path.exists():
+            with open(cache_path) as f:
+                cna_records = json.load(f)
+            print(f"Loaded CNA from cache ({len(cna_records)} snapshots, no update).")
+        else:
+            print("No cna_cache.json found — skipping CNA plots.")
+    elif not args.no_cna and data_dir.exists():
+        if args.cna_run:
+            stride = (spec.cna_stride if spec and spec.cna_stride > 0 else ml)
+            cache_path = sim_dir / _CACHE_NAME
+            cna_records = update_cna_cache(
+                cache_path, data_dir, stride=stride, verbose=True,
+            )
+            print(f"  CNA ready — {len(cna_records)} snapshots total.")
+        else:
+            stride = args.cna_stride if args.cna_stride > 0 else ml
+            print(f"Computing CNA from {data_dir} (stride={stride}) ...")
+            cna_records = load_cna_series(data_dir, stride=stride, verbose=True)
+            print(f"  Done — {len(cna_records)} snapshots analyzed.")
     elif not args.no_cna:
         print("impact_snaps/ (or data_files/) not found — skipping CNA analysis.")
 

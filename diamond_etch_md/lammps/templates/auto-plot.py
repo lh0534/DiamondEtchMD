@@ -3,9 +3,11 @@
 
 Run from (or with a path to) the simulation directory:
 
-    python autoplot.py                      # prompts for CNA, then plots
-    python autoplot.py --cna-stride 10      # amorphous C every 10th impact
-    python autoplot.py --no-cna             # skip CNA without prompting
+    python autoplot.py                      # prompts: plot CNA? run new CNA?
+    python autoplot.py --cna                # plot from existing cache, no compute
+    python autoplot.py --cna-run            # update cache with new impacts, then plot
+    python autoplot.py --cna-stride 10      # compute from scratch every 10th impact
+    python autoplot.py --no-cna             # skip CNA entirely
     python autoplot.py --help
 """
 import sys
@@ -26,15 +28,32 @@ except ModuleNotFoundError:
     _src_root = Path(__file__).resolve().parents[3]  # …/DiamondEtchMD/
     sys.path.insert(0, str(_src_root))
 
-# Ask about CNA unless the user already passed --no-cna or --cna-stride.
-_cna_flags = {'--no-cna', '--cna-stride', '--help', '-h'}
+# Ask about CNA unless the user already passed a CNA flag.
+_cna_flags = {'--no-cna', '--cna', '--cna-run', '--cna-stride', '--help', '-h'}
 if not any(f in sys.argv for f in _cna_flags):
     try:
-        ans = input("Run CNA analysis? (requires jaxmd env; slow for large runs) [y/N] ").strip().lower()
+        ans1 = input("Plot CNA data? [y/N] ").strip().lower()
     except EOFError:
-        ans = ''
-    if ans not in ('y', 'yes'):
+        ans1 = ''
+    if ans1 not in ('y', 'yes'):
         sys.argv.append('--no-cna')
+    else:
+        try:
+            ans2 = input("Run new CNA computation (slow)? [y/N] ").strip().lower()
+        except EOFError:
+            ans2 = ''
+        if ans2 in ('y', 'yes'):
+            try:
+                stride_s = input("CNA stride (0 = 1 per ML, or enter N to analyze every N-th impact): ").strip()
+                stride = int(stride_s) if stride_s else 0
+            except (EOFError, ValueError):
+                stride = 0
+            if stride > 0:
+                sys.argv += ['--cna-stride', str(stride)]
+            else:
+                sys.argv.append('--cna-run')
+        else:
+            sys.argv.append('--cna')
 
 from diamond_etch_md.cli import plot_main
 plot_main()

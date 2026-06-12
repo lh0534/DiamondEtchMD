@@ -78,6 +78,7 @@ class SimSpec:
     email:               str   = ""    # empty = no mail directives
     lammps_module:       str   = "lammps/kokkos/gpu_della9_2022"
     plot_interval_hours: int   = 12     # hours between auto-plot runs (0 = disabled)
+    cna_stride:          int   = 0      # CNA stride for --cna mode (0 = 1 per ML)
     remove_ar:           bool  = True   # delete Ar atoms after each impact; set False to retain
     seed_adjust:         int   = 0      # random seed offset; increment for independent replicas
     # ── RIE-etch mode (single-species with radical pre-exposure) ──────────────

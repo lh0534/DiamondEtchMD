@@ -1,24 +1,24 @@
 # DiamondEtchMD Analysis Summary
 
 ## Etch statistics
-Cumulative etch (MLs):  5.522
-Total ion dose (MLs):  4.267
-Etch yield (C/ion):  1.296 ± 0.24
+Cumulative etch (MLs):  5.578
+Total ion dose (MLs):  4.3
+Etch yield (C/ion):  1.295 ± 0.23
 
 ## Surface oxygen
-Avg O uptake (MLs):  0.9366 ± 0.066
+Avg O uptake (MLs):  0.9368 ± 0.066
 
 ## Amorphous carbon (CNA)
-Amorphous C (MLs):  1.583 ± 0.074
-Amorphous layer thickness (Å):  5.277 ± 0.4
+Amorphous C (MLs):  1.369 ± 0.13
+Amorphous layer thickness (Å):  4.7 ± 1.3
 
 ## Carbon-containing product composition
-Avg O:C ratio:  1.757
-Avg O per product:  2.108
-Avg C per product:  1.63
-n products:  305
+Avg O:C ratio:  1.761
+Avg O per product:  2.106
+Avg C per product:  1.619
+n products:  310
 
 ## Throughput
 Ion impacts per day:  445.8
-Monolayers per day:  4.954
-Total ion impacts:  384
+Monolayers per day:  4.953
+Total ion impacts:  387

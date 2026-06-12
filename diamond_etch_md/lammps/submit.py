@@ -15,11 +15,9 @@ from ..spec import SimSpec, CyclePhase
 
 
 def _plot_loop_block(interval_hours: int) -> str:
-    """Return the bash snippet that starts/stops the background auto-plot loop."""
+    """Return the bash snippet that starts the background auto-plot loop."""
     if interval_hours <= 0:
-        return (
-            "_PLOT_PID=\"\"\n"
-        )
+        return "_PLOT_PID=\"\"\n"
     interval_s = interval_hours * 3600
     return (
         f"# Auto-plot every {interval_hours} h (--no-cna for speed during live run)\n"
@@ -32,8 +30,44 @@ def _plot_loop_block(interval_hours: int) -> str:
     )
 
 
+def _cna_loop_block(interval_hours: int) -> str:
+    """Return the bash snippet that starts the background CNA loop."""
+    if interval_hours <= 0:
+        return "_CNA_PID=\"\"\n"
+    interval_s = interval_hours * 3600
+    return (
+        f"# CNA analysis every {interval_hours} h (cna_stride from spec.json)\n"
+        f"_CNA_PID=\"\"\n"
+        f"( while true; do\n"
+        f"      sleep {interval_s}\n"
+        f"      python3 auto-plot.py --cna-run 2>>plot.log || true\n"
+        f"  done ) &\n"
+        f"_CNA_PID=$!\n"
+    )
+
+
+def _dump_loop_block(interval_hours: int) -> str:
+    """Return the bash snippet that periodically rebuilds all_impacts.dump."""
+    if interval_hours <= 0:
+        return "_DUMP_PID=\"\"\n"
+    interval_s = interval_hours * 3600
+    return (
+        f"# Rebuild all_impacts.dump every {interval_hours} h\n"
+        f"_DUMP_PID=\"\"\n"
+        f"( while true; do\n"
+        f"      sleep {interval_s}\n"
+        f"      python3 make_impact_dump.py . 2>>plot.log || true\n"
+        f"  done ) &\n"
+        f"_DUMP_PID=$!\n"
+    )
+
+
 def _plot_kill_block() -> str:
-    return "[ -n \"$_PLOT_PID\" ] && kill \"$_PLOT_PID\" 2>/dev/null; wait \"$_PLOT_PID\" 2>/dev/null || true\n"
+    return (
+        "[ -n \"$_PLOT_PID\" ] && kill \"$_PLOT_PID\" 2>/dev/null; wait \"$_PLOT_PID\" 2>/dev/null || true\n"
+        "[ -n \"$_CNA_PID\" ]  && kill \"$_CNA_PID\"  2>/dev/null; wait \"$_CNA_PID\"  2>/dev/null || true\n"
+        "[ -n \"$_DUMP_PID\" ] && kill \"$_DUMP_PID\" 2>/dev/null; wait \"$_DUMP_PID\" 2>/dev/null || true\n"
+    )
 
 
 def _final_plot_block(ml_var: str = "$ML") -> str:
@@ -57,6 +91,8 @@ def get_submit_script(spec: SimSpec) -> str:
     ) if spec.email else ""
 
     plot_loop = _plot_loop_block(spec.plot_interval_hours)
+    cna_loop  = _cna_loop_block(spec.plot_interval_hours)
+    dump_loop = _dump_loop_block(spec.plot_interval_hours)
     plot_kill = _plot_kill_block()
     final_plot = _final_plot_block()
 
@@ -150,6 +186,8 @@ def get_submit_script(spec: SimSpec) -> str:
         f"    -in head.lmp &\n"
         f"SRUN_PID=$!\n"
         f"{plot_loop}"
+        f"{cna_loop}"
+        f"{dump_loop}"
         f"wait $SRUN_PID\n"
         f"lmp_exit=$?\n"
         f"{plot_kill}"
@@ -193,6 +231,8 @@ def get_submit_script_cycle_etch(spec: SimSpec) -> str:
     ) if spec.email else ""
 
     plot_loop = _plot_loop_block(spec.plot_interval_hours)
+    cna_loop  = _cna_loop_block(spec.plot_interval_hours)
+    dump_loop = _dump_loop_block(spec.plot_interval_hours)
     plot_kill = _plot_kill_block()
     final_plot = _final_plot_block()
 
@@ -273,6 +313,8 @@ def get_submit_script_cycle_etch(spec: SimSpec) -> str:
         f"    -in head.lmp &\n"
         f"SRUN_PID=$!\n"
         f"{plot_loop}"
+        f"{cna_loop}"
+        f"{dump_loop}"
         f"wait $SRUN_PID\n"
         f"lmp_exit=$?\n"
         f"{plot_kill}"

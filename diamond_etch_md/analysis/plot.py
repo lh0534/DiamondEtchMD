@@ -149,7 +149,8 @@ def _cycle_xlim(max_x_ml, spec):
     """Return (0, right) snapped to an integer number of cycles."""
     if spec and spec.phases:
         cycle_ml = sum(p.fluence_ml for p in spec.phases)
-        n_complete = int(max_x_ml // cycle_ml)
+        import math
+        n_complete = math.ceil(max_x_ml / cycle_ml)
         return 0, max(1, n_complete) * cycle_ml
     return 0, None
 
@@ -431,7 +432,8 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
     # Etched C from etch products
     carbon_ep = [r for r in (ep_records or []) if r['n_C'] > 0]
     if carbon_ep:
-        max_imp = max(r['impact'] for r in carbon_ep)
+        nc_max  = max((r['impact'] for r in nc_records), default=0) if nc_records else 0
+        max_imp = max(max(r['impact'] for r in carbon_ep), nc_max)
         cumC    = np.zeros(max_imp + 1)
         for r in carbon_ep:
             cumC[r['impact']] += r['n_C']
@@ -503,8 +505,8 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
             am_label  = 'Amorphous C (CNA)'
             am_ylabel = 'Amorphous layer thickness (Å)' if lat_a else 'Amorphous C (ML)'
 
-        am_line = ax2.scatter(am_x, am_y_A, s=40, alpha=0.7, color='C0',
-                              label=am_label, zorder=3)
+        am_line, = ax2.plot(am_x, am_y_A, ls='--', lw=3, color='C0',
+                            label=am_label, zorder=3)
         am_handle = am_line
         ax2.set_ylabel(am_ylabel, color='C0')
         ax2.tick_params(axis='y', labelcolor='C0', color='C0')

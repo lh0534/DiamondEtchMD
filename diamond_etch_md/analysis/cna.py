@@ -334,6 +334,101 @@ def analyze_impact(path, c_type: int = 1) -> Dict:
     }
 
 
+_CACHE_NAME = "cna_cache.json"
+
+
+def save_cna_cache(records: List[Dict], cache_path) -> None:
+    """Write CNA records to a JSON cache file."""
+    import json
+    with open(cache_path, "w") as f:
+        json.dump(records, f)
+
+
+def load_cna_cache(cache_path, data_dir) -> List[Dict]:
+    """Load cached CNA records if the cache is newer than the newest .data file.
+
+    Returns the records list if the cache is fresh, or None if stale/missing.
+    """
+    import json
+    cache_path = Path(cache_path)
+    if not cache_path.exists():
+        return None
+    cache_mtime = cache_path.stat().st_mtime
+    data_dir = Path(data_dir)
+    newest = max((f.stat().st_mtime for f in data_dir.glob("*.data")), default=0)
+    if cache_mtime < newest:
+        return None
+    with open(cache_path) as f:
+        return json.load(f)
+
+
+def update_cna_cache(
+    cache_path,
+    data_dir,
+    stride: int = 1,
+    c_type: int = 1,
+    verbose: bool = False,
+) -> List[Dict]:
+    """Load existing cache and append CNA for any new impact snapshots.
+
+    Determines which impact numbers belong in the strided set, computes only
+    those missing from the cache, merges, saves, and returns the full list.
+    """
+    import json
+    cache_path = Path(cache_path)
+    data_dir   = Path(data_dir)
+
+    existing: List[Dict] = []
+    if cache_path.exists():
+        with open(cache_path) as f:
+            existing = json.load(f)
+    cached_impacts = {r['impact'] for r in existing}
+
+    _snap_re = re.compile(r'^(\d+)(?:_0)?$')
+
+    def _impact_num(f):
+        m = _snap_re.match(f.stem)
+        return int(m.group(1)) if m else None
+
+    def _is_suffixed(f):
+        return f.stem.endswith('_0')
+
+    by_impact: Dict[int, Path] = {}
+    for f in data_dir.glob('*.data'):
+        n = _impact_num(f)
+        if n is None:
+            continue
+        if by_impact.get(n) is None or _is_suffixed(f):
+            by_impact[n] = f
+
+    all_sorted = sorted(by_impact)
+    strided = {all_sorted[i] for i in range(0, len(all_sorted), stride)}
+    new_impacts = sorted(strided - cached_impacts)
+
+    if not new_impacts:
+        if verbose:
+            print(f"  CNA cache up to date ({len(existing)} snapshots).", flush=True)
+        return existing
+
+    if verbose:
+        print(f"  CNA: {len(new_impacts)} new snapshots (cache has {len(existing)}).",
+              flush=True)
+        if _HAS_JAX:
+            print("  (using JAX kernels)", flush=True)
+
+    new_records = []
+    for i, n in enumerate(new_impacts):
+        if verbose and i % 100 == 0:
+            print(f"  CNA: {i}/{len(new_impacts)}  ({by_impact[n].name})", flush=True)
+        m = analyze_impact(by_impact[n], c_type=c_type)
+        m['impact'] = n
+        new_records.append(m)
+
+    all_records = sorted(existing + new_records, key=lambda r: r['impact'])
+    save_cna_cache(all_records, cache_path)
+    return all_records
+
+
 def load_cna_series(
     data_dir,
     stride: int = 1,
