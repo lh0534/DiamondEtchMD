@@ -12,3 +12,16 @@ Traceback (most recent call last):
     )
     ^
 SyntaxError: f-string expression part cannot include a backslash
+Traceback (most recent call last):
+  File "/scratch/gpfs/DGRAVES/lh0534/jack_reax/DiamondEtchMD/examples/cycling_Ar_O2_IDLE/auto-plot.py", line 58, in <module>
+    from diamond_etch_md.cli import plot_main
+  File "/scratch/gpfs/DGRAVES/lh0534/jack_reax/DiamondEtchMD/diamond_etch_md/__init__.py", line 18, in <module>
+    from .builder import make_sim, make_ale, multi_ion_dir_name
+  File "/scratch/gpfs/DGRAVES/lh0534/jack_reax/DiamondEtchMD/diamond_etch_md/builder.py", line 28, in <module>
+    from .lammps.config import get_config_lmp, get_config_lmp_cycle_etch, get_config_lmp_multi_ion
+  File "/scratch/gpfs/DGRAVES/lh0534/jack_reax/DiamondEtchMD/diamond_etch_md/lammps/__init__.py", line 6, in <module>
+    from .head import get_head_lmp
+  File "/scratch/gpfs/DGRAVES/lh0534/jack_reax/DiamondEtchMD/diamond_etch_md/lammps/head.py", line 406
+    )
+    ^
+SyntaxError: f-string expression part cannot include a backslash

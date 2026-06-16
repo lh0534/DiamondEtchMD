@@ -362,7 +362,7 @@ NOTE: run directories can exceed **5 GB** for long runs at high ion energies.
 | File / directory | Content |
 |---|---|
 | `ncarbon.txt` | Atom counts after every event — used to compute etch depth vs dose |
-| `etch_products.txt` | Ejected cluster log: impact number, n_C, n_H, n_O per cluster |
+| `etch_products.txt` | Ejected cluster log: one row per ejected cluster (see format below) |
 | `impact_snaps/` | Full atomic snapshots at every impact (positions, charges) |
 | `ML_impacts.dump` | LAMMPS dump appended once per monolayer — compact long-range trajectory |
 | `etch_event_trajs/` | Per-event atom trajectories through each impact |
@@ -743,6 +743,7 @@ diamond_etch_md/
 | `account` | str | `"dgraves"` | SLURM account to charge |
 | `email` | str | `""` | Email for END/FAIL notifications; empty = no mail |
 | `lammps_module` | str | `"lammps/kokkos/gpu_della9_2022"` | LAMMPS module loaded in submit script |
+| `nice` | int | `2` | SLURM `--nice` priority offset (≥ 1; higher = lower priority) |
 | `plot_interval_hours` | int | `12` | Hours between auto-plot runs during job (0 = disabled) |
 | `phases` | list\|None | `None` | `CyclePhase` list for cycle-etch; `None` = single-species |
 | `cycles` | int | `1` | Number of phase-list repetitions (cycle-etch only) |
@@ -846,10 +847,26 @@ impact#  n_carbon  n_hydrogen  n_oxygen
 
 **`ncarbon.txt`** — RIE-etch and cycle-etch (5 columns):
 ```
-impact#  radical#  n_carbon  n_hydrogen  n_oxygen
+impact#  cn  n_carbon  n_hydrogen  n_oxygen
 ```
-`radical# > 0` after each O• radical (1-indexed); `radical# = 0` after each ion
-impact. This format enables mid-radical-loop restarts after wall-time preemption.
+`cn > 0` after each O• radical (1-indexed within the impact); `cn = 0` after the
+ion impact itself. This format enables mid-radical-loop restarts after wall-time preemption.
+
+**`etch_products.txt`** — ion-etch (5 columns):
+```
+impact#  n_C  n_H  n_O  n_Ar
+```
+
+**`etch_products.txt`** — RIE-etch, multi-ion-etch, and cycle-etch (6 columns):
+```
+impact#  cn  n_C  n_H  n_O  n_Ar
+```
+`cn` is the radical-step counter within an impact cycle: `cn = 0` means the
+ejection occurred during or after the ion impact; `cn = 1..N` means it occurred
+during the N-th O• radical step. `n_Ar` counts Ar atoms in the ejected cluster
+(non-zero when an implanted Ar atom is co-ejected, or when a reflected Ar ion is
+logged). The 5-column format is used for legacy ion-etch simulations where `cn`
+is always 0 and `n_Ar` is always 0; all new simulations emit 6 columns.
 
 ---
 

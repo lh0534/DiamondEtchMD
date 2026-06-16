@@ -144,6 +144,10 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="H",
         help="Hours between auto-plot runs during the job (0 = disabled, default: 12)",
     )
+    job.add_argument(
+        "--nice", type=int, default=2,
+        help="SLURM --nice priority offset (must be >= 1, default: 2)",
+    )
 
     return p
 
@@ -181,6 +185,7 @@ def main():
         email               = args.email,
         lammps_module       = args.lammps_module,
         plot_interval_hours = args.plot_interval_hours,
+        nice                = args.nice,
         flux_ratio          = args.flux_ratio,
         radical_energy      = args.radical_energy,
         name                = args.name or (

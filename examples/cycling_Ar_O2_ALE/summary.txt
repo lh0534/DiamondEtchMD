@@ -1,32 +1,32 @@
 # DiamondEtchMD Analysis Summary
 
 ## Etch statistics
-Cumulative etch (MLs):  0.3125
-Total ion dose (MLs):  16.92
-Etch yield (C/ion):  0.01848 ± 0.0048
-  Phase 0 (Ar): 0.01848 ± 0.0048 C/ion
+Cumulative etch (MLs):  0.3594
+Total ion dose (MLs):  20.02
+Etch yield (C/ion):  0.01797 ± 0.0039
+  Phase 0 (Ar): 0.01797 ± 0.0039 C/ion
   Phase 1 (O2): 0 ± 0 C/ion
 
 ## Surface oxygen
 Avg phase-end O uptake (MLs):
-  Phase 0 (Ar):  0
+  Phase 0 (Ar):  0.4062
   Phase 1 (O2):  0
 
 ## Amorphous carbon (CNA)
-Amorphous C (MLs):  0.5344 ± 0.13
-Amorphous layer thickness (Å):  2.177 ± 0.26
-  Phase 0 (Ar): amorphous C  0.4971, thickness  2.147 Å
+Amorphous C (MLs):  0.5906 ± 0.13
+Amorphous layer thickness (Å):  2.267 ± 0.24
+  Phase 0 (Ar): amorphous C  0.5945, thickness  2.272 Å
   Phase 1 (O2): amorphous C  0, thickness  0.9 Å
 
 ## Carbon-containing product composition
-Avg O:C ratio:  1.704
-Avg O per product:  1.778
-Avg C per product:  1.111
-n products:  18
-  Phase 0 (Ar): O:C = 1.704, avg C = 1.111, avg O = 1.778, n = 18
+Avg O:C ratio:  1.698
+Avg O per product:  1.762
+Avg C per product:  1.095
+n products:  21
+  Phase 0 (Ar): O:C = 1.698, avg C = 1.095, avg O = 1.762, n = 21
 
 ## Throughput
-Ion impacts per day:  624.8
-Monolayers per day:  9.763
-Cycles per day:  0.4438
-Total ion impacts:  1083
+Ion impacts per day:  623.6
+Monolayers per day:  9.744
+Cycles per day:  0.4429
+Total ion impacts:  1281

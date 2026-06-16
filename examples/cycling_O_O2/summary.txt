@@ -1,37 +1,37 @@
 # DiamondEtchMD Analysis Summary
 
 ## Etch statistics
-Cumulative etch (MLs):  2.938
-Total ion dose (MLs):  10.91
-Etch yield (C/ion):  0.2663 ± 0.061
-  Ion etch yield (C/ion):  0.2663 ± 0.061
-  Radical etch yield (C/radical):  0
-  Total etch yield:  0.1389
-  Phase 0 (O): 0.4324 ± 0.034 C/ion
-  Phase 1 (O2): 0.07187 ± 0.019 C/ion
+Cumulative etch (MLs):  7.188
+Total ion dose (MLs):  30.02
+Etch yield (C/ion):  0.2336 ± 0.051
+  Ion etch yield (C/ion):  0.2336 ± 0.051
+  Radical etch yield (C/radical):  0.002083 ± 0.0012
+  Total etch yield:  0.1179
+  Phase 0 (O): 0.4115 ± 0.018 C/ion
+  Phase 1 (O2): 0.05625 ± 0.01 C/ion  radical: 0.004167 C/radical
 
 ## Surface oxygen
 Avg phase-end O uptake (MLs):
-  Phase 0 (O):  0.9688
-  Phase 1 (O2):  1.031
+  Phase 0 (O):  1.031 ± 0.044
+  Phase 1 (O2):  1.089 ± 0.036
 
 ## Amorphous carbon (CNA)
-Amorphous C (MLs):  0.07969 ± 0.033
-Amorphous layer thickness (Å):  1.795 ± 0.1
-  Phase 0 (O): amorphous C  0.1375, thickness  1.95 Å
-  Phase 1 (O2): amorphous C  0.02344, thickness  1.575 Å
+Amorphous C (MLs):  0.07591 ± 0.018
+Amorphous layer thickness (Å):  1.974 ± 0.07
+  Phase 0 (O): amorphous C  0.1208, thickness  2.037 Å
+  Phase 1 (O2): amorphous C  0.03223, thickness  1.891 Å
 
 ## Carbon-containing product composition
-Avg O:C ratio:  1.947
-Avg O per product:  2
-Avg C per product:  1.056
-n products:  178
-  Phase 0 (O): O:C = 1.926, avg C = 1.058, avg O = 1.981, n = 156
-  Phase 1 (O2): O:C = 2.091, avg C = 1.045, avg O = 2.136, n = 22
+Avg O:C ratio:  1.971
+Avg O per product:  2.014
+Avg C per product:  1.043
+n products:  441
+  Phase 0 (O): O:C = 1.945, avg C = 1.042, avg O = 1.987, n = 385
+  Phase 1 (O2): O:C = 2.155, avg C = 1.054, avg O = 2.196, n = 56
 
 ## Throughput
-Ion impacts per day:  517.8
-Monolayers per day:  8.09
-Cycles per day:  0.809
-Total ion impacts:  698
-Total radical impacts:  640
+Ion impacts per day:  520.3
+Monolayers per day:  8.13
+Cycles per day:  0.813
+Total ion impacts:  1921
+Total radical impacts:  1920

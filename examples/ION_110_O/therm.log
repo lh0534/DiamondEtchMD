@@ -225,10 +225,10 @@ region r34 block INF INF INF INF 34 ${ztop} units box
 region r34 block INF INF INF INF 34 40 units box
 group temp region r${zname}
 group temp region r34
-427 atoms in group temp
+390 atoms in group temp
 group g${zname} subtract temp anchor
 group g34 subtract temp anchor
-427 atoms in group g34
+390 atoms in group g34
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r34 delete 
@@ -258,10 +258,10 @@ region r40 block INF INF INF INF 40 ${ztop} units box
 region r40 block INF INF INF INF 40 46 units box
 group temp region r${zname}
 group temp region r40
-2 atoms in group temp
+4 atoms in group temp
 group g${zname} subtract temp anchor
 group g40 subtract temp anchor
-2 atoms in group g40
+4 atoms in group g40
 group temp delete
 region r${zname} delete # we don't need the region anymore
 region r40 delete 
@@ -313,4 +313,107 @@ group g46 delete
 
 # run thermostats
 log ${log_file} append # ok log this part
-log log3.lammps append 
+log log4.lammps append 
+
+variable zbottom equal ${zbottom0}
+variable zbottom equal -2
+# =============================== begin thermostat UNsetting loop ========
+label unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string _$(abs(v_zbottom))
+variable zname string _2
+unfix t${zname}
+unfix t_2
+group g${zname} delete
+group g_2 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal -2+${dz}
+variable zbottom equal -2+6
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 4
+unfix t${zname}
+unfix t4
+group g${zname} delete
+group g4 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 4+${dz}
+variable zbottom equal 4+6
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 10
+unfix t${zname}
+unfix t10
+group g${zname} delete
+group g10 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 10+${dz}
+variable zbottom equal 10+6
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 16
+unfix t${zname}
+unfix t16
+group g${zname} delete
+group g16 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 16+${dz}
+variable zbottom equal 16+6
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 22
+unfix t${zname}
+unfix t22
+group g${zname} delete
+group g22 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 22+${dz}
+variable zbottom equal 22+6
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 28
+unfix t${zname}
+unfix t28
+group g${zname} delete
+group g28 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 28+${dz}
+variable zbottom equal 28+6
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 34
+unfix t${zname}
+unfix t34
+group g${zname} delete
+group g34 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 34+${dz}
+variable zbottom equal 34+6
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 40
+unfix t${zname}
+unfix t40
+group g${zname} delete
+group g40 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 40+${dz}
+variable zbottom equal 40+6
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+# ================================= end UNthermostat setting loop ========
+log ${log_file} append
+log log4.lammps append
