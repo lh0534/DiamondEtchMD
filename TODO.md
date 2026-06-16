@@ -36,6 +36,11 @@ Planned features and known gaps, roughly ordered by expected impact.
   for radical dumps, `event_dump_ion${c}_${event_count}.dump` for cycling ion dumps).
   The submit script event-count glob `event_dump_*.dump` still matches correctly.
 
+- [ ] **Non-integer flux ratio** — change `flux_ratio` from `int` to `float` and use a
+  Bresenham accumulator in `head.lmp` / `head_cycling.lmp` so the delivered radical count
+  converges exactly to the target ratio over many impacts. The accumulator state must be
+  persisted across wall-time restarts (e.g. an extra column in `ncarbon.txt`).
+
 - [ ] **Flexible resource selection** — add fields (and CLI flags) for:
   - `ntasks` (default 1) — MPI ranks
   - `cpus_per_task` (default 1) — OpenMP threads
@@ -67,6 +72,10 @@ Planned features and known gaps, roughly ordered by expected impact.
   - [ ] Sputtering yield fit once steady-state reached (single-species)
   - [ ] ALE: saturation curves per half-cycle; surface O at end of each half-cycle
   - [ ] Radical-only: O uptake saturation curve; O/C surface ratio vs dose
+  - [ ] Multi-ion/multi-RIE: stochastic composition verification — bar chart or
+    running-fraction plot comparing the actual delivered species (and energy) distribution
+    from `ion_impacts.txt` against the specified `ion_mix` fractions. Shows how quickly
+    the realized composition converges to the target and catches any sampling bugs.
 
 - [ ] **Optional SLURM / plain bash** — add a `use_slurm` flag (default `True`).
   When `False`, emit a plain `run.sh` instead of a SLURM `submit` script: no `#SBATCH`
