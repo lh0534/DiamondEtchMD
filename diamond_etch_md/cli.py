@@ -352,5 +352,169 @@ def ale_main():
     )
 
 
+def status_main():
+    """Entry point for diamond-etch-md-status.
+
+    Prints a status table for one or more simulation directories showing
+    impact progress, queue state, and failure flags.
+
+    Usage:
+        diamond-etch-md-status [dir ...]
+
+    With no arguments, searches the current directory and one level of
+    subdirectories for simulation directories (those containing spec.json
+    or ncarbon.txt).
+    """
+    import argparse
+    import json
+    import os
+    import subprocess
+
+    pp = argparse.ArgumentParser(
+        description="Print progress and queue status for DiamondEtchMD simulations.",
+    )
+    pp.add_argument(
+        "dirs", nargs="*", default=["."],
+        help="Simulation directory or parent directory to search (default: .)",
+    )
+    args = pp.parse_args()
+
+    def _is_sim_dir(d: Path) -> bool:
+        return d.is_dir() and ((d / "ncarbon.txt").exists() or (d / "spec.json").exists())
+
+    sim_dirs = []
+    for raw in args.dirs:
+        base = Path(raw)
+        if _is_sim_dir(base):
+            sim_dirs.append(base)
+        else:
+            for sub in sorted(base.iterdir()):
+                if _is_sim_dir(sub):
+                    sim_dirs.append(sub)
+
+    if not sim_dirs:
+        print("No simulation directories found.")
+        return
+
+    # Query squeue once for all jobs
+    queue: dict = {}  # name -> list of (state, reason)
+    try:
+        user = os.environ.get("USER") or subprocess.check_output(["whoami"], text=True).strip()
+        sq = subprocess.run(
+            ["squeue", "-u", user, "-o", "%.100j %.2t %R", "--noheader"],
+            capture_output=True, text=True, timeout=10,
+        )
+        for line in sq.stdout.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) >= 2:
+                jname, state = parts[0], parts[1]
+                reason = parts[2].strip() if len(parts) > 2 else ""
+                queue.setdefault(jname, []).append((state, reason))
+    except Exception:
+        pass
+
+    def _queue_status(name: str) -> str:
+        entries = queue.get(name, [])
+        if not entries:
+            return "not queued"
+        states = {s for s, _ in entries}
+        if "R" in states:
+            return "running"
+        non_dep = [r for _, r in entries if r != "Dependency"]
+        return f"queued ({non_dep[0]})" if non_dep else "queued (after current)"
+
+    rows = []
+    for sd in sim_dirs:
+        spec = {}
+        spec_path = sd / "spec.json"
+        if spec_path.exists():
+            try:
+                spec = json.loads(spec_path.read_text())
+            except Exception:
+                pass
+
+        # Determine mode label and key fields from spec
+        if spec.get("phases"):
+            mode = "cycling"
+            species_label = "/".join(p["species"] for p in spec["phases"])
+            energy_label = "/".join(str(p["energy"]) for p in spec["phases"])
+        elif spec.get("ion_mix"):
+            mode = "multi-ion"
+            species_label = "+".join(c["species"] for c in spec["ion_mix"])
+            energy_label = "mix"
+        else:
+            mode = "rie" if (spec.get("flux_ratio", 0) or 0) > 0 else "ion"
+            species_label = str(spec.get("species", "?"))
+            energy_label = f"{spec.get('energy', '?')}eV"
+
+        name = spec.get("name", "")
+        ml = spec.get("ml", 0)
+        end_fluence = spec.get("fluence", 0)
+
+        # Fall back to config.lmp for ml/end_fluence
+        config_path = sd / "config.lmp"
+        if config_path.exists():
+            try:
+                for line in config_path.read_text().splitlines():
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[1] == "ML" and parts[2] == "equal" and not ml:
+                        ml = int(parts[3])
+                    if len(parts) >= 4 and parts[1] == "end_fluence" and parts[2] == "equal" and not end_fluence:
+                        end_fluence = int(parts[3])
+            except Exception:
+                pass
+
+        total = ml * end_fluence if ml and end_fluence else 0
+
+        # Read progress from ncarbon.txt
+        n_done = 0
+        nc_path = sd / "ncarbon.txt"
+        if nc_path.exists():
+            try:
+                last = nc_path.read_text().strip().splitlines()[-1]
+                n_done = int(last.split()[0])
+            except Exception:
+                pass
+
+        failed = (sd / "LAMMPS_FAILED").exists()
+        q_stat = _queue_status(name) if name else "?"
+
+        if total > 0 and n_done >= total:
+            status = "complete"
+        elif failed and q_stat == "not queued":
+            status = "FAILED"
+        elif failed:
+            status = f"FAILED + {q_stat}"
+        else:
+            status = q_stat
+
+        pct = f"{n_done / total * 100:.1f}%" if total > 0 else "?"
+
+        rows.append({
+            "dir":     sd.name,
+            "name":    name or "-",
+            "mode":    mode,
+            "species": species_label,
+            "energy":  energy_label,
+            "n_done":  str(n_done),
+            "total":   str(total) if total else "?",
+            "pct":     pct,
+            "status":  status,
+        })
+
+    # Dynamic column widths
+    cols = ["dir", "name", "mode", "species", "energy", "n_done", "total", "pct", "status"]
+    headers = ["Directory", "Job name", "Mode", "Species", "Energy", "Done", "Total", "Progress", "Status"]
+    widths = [max(len(h), max(len(r[c]) for r in rows)) for h, c in zip(headers, cols)]
+
+    def fmt_row(vals):
+        return "  ".join(v.ljust(w) if i < len(cols) - 1 else v for i, (v, w) in enumerate(zip(vals, widths)))
+
+    print(fmt_row(headers))
+    print("-" * (sum(widths) + 2 * (len(cols) - 1)))
+    for r in rows:
+        print(fmt_row([r[c] for c in cols]))
+
+
 if __name__ == "__main__":
     main()

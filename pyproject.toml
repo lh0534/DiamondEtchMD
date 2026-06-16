@@ -22,9 +22,10 @@ analysis = [
 ]
 
 [project.scripts]
-diamond-etch-md      = "diamond_etch_md.cli:main"
-diamond-etch-md-ale  = "diamond_etch_md.cli:ale_main"
-diamond-etch-md-plot = "diamond_etch_md.cli:plot_main"
+diamond-etch-md        = "diamond_etch_md.cli:main"
+diamond-etch-md-ale    = "diamond_etch_md.cli:ale_main"
+diamond-etch-md-plot   = "diamond_etch_md.cli:plot_main"
+diamond-etch-md-status = "diamond_etch_md.cli:status_main"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -357,7 +357,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"region bbox units box\n"
             f"fix         2 mobile nve\n"
             f"fix         3 insert nve\n"
-            f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{event_count}}.dump "
+            f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{c}}_${{event_count}}.dump "
             f"id type x y z vx vy vz fx fy fz q\n"
             f"\n"
             f"timestep    1e-10\n"
@@ -425,7 +425,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box"\n'
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
-        f"dump        current_dump_ion all custom 100 etch_event_trajs/event_dump_ion${{event_count}}.dump "
+        f"dump        current_dump_ion all custom 100 etch_event_trajs/event_dump_ion${{c}}_${{event_count}}.dump "
         f"id type x y z vx vy vz fx fy fz q\n"
         f"\n"
         f"timestep    1e-10\n"
@@ -456,6 +456,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f'"region channelled delete"\n'
         f"\n"
         f'if "${{n_channelled}} > 0" then &\n'
+        f'"variable event_count equal ${{event_count}}+1" &\n'
         f'"delete_atoms group channelled_group" &\n'
         f'"run 0" &\n'
         f'"group channelled_group delete" &\n'

@@ -114,7 +114,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"region bbox units box\n"
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
-        f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{event_count}}.dump "
+        f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{c}}_${{event_count}}.dump "
         f"id type x y z vx vy vz fx fy fz q\n"
         f"\n"
         f"timestep    1e-10\n"
@@ -323,7 +323,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
         f"{rie_loop_top}"
-        f"dump current_dump all custom 100 etch_event_trajs/event_dump_${{event_count}}.dump id type x y z vx vy vz fx fy fz q\n"
+        f"dump current_dump all custom 100 etch_event_trajs/event_dump_${{c}}_${{event_count}}.dump id type x y z vx vy vz fx fy fz q\n"
         f"\n"
         f"group       insert clear\n"
         f"group \t    mobile subtract all anchor\n"
@@ -368,6 +368,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f'"region channelled delete" &\n'
         f"\n"
         f'if "${{n_channelled}} > 0" then &\n'
+        f'"variable event_count equal ${{event_count}}+1" &\n'
         f'"delete_atoms group channelled_group" &\n'
         f'"run 0" &\n'
         f'"group channelled_group delete" &\n'
@@ -628,7 +629,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
         f"{rie_loop_top}"
-        f"dump current_dump all custom 100 etch_event_trajs/event_dump_${{event_count}}.dump "
+        f"dump current_dump all custom 100 etch_event_trajs/event_dump_${{c}}_${{event_count}}.dump "
         f"id type x y z vx vy vz fx fy fz q\n"
         f"\n"
         f"group       insert clear\n"
@@ -673,6 +674,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f'"region channelled delete" &\n'
         f"\n"
         f'if "${{n_channelled}} > 0" then &\n'
+        f'"variable event_count equal ${{event_count}}+1" &\n'
         f'"delete_atoms group channelled_group" &\n'
         f'"run 0" &\n'
         f'"group channelled_group delete" &\n'

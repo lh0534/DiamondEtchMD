@@ -20,6 +20,22 @@ Planned features and known gaps, roughly ordered by expected impact.
 - [x] **Selectable LAMMPS module** — `lammps_module` field on `SimSpec` (default
   `"lammps/kokkos/gpu_della9_2022"`), emitted in submit script. CLI: `--lammps-module`.
 
+- [x] **`SPEC.md`** — reference document covering all `SimSpec` / `IonComponent` /
+  `CyclePhase` fields, valid values, defaults, and output file formats (`ncarbon.txt`,
+  `etch_products.txt`, dump naming).
+
+- [x] **Email notifications** — `email` field on `SimSpec`; when non-empty emits
+  `#SBATCH --mail-type=END,FAIL` and `#SBATCH --mail-user=<email>` in the submit script.
+
+- [x] **Channeling increments event counter** — when a channeled atom is detected and
+  deleted, `event_count` is now incremented so downstream dump files are consistently
+  numbered (`head.py` and `head_cycling.py`).
+
+- [x] **Impact number in etch event dumps** — dump filenames now include the impact
+  number: `event_dump_${c}_${event_count}.dump` (and `event_dump_n${c}_${event_count}.dump`
+  for radical dumps, `event_dump_ion${c}_${event_count}.dump` for cycling ion dumps).
+  The submit script event-count glob `event_dump_*.dump` still matches correctly.
+
 - [ ] **Flexible resource selection** — add fields (and CLI flags) for:
   - `ntasks` (default 1) — MPI ranks
   - `cpus_per_task` (default 1) — OpenMP threads
@@ -57,6 +73,19 @@ Planned features and known gaps, roughly ordered by expected impact.
   headers, no `srun`, just `lmp -k on g 1 -sf kk ...` directly. Useful for running on
   a workstation or inside a container without a scheduler.
 
+- [x] **Overwrite protection in make scripts** — `make_sim()` now calls `squeue` before
+  writing any files; if a job with the same `spec.name` is in state `R`, it aborts with
+  an informative error and `scancel` hint. Skipped gracefully when `squeue` is unavailable.
+
+- [x] **`LAMMPS_FAILED` auto-clear on resubmit** — the submit script now renames
+  `LAMMPS_FAILED` to `LAMMPS_FAILED.<timestamp>` before each LAMMPS launch, so the flag
+  only reflects the current run's outcome. Old failure logs are preserved for debugging.
+
+- [x] **Status CLI** — `diamond-etch-md-status [dir ...]` prints an impact-count /
+  progress / queue-status table. Auto-detects sim dirs (looks for `spec.json` or
+  `ncarbon.txt`); searches one level deep if given a parent directory. Calls `squeue`
+  once to get queue state for all jobs.
+
 ---
 
 ## Portability / containerization
@@ -71,18 +100,6 @@ Planned features and known gaps, roughly ordered by expected impact.
     `srun apptainer exec image.sif lmp -k on g 1 -sf kk ...`.
   - Add an optional `container_image` field on `SimSpec` (default `""`); when set,
     the generated run/submit script wraps `lmp` with `apptainer exec ${container_image}`.
-
----
-
-## Tests
-
-- [ ] **`tests/RIE_test.py`** — end-to-end test for a minimal single-species RIE
-  simulation: build a small C(100) surface, run a handful of O impacts, check that
-  `ncarbon.txt` and `etch_products.txt` are produced and well-formed.
-
-- [ ] **`tests/cycle_test.py`** — end-to-end test for a minimal cycling simulation:
-  Ar+O2 (or O+O2) cycling spec, verify that the generated files are valid and that
-  phase selection logic produces the correct LAMMPS variable assignments.
 
 ---
 

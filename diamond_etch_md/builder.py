@@ -18,7 +18,9 @@ if any phase uses it.
 
 import dataclasses
 import json
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,6 +33,34 @@ from .lammps.head_cycling import get_head_lmp_cycle_etch
 from .lammps.submit import get_submit_script, get_submit_script_cycle_etch
 
 _TEMPLATES = Path(__file__).parent / "lammps" / "templates"
+
+
+def _check_no_running_job(spec: SimSpec, outdir: Path) -> None:
+    """Abort if a SLURM job with spec.name is running and would be overwritten.
+
+    Overwiting head.lmp while LAMMPS is mid-run corrupts the byte offsets used
+    by 'jump SELF <label>' — every subsequent label seek lands in the wrong place.
+    """
+    if not spec.name or not (outdir / "head.lmp").exists():
+        return
+    try:
+        user = os.environ.get("USER") or subprocess.check_output(["whoami"], text=True).strip()
+        result = subprocess.run(
+            ["squeue", "-u", user, "-o", "%.100j %.2t", "--noheader"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+        return  # squeue unavailable (local workstation) — skip check
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == spec.name and parts[1] == "R":
+            sys.exit(
+                f"ABORT: job '{spec.name}' is currently running (SLURM state R).\n"
+                f"Overwriting {outdir / 'head.lmp'} while LAMMPS is mid-run would\n"
+                f"corrupt jump-SELF byte offsets in the active job.\n"
+                f"Wait for the job to finish, or cancel it first:\n"
+                f"  scancel --name {spec.name}"
+            )
 
 
 def multi_ion_dir_name(spec: SimSpec) -> str:
@@ -67,6 +97,7 @@ def get_make_surf_source(spec: SimSpec) -> Path:
 
 def make_sim(spec: SimSpec, outdir: Path) -> None:
     """Create a complete simulation directory for the given spec."""
+    _check_no_running_job(spec, outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
     # make_surf.lmp — copied from the package template for this surface
