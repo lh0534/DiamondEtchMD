@@ -394,6 +394,8 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"unfix       thalt\n"
             f"undump      current_dump_n\n"
             f"unfix       depo\n"
+            f"# Thermalize after each radical — mirrors ion impact procedure\n"
+            f"include     thermalize.lmp\n"
             f"unfix       2\n"
             f"unfix       3\n"
             f"# ======================== End neutral inner loop ========================\n"
@@ -407,7 +409,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"\n"
             if has_any_radicals else ""
         ) +
-        f"# Thermalize between radicals and ion\n"
+        f"# Final thermalize before ion impact\n"
         f"include     thermalize.lmp\n"
         f"\n"
         f"# Increment ion impact counter\n"
