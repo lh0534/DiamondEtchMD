@@ -82,11 +82,25 @@ def _deposit_line(species: dict) -> str:
 def _radical_loop_block(spec: SimSpec) -> str:
     """Return the LAMMPS radical pre-exposure loop for RIE-etch mode.
 
-    Deposits `flux_ratio` O• radicals (type 3) before each ion impact.
-    Handles mid-loop restarts via cn_start (from neut_complete variable).
-    After each radical: writes 5-col ncarbon.txt and impact_snaps/${c}_${cn}.data.
+    Supports 4 sampling modes (use_boltzmann × use_cosine):
+    - fixed energy + fixed angle: monoenergetic, fixed direction
+    - Boltzmann + fixed angle: Maxwell-Boltzmann speed, fixed direction
+    - fixed energy + cosine: fixed speed, Lambert cosine angle distribution
+    - Boltzmann + cosine: MB speed + Lambert cosine (full stochastic)
+
+    In stochastic mode (Boltzmann or cosine), per-radical halt time is computed
+    as min(radical_i_above / |vz_rad|, max_inter_neutral_time) so slow radicals
+    still reach the surface.
+
+    Logs energy and angles of every radical to radical_log.txt.
+    Radical trajectory dumps only created when dump_mode == "all".
     """
-    return (
+    use_boltzmann = spec.radical_temperature is not None
+    use_cosine    = spec.radical_angle_distribution
+    use_stochastic = use_boltzmann or use_cosine
+    dm = spec.dump_mode
+
+    blk = (
         f"# ========= Begin RIE-etch O• radical deposition loop =========\n"
         f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{flux_ratio}}" then &\n'
         f'"variable neutral_lp loop $(v_flux_ratio-v_cn_start)" &\n'
@@ -104,18 +118,128 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"group       insert clear\n"
         f"group       mobile subtract all anchor\n"
         f"\n"
-        f"# Deposit O• radical (always type 3)\n"
-        f"variable    vel_chem equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
-        f"variable    velz_chem equal cos(${{angl}}*PI/180)*${{vel_chem}}\n"
-        f"variable    vely_chem equal sin(${{angl}}*PI/180)*${{vel_chem}}\n"
+        f"# Sample O• radical velocity\n"
+    )
+
+    # ── Speed sampling ────────────────────────────────────────────────────────
+    if use_boltzmann:
+        # 3 Box-Muller pairs → 3 Gaussian velocity component squares → MB speed magnitude.
+        # LAMMPS re-evaluates equal-style variables on every reference: v_gx*v_gx calls
+        # the gx formula twice and, in some LAMMPS/Kokkos builds, the two random() calls
+        # with the same seed return different values, making the product negative and
+        # crashing sqrt(gx^2+gy^2+gz^2).
+        # Fix: use cos^2(x) = (1+cos(2x))/2 so each random variable appears exactly once,
+        # guaranteeing gx_sq >= 0 without any formula-doubling.
+        blk += (
+            f"variable    sigma_rad equal sqrt(${{kT_rad}}*6.02214129e7/${{M_O}}/6242)/1000\n"
+            f"variable    bms equal v_c*100000+v_cn+${{seed_adjust}}*1000000\n"
+            f"variable    u1a equal random(1e-10,1.0,v_bms+1)\n"
+            f"variable    u2a equal random(1e-10,1.0,v_bms+2)\n"
+            f"variable    u1b equal random(1e-10,1.0,v_bms+3)\n"
+            f"variable    u2b equal random(1e-10,1.0,v_bms+4)\n"
+            f"variable    u1c equal random(1e-10,1.0,v_bms+5)\n"
+            f"variable    u2c equal random(1e-10,1.0,v_bms+6)\n"
+            f"variable    gx_sq equal (-2*ln(v_u1a))*(1+cos(4*PI*v_u2a))/2*${{sigma_rad}}*${{sigma_rad}}\n"
+            f"variable    gy_sq equal (-2*ln(v_u1b))*(1+cos(4*PI*v_u2b))/2*${{sigma_rad}}*${{sigma_rad}}\n"
+            f"variable    gz_sq equal (-2*ln(v_u1c))*(1+cos(4*PI*v_u2c))/2*${{sigma_rad}}*${{sigma_rad}}\n"
+            f"variable    rad_speed equal sqrt(v_gx_sq+v_gy_sq+v_gz_sq)\n"
+        )
+    else:
+        blk += (
+            f"variable    vel_chem equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+            f"variable    rad_speed equal v_vel_chem\n"
+        )
+
+    # ── Direction sampling ────────────────────────────────────────────────────
+    if use_cosine:
+        # Lambert cosine: theta = arcsin(sqrt(U)), phi = 2*pi*U2
+        # seed offsets 7-8 (Boltzmann) or 1-2 (cosine-only, own seed)
+        if use_boltzmann:
+            blk += (
+                f"variable    u_th equal random(0.0,1.0,v_bms+7)\n"
+                f"variable    u_ph equal random(0.0,1.0,v_bms+8)\n"
+            )
+        else:
+            blk += (
+                f"variable    bms_ang equal v_c*100000+v_cn+${{seed_adjust}}*1000000\n"
+                f"variable    u_th equal random(0.0,1.0,v_bms_ang+1)\n"
+                f"variable    u_ph equal random(0.0,1.0,v_bms_ang+2)\n"
+            )
+        blk += (
+            f"variable    cos_theta equal sqrt(v_u_th)\n"
+            f"variable    sin_theta equal sqrt(1.0-v_u_th)\n"
+            f"variable    phi_rad equal 2*PI*v_u_ph\n"
+            f"variable    vx_rad equal v_rad_speed*v_sin_theta*cos(v_phi_rad)\n"
+            f"variable    vy_rad equal v_rad_speed*v_sin_theta*sin(v_phi_rad)\n"
+            f"variable    vz_rad equal -v_rad_speed*v_cos_theta\n"
+        )
+    else:
+        blk += (
+            f"variable    vx_rad equal 0.0\n"
+            f"variable    vy_rad equal v_rad_speed*sin(${{rad_angl}}*PI/180)\n"
+            f"variable    vz_rad equal -v_rad_speed*cos(${{rad_angl}}*PI/180)\n"
+        )
+
+    # ── Per-radical halt time ─────────────────────────────────────────────────
+    # Ideally rad_halt_t = min(2*i_above/|vz|, max_inter_neutral_time) per radical,
+    # but any formula chaining through random() (vz → rad_speed → gx_sq → u1a)
+    # triggers LAMMPS's "Invalid special function" error in both fix halt and
+    # ${varname} substitution contexts in this build.  Use max_inter_neutral_time
+    # for all radicals — the cap is the same; fast radicals simply run to that limit.
+
+    # ── Logging to radical_log.txt ────────────────────────────────────────────
+    # Columns: impact  radical_idx  energy_eV  polar_deg  azimuthal_deg
+    # Energy: use gx_sq+gy_sq+gz_sq (= |v|^2) in Boltzmann mode to avoid
+    # re-evaluating vx_rad^2+... which re-evaluates the random() chain.
+    # Angles: derive from the sampling variables directly rather than from velocity
+    # components — computing acos(-vz/|v|) would re-evaluate rad_speed independently
+    # for the numerator and denominator, and a tiny discrepancy pushes the ratio
+    # outside [-1,1], crashing acos.
+    if use_boltzmann:
+        rad_spd_sq_formula = "v_gx_sq+v_gy_sq+v_gz_sq"
+    else:
+        rad_spd_sq_formula = "v_vx_rad*v_vx_rad+v_vy_rad*v_vy_rad+v_vz_rad*v_vz_rad"
+
+    if use_cosine:
+        # cos_theta = sqrt(u_th) in [0,1] → acos always valid; phi_rad already computed
+        polar_formula   = "acos(v_cos_theta)*180/PI"
+        azimuth_formula = "v_phi_rad*180/PI"
+    else:
+        # fixed angle; azimuth is always 0 (radicals in the yz plane)
+        polar_formula   = f"${{rad_angl}}"
+        azimuth_formula = "0.0"
+
+    blk += (
+        f"variable    rad_spd_sq equal {rad_spd_sq_formula}\n"
+        f"variable    rad_energy_ev equal v_rad_spd_sq*${{M_O}}*6242*500000/6.02214129e7\n"
+        f"variable    rad_polar_deg equal {polar_formula}\n"
+        f"variable    rad_azimuth_deg equal {azimuth_formula}\n"
+        f'print       "${{c}} ${{cn}} $(v_rad_energy_ev) $(v_rad_polar_deg) $(v_rad_azimuth_deg)"'
+        f" append radical_log.txt\n"
+    )
+
+    # ── Fix deposit ───────────────────────────────────────────────────────────
+    blk += (
+        f"\n"
+        f"# Deposit O• radical (type 3) with sampled velocity\n"
         f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
-        f"${{chemical_i_above}} ${{chemical_i_above}} "
-        f"vx 0.0 0.0 vy ${{vely_chem}} ${{vely_chem}} vz -${{velz_chem}} -${{velz_chem}} "
+        f"${{radical_i_above}} ${{radical_i_above}} "
+        f"vx ${{vx_rad}} ${{vx_rad}} vy ${{vy_rad}} ${{vy_rad}} vz ${{vz_rad}} ${{vz_rad}} "
         f"region bbox units box\n"
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
-        f"dump        current_dump_n all custom 100 etch_event_trajs/event_dump_n${{c}}_${{event_count}}.dump "
-        f"id type x y z vx vy vz fx fy fz q\n"
+    )
+
+    # ── Radical dump (only in "all" mode) ─────────────────────────────────────
+    if dm == "all":
+        blk += (
+            f"dump        current_dump_n all custom 100 "
+            f"etch_event_trajs/event_dump_n${{c}}_${{cn}}.dump "
+            f"id type x y z vx vy vz fx fy fz q\n"
+        )
+
+    # ── Run radical impact ────────────────────────────────────────────────────
+    blk += (
         f"\n"
         f"timestep    1e-10\n"
         f"run         1 post no\n"
@@ -124,7 +248,14 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"variable    starting_nclusts equal $(c_nclusts)\n"
         f"variable    t0 equal $(time)\n"
         f"variable    time_elapsed equal time-${{t0}}\n"
-        f"fix         thalt all halt 1 v_time_elapsed > ${{inter_neutral_time}} error continue message yes\n"
+    )
+
+    blk += (
+        f"fix         thalt all halt 1 v_time_elapsed > ${{max_inter_neutral_time}} "
+        f"error continue message yes\n"
+    )
+
+    blk += (
         f"\n"
         f"# ===================== Radical inner loop =====================\n"
         f"label       continue_n_impact\n"
@@ -134,7 +265,13 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f'"variable event_count equal ${{event_count}}+1" &\n'
         f'"variable starting_nclusts equal $(c_nclusts)"\n'
         f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
-        f'if "$(time-v_t0) < ${{inter_neutral_time}}" then "jump SELF continue_n_impact"\n'
+    )
+
+    blk += (
+        f'if "$(time-v_t0) < ${{max_inter_neutral_time}}" then "jump SELF continue_n_impact"\n'
+    )
+
+    blk += (
         f"\n"
         f"group       carbon type 1\n"
         f"group       hydrogen type 2\n"
@@ -150,9 +287,14 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"\n"
         f"unfix       thalt\n"
         f"unfix       ats_n\n"
-        f"undump      current_dump_n\n"
+    )
+
+    if dm == "all":
+        blk += f"undump      current_dump_n\n"
+
+    blk += (
         f"unfix       depo\n"
-        f"# Thermalize after each radical — mirrors ion impact procedure\n"
+        f"# Thermalize after each radical\n"
         f"include     thermalize.lmp\n"
         f"unfix       2\n"
         f"unfix       3\n"
@@ -173,6 +315,101 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
         f"\n"
     )
+
+    return blk
+
+
+def _build_ion_dump_blocks(spec: SimSpec):
+    """Return (ion_dump_open, etch_event_block, channeling_block, ion_dump_close)
+    strings for get_head_lmp / get_head_lmp_multi_ion based on dump_mode."""
+    dm = spec.dump_mode
+    dump_file = f"etch_event_trajs/event_dump_${{c}}.dump"
+    dump_cols  = "id type x y z vx vy vz fx fy fz q"
+
+    if dm == "none":
+        ion_dump_open  = ""
+        ion_dump_close = ""
+        etch_event_block = (
+            f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
+            f'"variable event_count equal ${{event_count}}+1" &\n'
+            f'"variable starting_nclusts equal $(c_nclusts)"\n'
+        )
+        channeling_block = (
+            f'if "${{one_clust}} == 0" then &\n'
+            f'"include sweep.lmp" &\n'
+            f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
+            f'"group channelled_group region channelled" &\n'
+            f'"variable n_channelled equal count(channelled_group)" &\n'
+            f'"region channelled delete" &\n'
+            f"\n"
+            f'if "${{n_channelled}} > 0" then &\n'
+            f'"variable event_count equal ${{event_count}}+1" &\n'
+            f'"delete_atoms group channelled_group" &\n'
+            f'"run 0" &\n'
+            f'"group channelled_group delete" &\n'
+            f'"variable n_channelled equal 0" &\n'
+            f'"include notify_channeled.lmp"\n'
+        )
+
+    elif dm == "all":
+        ion_dump_open  = f"dump current_dump all custom 100 {dump_file} {dump_cols}\n"
+        ion_dump_close = f"undump current_dump\n"
+        etch_event_block = (
+            f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
+            f'"variable event_count equal ${{event_count}}+1" &\n'
+            f'"variable starting_nclusts equal $(c_nclusts)"\n'
+        )
+        channeling_block = (
+            f'if "${{one_clust}} == 0" then &\n'
+            f'"include sweep.lmp" &\n'
+            f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
+            f'"group channelled_group region channelled" &\n'
+            f'"variable n_channelled equal count(channelled_group)" &\n'
+            f'"region channelled delete" &\n'
+            f"\n"
+            f'if "${{n_channelled}} > 0" then &\n'
+            f'"variable event_count equal ${{event_count}}+1" &\n'
+            f'"delete_atoms group channelled_group" &\n'
+            f'"run 0" &\n'
+            f'"group channelled_group delete" &\n'
+            f'"variable n_channelled equal 0" &\n'
+            f'"include notify_channeled.lmp"\n'
+        )
+
+    else:  # etch_only
+        ion_dump_open = (
+            f"variable    keep_dump equal 0\n"
+            f"dump current_dump all custom 100 {dump_file} {dump_cols}\n"
+        )
+        ion_dump_close = (
+            f'if "${{keep_dump}} == 0" then "shell rm {dump_file}"\n'
+            f"undump current_dump\n"
+        )
+        etch_event_block = (
+            f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
+            f'"variable event_count equal ${{event_count}}+1" &\n'
+            f'"variable starting_nclusts equal $(c_nclusts)" &\n'
+            f'"variable keep_dump equal 1"\n'
+        )
+        channeling_block = (
+            f'if "${{one_clust}} == 0" then &\n'
+            f'"include sweep.lmp" &\n'
+            f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
+            f'"group channelled_group region channelled" &\n'
+            f'"variable n_channelled equal count(channelled_group)" &\n'
+            f'"region channelled delete" &\n'
+            f"\n"
+            f'if "${{n_channelled}} > 0" then &\n'
+            f'"variable event_count equal ${{event_count}}+1" &\n'
+            f'"delete_atoms group channelled_group" &\n'
+            f'"run 0" &\n'
+            f'"group channelled_group delete" &\n'
+            f'"variable n_channelled equal 0" &\n'
+            f'"variable keep_dump equal 1" &\n'
+            f'"include notify_channeled.lmp"\n'
+        )
+
+    return ion_dump_open, etch_event_block, channeling_block, ion_dump_close
 
 
 def get_head_lmp(spec: SimSpec) -> str:
@@ -223,14 +460,16 @@ def get_head_lmp(spec: SimSpec) -> str:
     # RIE-etch radical loop block (inserted before the ion deposit section)
     radical_loop = _radical_loop_block(spec) if is_rie else ""
 
-    # In RIE-etch mode, ion counter is NOT incremented at top of loop (radicals run first)
-    # In ion-etch mode, increment happens in place
     loop_counter_line = f"variable    c equal ${{c}}+1\n"
+
+    ion_dump_open, etch_event_block, channeling_block, ion_dump_close = (
+        _build_ion_dump_blocks(spec)
+    )
 
     return (
         f"# head.lmp — generated by DiamondEtchMD\n"
         f"# orientation={spec.orientation}  species={spec.species}"
-        f"  {spec.energy}eV  {spec.temperature}K  angle={spec.angle}deg\n"
+        f"  {spec.energy}eV  {spec.surface_temperature}K  ion_angle={spec.ion_angle}deg\n"
         f"package kokkos neigh/qeq full neigh half newton on\n"
         f"units\t\treal\n"
         f"include     config.lmp\n"
@@ -287,8 +526,8 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"\n"
         f"# Incident particle velocity components\n"
         f"variable \tvel equal sqrt(2*${{energ}}*6.02214129*1.0e+7/${{M_incident}}/6242)/1000\n"
-        f"variable \tvelz equal cos(${{angl}}*PI/180)*${{vel}}\n"
-        f"variable \tvely equal sin(${{angl}}*PI/180)*${{vel}}\n"
+        f"variable \tvelz equal cos(${{ion_angl}}*PI/180)*${{vel}}\n"
+        f"variable \tvely equal sin(${{ion_angl}}*PI/180)*${{vel}}\n"
         f"\n"
         f"# Energy conservation check\n"
         f"compute     ake all ke\n"
@@ -325,7 +564,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
         f"{rie_loop_top}"
-        f"dump current_dump all custom 100 etch_event_trajs/event_dump_${{c}}_${{event_count}}.dump id type x y z vx vy vz fx fy fz q\n"
+        f"{ion_dump_open}"
         f"\n"
         f"group       insert clear\n"
         f"group \t    mobile subtract all anchor\n"
@@ -359,23 +598,8 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"\n"
         f"run         1000000000 pre no post no\n"
         f"run         0\n"
-        f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
-        f'"variable event_count equal ${{event_count}}+1" &\n'
-        f'"variable starting_nclusts equal $(c_nclusts)"\n'
-        f'if "${{one_clust}} == 0" then &\n'
-        f'"include sweep.lmp" &\n'
-        f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
-        f'"group channelled_group region channelled" &\n'
-        f'"variable n_channelled equal count(channelled_group)" &\n'
-        f'"region channelled delete" &\n'
-        f"\n"
-        f'if "${{n_channelled}} > 0" then &\n'
-        f'"variable event_count equal ${{event_count}}+1" &\n'
-        f'"delete_atoms group channelled_group" &\n'
-        f'"run 0" &\n'
-        f'"group channelled_group delete" &\n'
-        f'"variable n_channelled equal 0" &\n'
-        f'"include notify_channeled.lmp"\n'
+        f"{etch_event_block}"
+        f"{channeling_block}"
         f"\n"
         f'if "$(time-v_t0) < ${{impact_time}}" then "jump SELF continue_impact"\n'
         f"unfix thalt\n"
@@ -412,7 +636,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"{write_data}"
         f"if '$(v_c%v_ML) == 0' then \"write_dump all custom ML_impacts.dump id type q x y z vx vy vz modify sort id append yes\"\n"
         f"\n"
-        f"undump current_dump\n"
+        f"{ion_dump_close}"
         f"# ========================= End Per-Impact Outer Loop =========================\n"
         f"next\t\ta\n"
         f"jump\t\tSELF loop\n"
@@ -473,8 +697,8 @@ def _multi_ion_select_block(spec: SimSpec) -> str:
         "label       ion_sel_done\n",
         'print       "${c} ${cur_ion}" append ion_impacts.txt\n',
         "variable    vel equal sqrt(2*${energ}*6.02214129*1.0e+7/${M_incident}/6242)/1000\n",
-        "variable    velz equal cos(${angl}*PI/180)*${vel}\n",
-        "variable    vely equal sin(${angl}*PI/180)*${vel}\n",
+        "variable    velz equal cos(${ion_angl}*PI/180)*${vel}\n",
+        "variable    vely equal sin(${ion_angl}*PI/180)*${vel}\n",
         "# ─────────────────────────────────────────────────────────────────────────────\n",
         "\n",
     ])
@@ -546,13 +770,17 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
     radical_loop    = _radical_loop_block(spec) if is_rie else ""
     loop_counter_line = f"variable    c equal ${{c}}+1\n"
 
+    ion_dump_open, etch_event_block, channeling_block, ion_dump_close = (
+        _build_ion_dump_blocks(spec)
+    )
+
     ion_label = "_".join(c.species for c in mix)
 
     return (
         f"# head.lmp — generated by DiamondEtchMD (multi-ion)\n"
         f"# orientation={spec.orientation}  "
         f"ions=[{', '.join(f'{c.species}@{c.energy}eV×{c.fraction:.0%}' for c in mix)}]\n"
-        f"# T={spec.temperature}K  angle={spec.angle}deg\n"
+        f"# T={spec.surface_temperature}K  ion_angle={spec.ion_angle}deg\n"
         f"package kokkos neigh/qeq full neigh half newton on\n"
         f"units\t\treal\n"
         f"include     config.lmp\n"
@@ -631,8 +859,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
         f"{rie_loop_top}"
-        f"dump current_dump all custom 100 etch_event_trajs/event_dump_${{c}}_${{event_count}}.dump "
-        f"id type x y z vx vy vz fx fy fz q\n"
+        f"{ion_dump_open}"
         f"\n"
         f"group       insert clear\n"
         f"group \t    mobile subtract all anchor\n"
@@ -665,23 +892,8 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"\n"
         f"run         1000000000 pre no post no\n"
         f"run         0\n"
-        f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
-        f'"variable event_count equal ${{event_count}}+1" &\n'
-        f'"variable starting_nclusts equal $(c_nclusts)"\n'
-        f'if "${{one_clust}} == 0" then &\n'
-        f'"include sweep.lmp" &\n'
-        f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
-        f'"group channelled_group region channelled" &\n'
-        f'"variable n_channelled equal count(channelled_group)" &\n'
-        f'"region channelled delete" &\n'
-        f"\n"
-        f'if "${{n_channelled}} > 0" then &\n'
-        f'"variable event_count equal ${{event_count}}+1" &\n'
-        f'"delete_atoms group channelled_group" &\n'
-        f'"run 0" &\n'
-        f'"group channelled_group delete" &\n'
-        f'"variable n_channelled equal 0" &\n'
-        f'"include notify_channeled.lmp"\n'
+        f"{etch_event_block}"
+        f"{channeling_block}"
         f"\n"
         f'if "$(time-v_t0) < ${{impact_time}}" then "jump SELF continue_impact"\n'
         f"unfix thalt\n"
@@ -716,7 +928,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"{write_data}"
         f"if '$(v_c%v_ML) == 0' then \"write_dump all custom ML_impacts.dump id type q x y z vx vy vz modify sort id append yes\"\n"
         f"\n"
-        f"undump current_dump\n"
+        f"{ion_dump_close}"
         f"# ========================= End Per-Impact Outer Loop =========================\n"
         f"next\t\ta\n"
         f"jump\t\tSELF loop\n"

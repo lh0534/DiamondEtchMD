@@ -105,16 +105,9 @@ def _parse_ep(path):
 
 
 def _load_spec(spec_path):
-    from ..spec import SimSpec, CyclePhase, IonComponent
-    import dataclasses
+    from ..spec import SimSpec
     data = json.loads(Path(spec_path).read_text())
-    phases_data   = data.pop('phases', None)
-    ion_mix_data  = data.pop('ion_mix', None)
-    data['phases']  = [CyclePhase(**p)    for p in phases_data]  if phases_data  else None
-    data['ion_mix'] = [IonComponent(**c)  for c in ion_mix_data] if ion_mix_data else None
-    valid = {f.name for f in dataclasses.fields(SimSpec)}
-    data = {k: v for k, v in data.items() if k in valid}
-    return SimSpec(**data)
+    return SimSpec.from_dict(data)
 
 
 def _apply_style():
@@ -213,7 +206,7 @@ def _spec_summary_str(spec) -> str:
             line += f"  $J_{{rad^\\bullet}}/J_{{ion^+}}$={flux_ratio}{re_s}"
         return line
 
-    angle = getattr(spec, 'angle', 0.0)
+    angle = getattr(spec, 'ion_angle', getattr(spec, 'angle', 0.0))
 
     # ── Multi-ion ──────────────────────────────────────────────────────────────
     if getattr(spec, 'ion_mix', None) is not None:
@@ -1038,6 +1031,86 @@ def plot_o_per_cycle(nc_records, spec, ml, ax=None, spec_summary=None):
     return ax
 
 
+def plot_radical_distribution(sim_dir, spec=None, ax=None):
+    """Energy and angle histograms for O• radicals logged in radical_log.txt.
+
+    Produces a 2-panel figure:
+      Left:  energy histogram vs Maxwell-Boltzmann PDF (if radical_temperature set)
+      Right: polar-angle histogram vs Lambert cosine PDF (if radical_angle_distribution set)
+
+    Returns the Figure, or None if radical_log.txt is absent or empty.
+    radical_log.txt columns: impact  cn  energy_eV  polar_deg  azimuth_deg
+    """
+    _need_mpl()
+    sim_dir = Path(sim_dir)
+    rad_log = sim_dir / 'radical_log.txt'
+    if not rad_log.exists():
+        return None
+
+    energies, polars = [], []
+    with open(rad_log) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 5:
+                try:
+                    energies.append(float(parts[2]))
+                    polars.append(float(parts[3]))
+                except ValueError:
+                    pass
+
+    if not energies:
+        return None
+
+    energies = np.array(energies)
+    polars   = np.array(polars)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+
+    # ── Energy panel ─────────────────────────────────────────────────────────
+    ax1.hist(energies, bins=50, density=True, alpha=0.55,
+             color='#e87034', label=f'Simulated  (n={len(energies):,})')
+
+    kT = None
+    if spec is not None:
+        rad_T = getattr(spec, 'radical_temperature', None)
+        if rad_T is not None:
+            _kB = 8.617333262e-5
+            kT  = _kB * rad_T
+
+    if kT is not None:
+        # Maxwell-Boltzmann energy PDF: f(E) = 2*sqrt(E/pi) * kT^{-3/2} * exp(-E/kT)
+        E_max = max(energies.max() * 1.5, kT * 5)
+        E = np.linspace(0, E_max, 500)
+        pdf = 2.0 * np.sqrt(E / np.pi) * kT ** (-1.5) * np.exp(-E / kT)
+        ax1.plot(E, pdf, 'k-', lw=2.0, label=f'MB ($k_BT$ = {kT:.4f} eV)')
+
+    ax1.set_xlabel('Radical energy (eV)')
+    ax1.set_ylabel('Probability density (eV$^{-1}$)')
+    ax1.set_xlim(left=0)
+    ax1.legend(frameon=False, fontsize=10)
+
+    # ── Polar-angle panel ─────────────────────────────────────────────────────
+    bins_deg = np.linspace(0, 90, 37)
+    ax2.hist(polars, bins=bins_deg, density=True, alpha=0.55,
+             color='#4e9be6', label=f'Simulated  (n={len(polars):,})')
+
+    use_cosine = spec is not None and getattr(spec, 'radical_angle_distribution', False)
+    if use_cosine:
+        # Lambert cosine PDF in degrees: f(θ) = sin(2θ°) × π/180
+        theta = np.linspace(0, 90, 500)
+        pdf_ang = np.sin(2.0 * theta * np.pi / 180.0) * np.pi / 180.0
+        ax2.plot(theta, pdf_ang, 'k-', lw=2.0, label='Cosine (Lambert)')
+
+    ax2.set_xlabel('Polar angle (°)')
+    ax2.set_ylabel('Probability density (deg$^{-1}$)')
+    ax2.set_xlim(0, 90)
+    ax2.legend(frameon=False, fontsize=10)
+
+    fig.suptitle(f'O• radical velocity distributions', y=1.02)
+    plt.tight_layout()
+    return fig
+
+
 # ── main entry point ─────────────────────────────────────────────────────────
 
 def make_plots(
@@ -1158,5 +1231,9 @@ def make_plots(
         fig = plot_o_per_cycle(nc, spec, ml, spec_summary=summary)
         if fig:
             _save(fig, 'o_per_cycle')
+
+    fig = plot_radical_distribution(sim_dir, spec=spec)
+    if fig:
+        _save(fig, 'radical_distribution')
 
     return figs

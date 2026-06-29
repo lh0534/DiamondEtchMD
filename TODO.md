@@ -31,10 +31,43 @@ Planned features and known gaps, roughly ordered by expected impact.
   deleted, `event_count` is now incremented so downstream dump files are consistently
   numbered (`head.py` and `head_cycling.py`).
 
-- [x] **Impact number in etch event dumps** — dump filenames now include the impact
-  number: `event_dump_${c}_${event_count}.dump` (and `event_dump_n${c}_${event_count}.dump`
-  for radical dumps, `event_dump_ion${c}_${event_count}.dump` for cycling ion dumps).
-  The submit script event-count glob `event_dump_*.dump` still matches correctly.
+- [x] **Dump filename by impact number** — dump filenames use only the impact counter,
+  not the cumulative event counter: `event_dump_${c}.dump` (ion), `event_dump_n${c}_${cn}.dump`
+  (radical, `cn` = radical index), `event_dump_ion${c}.dump` (cycling ion).
+
+- [x] **Dump mode control** — `dump_mode` field on `SimSpec` (`"all"` | `"etch_only"` | `"none"`).
+  `"etch_only"` creates each dump then deletes it at end of impact unless a C-containing
+  etch product or channeling event was detected; `"none"` skips all ion and radical dumps.
+
+- [x] **Boltzmann radical energy distribution** — `radical_temperature` field on `SimSpec`
+  and `CyclePhase`. When set, O• radical speed is sampled on-the-fly via a 3-component
+  Box-Muller transform (σ = √(k_BT/m)) giving a Maxwell-Boltzmann speed distribution.
+  Restartable: seed = f(c, cn) without file state.
+
+- [x] **Lambert cosine radical angle distribution** — `radical_angle_distribution: bool` on `SimSpec`
+  and `CyclePhase`. When `True`, samples θ = arcsin(√U), φ = 2πU₂ (full 3-D cosine law).
+
+- [x] **Per-radical halt time** — in stochastic mode (Boltzmann or cosine),
+  each radical's halt time = min(2 × `radical_i_above` / |v_z|, `max_inter_neutral_time`)
+  so slow radicals still reach the 12 Å injection height surface.
+
+- [x] **Radical velocity log + auto-plot** — every radical writes a row to `radical_log.txt`
+  (impact, cn, energy_eV, polar_deg, azimuthal_deg). `make_plots()` produces
+  `radical_distribution.png`: energy histogram vs MB PDF, angle histogram vs cosine PDF.
+
+- [x] **Ion/radical angle split** — LAMMPS variable `angl` split into `ion_angl` and
+  `rad_angl`. SimSpec fields: `ion_angle` (was `angle`), `radical_angle`. Backward compat
+  via `SimSpec.from_dict()`.
+
+- [x] **Field renames** — `temperature` → `surface_temperature`, `angle` → `ion_angle`.
+  Old field names still accepted by `SimSpec.from_dict()`.
+
+- [x] **Default timing update** — `impact_time` 2000 → 1000 fs; `inter_neutral_time`
+  1000 → 1500 fs. Per-radical halt time replaces `inter_neutral_time` in stochastic mode.
+
+- [ ] **Ion angle distribution** — analogous to `radical_angle_distribution` for radicals;
+  add `ion_radical_angle_distribution: bool` and sample θ from a cosine or Gaussian distribution
+  to model divergent ion beams or tilted-beam rastering.
 
 - [ ] **Non-integer flux ratio** — change `flux_ratio` from `int` to `float` and use a
   Bresenham accumulator in `head.lmp` / `head_cycling.lmp` so the delivered radical count

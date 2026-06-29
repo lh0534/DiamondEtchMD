@@ -143,7 +143,7 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
         print(f"  phases:      {phase_str}")
         print(f"  cycles:      {spec.cycles}  ({total_ml} ML total, {total_ml * spec.ml} impacts)")
         print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")
-        print(f"  T={spec.temperature} K  angle={spec.angle}°")
+        print(f"  T={spec.surface_temperature} K  angle={spec.ion_angle}°")
         print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
     elif spec.ion_mix is not None:
         # ── Multi-ion-etch or multi-RIE-etch mode ─────────────────────────────
@@ -173,7 +173,7 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
 
         print(f"Simulation created at: {outdir}  [{mode}]")
         print(f"  surface:     {spec.orientation}  {surface_label}")
-        print(f"  ion mix:     {mix_str}  angle={spec.angle}°  T={spec.temperature} K")
+        print(f"  ion mix:     {mix_str}  angle={spec.ion_angle}°  T={spec.surface_temperature} K")
         if rie_str:
             print(rie_str, end="")
         print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")
@@ -200,7 +200,7 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
 
         print(f"Simulation created at: {outdir}  [{mode}]")
         print(f"  surface:     {spec.orientation}  {surface_label}")
-        print(f"  bombardment: {spec.species} at {spec.energy} eV, angle={spec.angle}°, T={spec.temperature} K")
+        print(f"  bombardment: {spec.species} at {spec.energy} eV, angle={spec.ion_angle}°, T={spec.surface_temperature} K")
         if rie_str:
             print(rie_str, end="")
         print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")

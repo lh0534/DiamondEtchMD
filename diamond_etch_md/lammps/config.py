@@ -10,6 +10,55 @@ from ..orientations import ORIENT
 from ..species import SPECIES
 from ..spec import SimSpec, CyclePhase, IonComponent
 
+_kB = 8.617333262e-5  # eV/K
+
+
+def _radical_config_block(
+    flux_ratio: int,
+    radical_energy: float,
+    radical_temperature,  # Optional[float]
+    radical_angle: float,
+    radical_angle_distribution: bool,
+    max_inter_neutral_time: float,
+    radical_i_above: float,
+    inter_neutral_time: float,
+    prefix: str = "",            # e.g. "phase_0_" for cycling per-phase vars
+) -> str:
+    """Return config.lmp lines for radical-related variables.
+
+    When radical_temperature is set, emits kT_rad and sigma_rad instead of
+    radical_energy; inter_neutral_time is replaced by per-radical halt time at
+    runtime, so only max_inter_neutral_time is emitted as a cap.
+    """
+    use_boltzmann = radical_temperature is not None
+    use_cosine = radical_angle_distribution
+    use_stochastic = use_boltzmann or use_cosine
+
+    lines = f"variable    {prefix}flux_ratio equal {flux_ratio}\n"
+
+    if use_boltzmann:
+        kT = _kB * radical_temperature
+        lines += (
+            f"variable    {prefix}kT_rad equal {kT:.8f}        "
+            f"# eV = kB * {radical_temperature} K\n"
+        )
+    else:
+        lines += f"variable    {prefix}radical_energy equal {radical_energy}\n"
+
+    lines += f"variable    {prefix}radical_i_above equal {radical_i_above}\n"
+
+    if use_stochastic:
+        lines += (
+            f"variable    {prefix}max_inter_neutral_time equal {max_inter_neutral_time}\n"
+        )
+    else:
+        lines += f"variable    {prefix}inter_neutral_time equal {inter_neutral_time}\n"
+
+    if not use_cosine:
+        lines += f"variable    {prefix}rad_angl equal {radical_angle}\n"
+
+    return lines
+
 
 def get_config_lmp(spec: SimSpec) -> str:
     """Generate the contents of config.lmp for the given SimSpec.
@@ -30,15 +79,15 @@ def get_config_lmp(spec: SimSpec) -> str:
     cfg = (
         f"# DiamondEtchMD generated config (single-species)\n"
         f"# orientation={spec.orientation}  surface={spec.surface}\n"
-        f"# species={spec.species}  energy={spec.energy}eV  angle={spec.angle}deg"
-        f"  T={spec.temperature}K\n"
+        f"# species={spec.species}  energy={spec.energy}eV  ion_angle={spec.ion_angle}deg"
+        f"  T={spec.surface_temperature}K\n"
         f"\n"
         f"variable    ML equal {spec.ml}            # atoms per monolayer\n"
         f"variable    end_fluence equal {spec.fluence}   # in ML\n"
         f"\n"
         f"variable    energ equal {energy_per_atom}     # incident energy per atom (eV)\n"
-        f"variable    angl equal {spec.angle}       # incident particle angle (deg from normal)\n"
-        f"variable    T equal {spec.temperature}    # substrate temperature (K)\n"
+        f"variable    ion_angl equal {spec.ion_angle}   # ion beam angle (deg from normal)\n"
+        f"variable    T equal {spec.surface_temperature}    # substrate temperature (K)\n"
         f"variable    pot string REAX\n"
         f"\n"
         f"variable    use_starting_data_file equal false\n"
@@ -56,7 +105,7 @@ def get_config_lmp(spec: SimSpec) -> str:
         f"variable    O_terminate equal {o_flag}\n"
         f"variable    O_ether_terminate equal {o_eth_flag}\n"
         f"\n"
-        f"variable    i_above equal {species['i_above']}    # Å above surface to inject particle\n"
+        f"variable    i_above equal {species['i_above']}    # Å above surface to inject ion\n"
         f"variable    impact_time equal {spec.impact_time}\n"
         f"variable    thermalization_time equal {spec.thermalization_time}\n"
         f"\n"
@@ -75,10 +124,16 @@ def get_config_lmp(spec: SimSpec) -> str:
         cfg += (
             f"\n"
             f"# RIE-etch: O• radical pre-exposure before each ion impact\n"
-            f"variable    flux_ratio equal {spec.flux_ratio}\n"
-            f"variable    radical_energy equal {spec.radical_energy}\n"
-            f"variable    chemical_i_above equal 6.0\n"
-            f"variable    inter_neutral_time equal {spec.inter_neutral_time}\n"
+            + _radical_config_block(
+                flux_ratio=spec.flux_ratio,
+                radical_energy=spec.radical_energy,
+                radical_temperature=spec.radical_temperature,
+                radical_angle=spec.radical_angle,
+                radical_angle_distribution=spec.radical_angle_distribution,
+                max_inter_neutral_time=spec.max_inter_neutral_time,
+                radical_i_above=spec.radical_i_above,
+                inter_neutral_time=spec.inter_neutral_time,
+            )
         )
 
     return cfg
@@ -105,14 +160,14 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
 
     cfg = (
         f"# DiamondEtchMD generated config (multi-ion)\n"
-        f"# orientation={spec.orientation}  surface={spec.surface}  T={spec.temperature}K\n"
+        f"# orientation={spec.orientation}  surface={spec.surface}  T={spec.surface_temperature}K\n"
         f"# ions: {ion_summary}\n"
         f"\n"
         f"variable    ML equal {spec.ml}            # atoms per monolayer\n"
         f"variable    end_fluence equal {spec.fluence}   # in ML\n"
         f"\n"
-        f"variable    angl equal {spec.angle}       # incident angle (deg from normal)\n"
-        f"variable    T equal {spec.temperature}    # substrate temperature (K)\n"
+        f"variable    ion_angl equal {spec.ion_angle}   # ion beam angle (deg from normal)\n"
+        f"variable    T equal {spec.surface_temperature}    # substrate temperature (K)\n"
         f"variable    pot string REAX\n"
         f"\n"
         f"variable    use_starting_data_file equal false\n"
@@ -147,10 +202,16 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
         cfg += (
             f"\n"
             f"# Multi-ion RIE: O• radical pre-exposure before each ion impact\n"
-            f"variable    flux_ratio equal {spec.flux_ratio}\n"
-            f"variable    radical_energy equal {spec.radical_energy}\n"
-            f"variable    chemical_i_above equal 6.0\n"
-            f"variable    inter_neutral_time equal {spec.inter_neutral_time}\n"
+            + _radical_config_block(
+                flux_ratio=spec.flux_ratio,
+                radical_energy=spec.radical_energy,
+                radical_temperature=spec.radical_temperature,
+                radical_angle=spec.radical_angle,
+                radical_angle_distribution=spec.radical_angle_distribution,
+                max_inter_neutral_time=spec.max_inter_neutral_time,
+                radical_i_above=spec.radical_i_above,
+                inter_neutral_time=spec.inter_neutral_time,
+            )
         )
 
     return cfg
@@ -174,9 +235,21 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         phase_vars += (
             f"variable    phase_{i}_ml equal {p.fluence_ml}       # ML per cycle ({p.species})\n"
             f"variable    phase_{i}_energy equal {energy_per_atom} # eV/atom\n"
-            f"variable    phase_{i}_flux_ratio equal {p.flux_ratio}\n"
-            f"variable    phase_{i}_radical_energy equal {p.radical_energy}\n"
         )
+        if p.flux_ratio > 0:
+            phase_vars += _radical_config_block(
+                flux_ratio=p.flux_ratio,
+                radical_energy=p.radical_energy,
+                radical_temperature=p.radical_temperature,
+                radical_angle=p.radical_angle,
+                radical_angle_distribution=p.radical_angle_distribution,
+                max_inter_neutral_time=p.max_inter_neutral_time,
+                radical_i_above=p.radical_i_above,
+                inter_neutral_time=spec.inter_neutral_time,
+                prefix=f"phase_{i}_",
+            )
+        else:
+            phase_vars += f"variable    phase_{i}_flux_ratio equal 0\n"
 
     phase_summary = ", ".join(
         f"{p.species}@{p.energy}eV×{p.fluence_ml}ML"
@@ -186,7 +259,7 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
 
     return (
         f"# DiamondEtchMD generated config (cycling mode)\n"
-        f"# orientation={spec.orientation}  surface={spec.surface}  T={spec.temperature}K\n"
+        f"# orientation={spec.orientation}  surface={spec.surface}  T={spec.surface_temperature}K\n"
         f"# phases: {phase_summary}\n"
         f"# {spec.cycles} cycle(s) × {total_phase_ml} ML/cycle = {total_fluence_ml} ML total\n"
         f"\n"
@@ -194,8 +267,8 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"variable    cycles equal {spec.cycles}\n"
         f"variable    end_fluence equal {total_fluence_ml}  # total ML\n"
         f"\n"
-        f"variable    angl equal {spec.angle}       # incident angle (deg from normal)\n"
-        f"variable    T equal {spec.temperature}    # substrate temperature (K)\n"
+        f"variable    ion_angl equal {spec.ion_angle}   # ion beam angle (deg from normal)\n"
+        f"variable    T equal {spec.surface_temperature}    # substrate temperature (K)\n"
         f"variable    pot string REAX\n"
         f"\n"
         f"variable    use_starting_data_file equal false\n"
@@ -215,10 +288,9 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"\n"
         f"variable    impact_time equal {spec.impact_time}\n"
         f"variable    thermalization_time equal {spec.thermalization_time}\n"
-        f"variable    inter_neutral_time equal {spec.inter_neutral_time}\n"
         f"\n"
         f"variable    ion_i_above equal 6.0     # Å above surface to inject ion\n"
-        f"variable    chemical_i_above equal 6.0 # Å above surface to inject O•\n"
+        f"variable    radical_i_above equal {spec.radical_i_above}  # Å above surface to inject O• radical\n"
         f"\n"
         f"variable    M_C equal 12.011\n"
         f"variable    M_H equal 1.00784\n"

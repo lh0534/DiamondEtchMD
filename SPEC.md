@@ -55,7 +55,7 @@ along with valid values, defaults, simulation modes, and output file formats.
 |-------|------|---------|-------|
 | `species` | `str` | `"O"` | `"O"`, `"H"`, `"Ar"`, `"O2"` — single-species mode only |
 | `energy` | `float` | `0.5` | eV; total dimer energy for O2 (split per-atom automatically) |
-| `angle` | `float` | `0.0` | Degrees from surface normal |
+| `ion_angle` | `float` | `0.0` | Ion beam angle in degrees from surface normal |
 | `fluence` | `int` | `50` | Total monolayers to simulate (single-species mode only) |
 
 **Species properties:**
@@ -72,16 +72,29 @@ along with valid values, defaults, simulation modes, and output file formats.
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | `flux_ratio` | `int` | `0` | O• radicals deposited before each ion impact; `0` = ion-etch |
-| `radical_energy` | `float` | `0.2` | eV per O• radical |
+| `radical_energy` | `float` | `0.2` | eV per O• (used when `radical_temperature` is `None`) |
+| `radical_temperature` | `float\|None` | `None` | K; enables Maxwell-Boltzmann speed sampling (overrides `radical_energy`) |
+| `radical_angle` | `float` | `0.0` | Degrees from surface normal for radicals in fixed-angle mode |
+| `radical_angle_distribution` | `bool` | `False` | Lambert cosine (3-D) angle distribution for O• radicals |
+| `max_inter_neutral_time` | `float` | `5000.0` | fs; cap on per-radical halt time in stochastic mode |
+| `radical_i_above` | `float` | `12.0` | Å above surface to inject O• radical |
+| `dump_mode` | `str` | `"all"` | Trajectory dump mode: `"all"` \| `"etch_only"` \| `"none"` |
+
+**Stochastic radical sampling notes:**
+
+- When `radical_temperature` is set, three Box-Muller Gaussian deviates (σ = √(k_B T/m)) give the 3D velocity components; the speed follows the Maxwell-Boltzmann speed distribution.
+- When `radical_angle_distribution=True`, the polar angle θ is sampled from the Lambert cosine law: θ = arcsin(√U), φ = 2π·U₂ (full 3-D cosine).
+- In stochastic mode (either flag), each radical's halt time is computed as min(2 × `radical_i_above` / |v_z|, `max_inter_neutral_time`) so low-energy radicals have enough time to reach the surface.
+- Sampled velocities are logged per-radical to `radical_log.txt` (columns: `impact cn energy_eV polar_deg azimuthal_deg`) and visualised in `radical_distribution.png`.
 
 ### Timing parameters
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `temperature` | `float` | `300.0` | K; thermostat target |
-| `impact_time` | `float` | `2000.0` | fs — ion impact MD window |
+| `surface_temperature` | `float` | `300.0` | K; substrate thermostat target |
+| `impact_time` | `float` | `1000.0` | fs — ion impact MD window |
 | `thermalization_time` | `float` | `500.0` | fs — post-impact thermalisation |
-| `inter_neutral_time` | `float` | `1000.0` | fs — O• radical impact window (RIE/cycling) |
+| `inter_neutral_time` | `float` | `1500.0` | fs — O• radical impact window (fixed-energy/angle mode only) |
 
 ### SLURM / cluster parameters
 
@@ -155,7 +168,12 @@ Used in `SimSpec.phases` for cycling simulations.
 | `energy` | `float` | — | `> 0` | Total kinetic energy in eV |
 | `fluence_ml` | `int` | — | `> 0` | Monolayers of this species per cycle repetition |
 | `flux_ratio` | `int` | `0` | `>= 0` | O• radicals deposited before each ion impact in this phase |
-| `radical_energy` | `float` | `0.2` | `> 0` if `flux_ratio > 0` | eV per O• radical in this phase |
+| `radical_energy` | `float` | `0.2` | `> 0` if `flux_ratio > 0` | eV per O• radical (used when `radical_temperature` is `None`) |
+| `radical_temperature` | `float\|None` | `None` | | K; Maxwell-Boltzmann speed sampling for this phase's radicals |
+| `radical_angle` | `float` | `0.0` | | Degrees from normal for radicals in fixed-angle mode |
+| `radical_angle_distribution` | `bool` | `False` | | Lambert cosine angle distribution for this phase's radicals |
+| `max_inter_neutral_time` | `float` | `5000.0` | | fs; per-radical halt time cap in stochastic mode |
+| `radical_i_above` | `float` | `12.0` | | Å above surface to inject O• radical |
 
 ---
 
@@ -190,17 +208,35 @@ Written once per ejection event (each time a cluster leaves the box or a channel
 
 ### Dump files (`etch_event_trajs/`)
 
-One dump file per ejection event.
-
 | Filename pattern | Mode | Description |
 |-----------------|------|-------------|
-| `event_dump_${c}_${event_count}.dump` | ion-etch, rie-etch, multi-ion | Ion impact event trajectory |
-| `event_dump_n${c}_${event_count}.dump` | rie-etch | Radical (neutral) impact event trajectory |
-| `event_dump_ion${c}_${event_count}.dump` | cycle-etch | Ion phase event trajectory |
+| `event_dump_${c}.dump` | ion-etch, rie-etch, multi-ion | Ion impact trajectory |
+| `event_dump_n${c}_${cn}.dump` | rie-etch | Radical (neutral) impact trajectory (`cn` = radical index within impact) |
+| `event_dump_ion${c}.dump` | cycle-etch | Ion phase impact trajectory |
 
-`c` = impact number; `event_count` = sequential event counter (incremented on each ejection and on each channeling event).
+`c` = ion impact number; `cn` = O• radical index within that impact (1-indexed).
 
-The submit script counts events via `ls etch_event_trajs/event_dump_*.dump | wc -l`.
+**Dump modes** (controlled by `dump_mode` on `SimSpec`):
+
+| Mode | Behavior |
+|------|----------|
+| `"all"` | Every impact creates a dump file (default) |
+| `"etch_only"` | Dump is created per impact but deleted at end unless a C-containing etch product or channeled atom was detected |
+| `"none"` | No dump files; radical dumps also suppressed |
+
+### `radical_log.txt`
+
+Written in RIE-etch mode (one row per O• radical deposited). Space-separated, no header.
+
+| Column | Name | Description |
+|--------|------|-------------|
+| 0 | `impact` | Ion impact number |
+| 1 | `cn` | Radical index within this impact (1-indexed) |
+| 2 | `energy_eV` | Sampled radical kinetic energy (eV) |
+| 3 | `polar_deg` | Polar angle from surface normal (°) |
+| 4 | `azimuthal_deg` | Azimuthal angle (°) |
+
+Used by `plot_radical_distribution()` to verify Boltzmann and cosine sampling.
 
 ### `ATOM_CHANNELED`
 
@@ -213,6 +249,10 @@ Presence-only flag file written when LAMMPS exits with a non-zero return code. T
 ### `spec.json`
 
 JSON snapshot of the `SimSpec` used to generate this simulation directory. Written by `make_sim()` for automatic spec recovery by `diamond-etch-md-plot`.
+
+**Backward compatibility:** `SimSpec.from_dict()` maps old field names to their renamed equivalents:
+- `temperature` → `surface_temperature`
+- `angle` → `ion_angle`
 
 ---
 

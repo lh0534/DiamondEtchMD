@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     surf.add_argument(
         "--temperature", type=float, default=300.0, metavar="K",
         help="Substrate temperature in K (default: 300)",
+        dest="surface_temperature",
     )
 
     bomb = p.add_argument_group("bombardment")
@@ -71,8 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Incident particle energy in eV (default: 0.5)",
     )
     bomb.add_argument(
-        "--angle", type=float, default=0.0, metavar="deg",
-        help="Incidence angle in degrees from surface normal (default: 0)",
+        "--angle", type=float, default=0.0, metavar="deg", dest="ion_angle",
+        help="Ion incidence angle in degrees from surface normal (default: 0)",
     )
     bomb.add_argument(
         "--flux-ratio", type=int, default=0, dest="flux_ratio", metavar="N",
@@ -84,6 +85,31 @@ def build_parser() -> argparse.ArgumentParser:
     bomb.add_argument(
         "--radical-energy", type=float, default=0.2, dest="radical_energy", metavar="eV",
         help="Kinetic energy per O• radical for RIE-etch (default: 0.2 eV)",
+    )
+    bomb.add_argument(
+        "--radical-temperature", type=float, default=None, dest="radical_temperature",
+        metavar="K",
+        help=(
+            "Enable Maxwell-Boltzmann radical speed sampling at this temperature "
+            "(overrides --radical-energy; default: None = fixed energy)"
+        ),
+    )
+    bomb.add_argument(
+        "--radical-angle", type=float, default=0.0, dest="radical_angle", metavar="deg",
+        help="Radical incidence angle from surface normal in fixed-angle mode (default: 0)",
+    )
+    bomb.add_argument(
+        "--radical-angle-distribution", action="store_true", dest="radical_angle_distribution",
+        help="Enable Lambert cosine angle distribution for O• radicals",
+    )
+    bomb.add_argument(
+        "--dump-mode", default="all", dest="dump_mode",
+        choices=["all", "etch_only", "none"],
+        help=(
+            "Trajectory dump mode: all = every impact, "
+            "etch_only = only impacts with C-containing etch or channeling, "
+            "none = no dumps (default: all)"
+        ),
     )
 
     sim = p.add_argument_group("simulation size")
@@ -108,8 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Surface depth lat_top in lattice units (default: 3)",
     )
     sim.add_argument(
-        "--impact-time", type=float, default=2000.0, dest="impact_time", metavar="fs",
-        help="Simulation time per impact event in fs (default: 2000)",
+        "--impact-time", type=float, default=1000.0, dest="impact_time", metavar="fs",
+        help="Simulation time per ion impact in fs (default: 1000)",
     )
     sim.add_argument(
         "--thermalization-time", type=float, default=500.0,
@@ -167,29 +193,34 @@ def main():
     ml = args.ml if args.ml else computed_ml
 
     spec = SimSpec(
-        orientation         = args.orientation,
-        surface             = surface,
-        temperature         = args.temperature,
-        species             = args.species,
-        energy              = args.energy,
-        angle               = args.angle,
-        fluence             = args.fluence,
-        ml                  = ml,
-        box_x               = box_x,
-        box_y               = box_y,
-        box_depth           = args.box_depth or dz,
-        impact_time         = args.impact_time,
-        thermalization_time = args.thermalization_time,
-        wall_hours          = args.wall_hours,
-        account             = args.account,
-        email               = args.email,
-        lammps_module       = args.lammps_module,
-        plot_interval_hours = args.plot_interval_hours,
-        nice                = args.nice,
-        flux_ratio          = args.flux_ratio,
-        radical_energy      = args.radical_energy,
-        name                = args.name or (
-            f"{args.orientation}_{args.species}_{args.energy}eV_{int(args.temperature)}K"
+        orientation          = args.orientation,
+        surface              = surface,
+        surface_temperature  = args.surface_temperature,
+        species              = args.species,
+        energy               = args.energy,
+        ion_angle            = args.ion_angle,
+        fluence              = args.fluence,
+        ml                   = ml,
+        box_x                = box_x,
+        box_y                = box_y,
+        box_depth            = args.box_depth or dz,
+        impact_time          = args.impact_time,
+        thermalization_time  = args.thermalization_time,
+        wall_hours           = args.wall_hours,
+        account              = args.account,
+        email                = args.email,
+        lammps_module        = args.lammps_module,
+        plot_interval_hours  = args.plot_interval_hours,
+        nice                 = args.nice,
+        flux_ratio           = args.flux_ratio,
+        radical_energy       = args.radical_energy,
+        radical_temperature  = args.radical_temperature,
+        radical_angle        = args.radical_angle,
+        radical_angle_distribution   = args.radical_angle_distribution,
+        dump_mode            = args.dump_mode,
+        name                 = args.name or (
+            f"{args.orientation}_{args.species}_{args.energy}eV"
+            f"_{int(args.surface_temperature)}K"
         ),
     )
 

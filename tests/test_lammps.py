@@ -391,9 +391,9 @@ def test_config_rie_contains_radical_energy():
     assert "variable    radical_energy equal 0.3" in cfg
 
 
-def test_config_rie_contains_chemical_i_above():
+def test_config_rie_contains_radical_i_above():
     cfg = get_config_lmp(make_rie_spec())
-    assert "variable    chemical_i_above equal 6.0" in cfg
+    assert "variable    radical_i_above equal 6.0" in cfg
 
 
 def test_config_rie_contains_inter_neutral_time():
