@@ -188,8 +188,16 @@ def _spec_summary_str(spec) -> str:
     def _ion_label(sp):
         return _species_ion_label(sp)
 
+    def _radical_label(radical_energy, radical_temperature):
+        """Return 'X K O•' or 'X eV O•' depending on which field is set."""
+        if radical_temperature:
+            return f", {radical_temperature:.4g} K O$^\\bullet$"
+        if radical_energy:
+            return f", {radical_energy:.4g} eV O$^\\bullet$"
+        return ""
+
     def _ion_line(species, energy, fluence_ml=None, pct=None, flux_ratio=0,
-                  radical_energy=0.2, angle=0.0, prefix=""):
+                  radical_energy=0.2, radical_temperature=None, angle=0.0, prefix=""):
         """Build one ion-spec line."""
         parts = [prefix + _ion_label(species)]
         if pct is not None:
@@ -202,8 +210,8 @@ def _spec_summary_str(spec) -> str:
             parts.append(f"{angle:.4g}°")
         line = "  ".join(parts)
         if flux_ratio and flux_ratio > 0:
-            re_s = f", {radical_energy:.4g} eV O$^\\bullet$" if radical_energy else ""
-            line += f"  $J_{{rad^\\bullet}}/J_{{ion^+}}$={flux_ratio}{re_s}"
+            line += f"  $J_{{rad^\\bullet}}/J_{{ion^+}}$={flux_ratio}" \
+                    + _radical_label(radical_energy, radical_temperature)
         return line
 
     angle = getattr(spec, 'ion_angle', getattr(spec, 'angle', 0.0))
@@ -222,7 +230,8 @@ def _spec_summary_str(spec) -> str:
         # Shared RIE / run parameters on a final row
         rie_parts = []
         if fr and fr > 0:
-            re_s = f", {getattr(spec, 'radical_energy', 0.2):.4g} eV O$^\\bullet$"
+            re_s = _radical_label(getattr(spec, 'radical_energy', 0.2),
+                                  getattr(spec, 'radical_temperature', None))
             rie_parts.append(f"$J_{{rad^\\bullet}}/J_{{ion^+}}$={fr}{re_s}")
         if fluence:
             rie_parts.append(f"{fluence} ML total")
@@ -242,6 +251,7 @@ def _spec_summary_str(spec) -> str:
                     p.species, p.energy, fluence_ml=p.fluence_ml,
                     flux_ratio=p.flux_ratio,
                     radical_energy=getattr(p, 'radical_energy', 0.2),
+                    radical_temperature=getattr(p, 'radical_temperature', None),
                     angle=angle,
                     prefix="RIE " if rie else "",
                 )
@@ -256,6 +266,7 @@ def _spec_summary_str(spec) -> str:
                        fluence_ml=fluence,
                        flux_ratio=fr,
                        radical_energy=getattr(spec, 'radical_energy', 0.2),
+                       radical_temperature=getattr(spec, 'radical_temperature', None),
                        angle=angle,
                        prefix="")
     return f"{surf} {sim_type} Simulation\n{ion_ln}"

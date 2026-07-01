@@ -1,20 +1,15 @@
 # DiamondEtchMD
 
 Python package for setting up and analysing LAMMPS ReaxFF molecular-dynamics
-simulations of diamond surface etching. Handles four physically relevant
-bombardment regimes — **ion-etch** (ion-only baseline), **RIE-etch**
-(reactive-ion etching with simultaneous radical exposure), **multi-ion-etch /
-multi-RIE-etch** (stochastic multi-component ion mixes), and **cycle-etch**
-(multi-phase alternating-species cycling, including **ALE-etch**) — across four
-crystal orientations and a range of surface reconstructions and terminations.
-Produces simulation directories that are ready to submit to a SLURM cluster or
-run locally (requires a GPU).
+simulations of diamond surface etching across four crystal orientations and a
+range of surface reconstructions. Produces SLURM-ready simulation directories
+(requires a GPU).
 
 | Mode | What it models |
 |---|---|
 | **ion-etch** | Single-species ion bombardment with no radicals. |
 | **RIE-etch** | O• radicals deposited between each ion impact for plasma-assisted etching. |
-| **multi-ion-etch** | Stochastic multi-component ion mix (e.g. 50% O⁺ + 50% O₂⁺, or trimodal energy distribution), no radicals. |
+| **multi-ion-etch** | Stochastic multi-component ion mix (e.g. 50% O⁺ + 50% O₂⁺, or energy distribution), no radicals. |
 | **multi-RIE-etch** | Multi-component ion mix with O• radical pre-exposure. |
 | **cycle-etch / ALE-etch** | Alternating phases of different ionic species, flux ratios, and/or conditions. |
 
@@ -99,43 +94,50 @@ make_sim(spec, Path("MULTI_ION_100_Oether_O_Edist"))
 
 ---
 
-### 3. O⁺ RIE on C(100) 2×1 Reconstruction
+### 3. RIE-etch — Ar⁺ with Maxwell-Boltzmann O• radicals
 
-![RIE_O_20eV_R5](examples/RIE_O_20eV_R5/etch_trajectory.png)
+![RIE_O_100_boltzRads](examples/RIE_O_100_boltzRads/etch_trajectory.png)
 
 ```python
-# examples/RIE_O_100.py
+# examples/RIE_O_100_boltzRads.py
 from pathlib import Path
 from diamond_etch_md import SimSpec, compute_ml, make_sim, validate, etch_mode
 
-nx, ny = 6, 6
-ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
+nx, ny = 8, 8
+ml = compute_ml("100", nx, ny)               # 64 atoms/ML for 8×8 box
 
 spec = SimSpec(
     orientation    = "100",
     surface        = "2x1",
     surface_temperature = 300.0,
-    species        = "O",
-    energy         = 20.0,
+
+    species        = "Ar",
+    energy         = 100.0,                  # eV
     ion_angle      = 0.0,
+
     fluence        = 20,
     ml             = ml,
     box_x          = nx,
     box_y          = ny,
-    box_depth      = 3,
-    flux_ratio     = 5,
-    radical_energy = 0.2,
+    box_depth      = 6,
+
+    flux_ratio          = 10,                # 10 O• radicals before each Ar⁺ impact
+    radical_temperature = 500.0,             # K — Maxwell-Boltzmann speed distribution
+    radical_angle_distribution  = True,      # Lambert cosine polar angles
+    radical_i_above    = 6.0,                # Å above surface to inject radical
+    max_inter_neutral_time = 5000.0,         # fs — cap on per-radical run time
+
     impact_time         = 1000.0,
     thermalization_time = 500.0,
-    inter_neutral_time  = 1000.0,
+
     wall_hours     = 24,
     account        = "dgraves",
-    name           = "RIE_100_2x1_O_20eV_R5",
+    name           = "RIE_O_100_boltzRads",
 )
 
 validate(spec)
 print(f"etch_mode = {etch_mode(spec)}")   # → "rie-etch"
-make_sim(spec, Path("RIE_O_20eV_R5"))
+make_sim(spec, Path("RIE_O_100_boltzRads"))
 ```
 
 ---
@@ -184,54 +186,7 @@ make_sim(spec, Path("MULTI_RIE_100_Oether_Ar_O2"))
 
 ---
 
-### 5. RIE-etch with stochastic radicals — Maxwell-Boltzmann speeds + Lambert cosine angles
-
-```python
-# examples/RIE_O_100_boltzRads.py
-from pathlib import Path
-from diamond_etch_md import SimSpec, compute_ml, make_sim, validate, etch_mode
-
-nx, ny = 8, 8
-ml = compute_ml("100", nx, ny)               # 64 atoms/ML for 8×8 box
-
-spec = SimSpec(
-    orientation    = "100",
-    surface        = "2x1",
-    surface_temperature = 300.0,
-
-    species        = "Ar",
-    energy         = 100.0,                  # eV
-    ion_angle      = 0.0,
-
-    fluence        = 20,
-    ml             = ml,
-    box_x          = nx,
-    box_y          = ny,
-    box_depth      = 6,
-
-    flux_ratio          = 10,                # 10 O• radicals before each Ar⁺ impact
-    radical_temperature = 500.0,             # K — Maxwell-Boltzmann speed distribution
-    radical_angle_distribution  = True,      # Lambert cosine polar angles
-    radical_i_above    = 6.0,                # Å above surface to inject radical
-    max_inter_neutral_time = 5000.0,         # fs — cap on per-radical run time
-
-    impact_time         = 1000.0,
-    thermalization_time = 500.0,
-
-    wall_hours     = 24,
-    account        = "dgraves",
-    name           = "RIE_O_100_boltzRads",
-    email          = "",
-)
-
-validate(spec)
-print(f"etch_mode = {etch_mode(spec)}")   # → "rie-etch"
-make_sim(spec, Path("RIE_O_100_boltzRads"))
-```
-
----
-
-### 7. Cycle etch — Ar⁺ / O₂⁺ ALE/IDLE
+### 5. Cycle etch — Ar⁺ / O₂⁺ ALE/IDLE
 
 ![cycling_Ar_O2_IDLE](examples/cycling_Ar_O2_IDLE/etch_trajectory.png)
 
@@ -279,7 +234,7 @@ make_sim(spec, Path("cycling_Ar_O2_IDLE"))
 
 ---
 
-### 8. 3-Phase cycle etch — Ar⁺ / O₂⁺ / O⁺
+### 6. 3-Phase cycle etch — Ar⁺ / O₂⁺ / O⁺
 
 ![cycling_3phase_Ar_O2_O](examples/cycling_3phase_Ar_O2_O/etch_trajectory.png)
 
@@ -319,68 +274,24 @@ make_sim(spec, Path("cycling_3phase_Ar_O2_O"))
 
 ## Etching modes
 
-### ion-etch — ion bombardment baseline
+| Mode | Trigger | Description |
+|---|---|---|
+| **ion-etch** | `flux_ratio=0`, no `ion_mix`, no `phases` | Single-species ion bombardment, no radicals |
+| **RIE-etch** | `flux_ratio>0`, no `ion_mix`, no `phases` | `flux_ratio` O• radicals deposited before each ion impact |
+| **multi-ion-etch** | `ion_mix` set, `flux_ratio=0` | Each impact draws stochastically from a weighted species/energy mix |
+| **multi-RIE-etch** | `ion_mix` set, `flux_ratio>0` | Multi-component mix + O• radical pre-exposure |
+| **cycle-etch / ALE-etch** | `phases` set | Sequential phase blocks (species, energy, fluence, flux_ratio), repeated `cycles` times |
 
-Single-species ion bombardment with no radical co-exposure. Ions of one type
-(O⁺, O₂⁺, or Ar⁺) are delivered one at a time at a specified energy and angle.
+`etch_mode(spec)` returns the mode string for any `SimSpec`.
 
-Use ion-etch to calculate facet-dependent ion energy etch thresholds, angle-dependence, or temperature-dependence.
+### Radical velocity sampling (RIE modes)
 
-### RIE-etch — reactive-ion etching
+Radicals can be injected with fixed or stochastic velocities:
 
-A fixed number of O• radicals (`flux_ratio`) are deposited onto the surface
-before each ion impact. The radical pre-exposure builds up surface oxygen, which
-is then driven off as volatile COₓ by the subsequent ion. This is the standard
-atomistic model for plasma-assisted reactive-ion etching of carbon.
-
-`flux_ratio` is the number of O• radicals per ion impact (ratio of radical and ion fluxes: $J_{O•}/J_{ion^+}$).
-
-**Fixed-energy mode** (default): all radicals arrive with the same kinetic energy (`radical_energy`) and polar angle (`radical_angle`).
-
-**Stochastic mode**: set `radical_temperature` and/or `radical_angle_distribution=True` to draw each radical's velocity on-the-fly during the LAMMPS run:
-
-- `radical_temperature` (K) — each radical's speed is drawn from the Maxwell-Boltzmann distribution at the specified temperature. The three Cartesian velocity components are sampled via Box-Muller, giving a 3-D speed distributed as Maxwell-Boltzmann.
-- `radical_angle_distribution=True` — polar angle θ is drawn from the Lambert cosine (flux-weighted) distribution: θ = arcsin(√U), φ = 2π·U₂. This is the correct distribution for thermalized species impacting a surface, where the flux is weighted by the normal velocity component (cos θ).
-- Both flags can be combined: Boltzmann speed + cosine angles gives the most physically realistic radical distribution for a plasma.
-- `max_inter_neutral_time` caps the MD window for each radical (default 5000 fs).
-- Sampled velocities are logged per-radical to `radical_log.txt` and plotted in `radical_distribution.png`.
-
-### multi-ion-etch / multi-RIE-etch — stochastic multi-component ion mix
-
-A plasma often contains more than one ion species (e.g. an O₂ discharge produces
-both O⁺ and O₂⁺). In multi-ion mode each impact randomly samples from a set of
-`IonComponent` entries according to their `fraction` weights, so the statistical
-mix converges to the specified composition over many impacts.
-
-Each component specifies its own `energy`, allowing energy distributions to be
-modelled too (e.g. 10% ions at 20 eV, 20% at 10 eV, 70% at 5 eV).
-
-With `flux_ratio == 0` this is **multi-ion-etch** (no radicals); with
-`flux_ratio > 0` it is **multi-RIE-etch** (O• radicals before every ion impact,
-regardless of which ion was selected).
-
-Each impact appends one line to `ion_impacts.txt`: `{impact_number} {ion_type}`,
-enabling per-species yield decomposition in post-processing.
-
-`multi_ion_dir_name(spec)` returns a canonical directory name:
-- **RIE** prefix when `flux_ratio > 0`: `RIE_O_50p_50eV_O2_50p_100eV_R5`
-- **ION** prefix when `flux_ratio == 0`: `ION_O_50p_50eV_O2_50p_100eV`
-
-### cycle-etch / ALE-etch — multi-phase cycling
-
-Two or more ion species (or the same species at different conditions) alternate
-in a repeating phase sequence. Each phase specifies its own species, energy,
-fluence in ML per cycle, and an optional radical flux. The phase list repeats
-for `cycles` repetitions.
-
-**ALE-etch** (Atomic Layer Etching) is cycle-etch restricted to exactly two
-phases — typically a surface modification phase followed by a layer-removal
-phase. Use `make_ale()` in place of `make_sim()` to enforce the 2-phase
-constraint. ALE-etch with `flux_ratio=0` in every phase reduces to alternating
-ion-etch cycles.
-
-`etch_mode(spec)` returns `"ion-etch"`, `"rie-etch"`, `"multi-ion-etch"`,
-`"multi-rie-etch"`, or `"cycle-etch"` for any `SimSpec`.
+- **Fixed** (default): all radicals use `radical_energy` (eV) and `radical_angle` (degrees from normal).
+- **Boltzmann speeds**: set `radical_temperature` (K) — speeds drawn from the Maxwell-Boltzmann distribution via Box-Muller sampling on-the-fly in LAMMPS.
+- **Cosine angles**: set `radical_angle_distribution=True` — polar angle drawn from the Lambert cosine (flux-weighted) distribution, φ uniform. Correct for thermalized species impacting a surface.
+- Both flags are independent and can be combined. Sampled velocities are logged to `radical_log.txt` and plotted in `radical_distribution.png`.
 
 ---
 
@@ -819,7 +730,7 @@ annotations on every field.
 | [`O_etching_110.py`](examples/O_etching_110.py) | ion-etch | C(110) bare and O-terminated |
 | [`angled_Ar_100.py`](examples/angled_Ar_100.py) | ion-etch | 45° off-normal Ar⁺ incidence |
 | [`high_energy_O_100.py`](examples/high_energy_O_100.py) | ion-etch | 200 eV O⁺ with deep slab |
-| [`RIE_etching_100.py`](examples/RIE_etching_100.py) | RIE-etch | O⁺ at 20 eV + O• pre-exposure (flux_ratio=5) |
+| [`RIE_etching_100.py`](examples/RIE_etching_100.py) | RIE-etch | O⁺ at 20 eV + fixed-energy O• radicals (flux_ratio=5) |
 | [`RIE_O_100_boltzRads.py`](examples/RIE_O_100_boltzRads.py) | RIE-etch | Ar⁺ at 100 eV + Maxwell-Boltzmann O• radicals (500 K, Lambert cosine angles) |
 | [`cycling_Ar_O2_100.py`](examples/cycling_Ar_O2_100.py) | cycle/ALE | Ar⁺→O₂⁺, O⁺→O₂⁺, 3-phase Ar⁺→O⁺→O₂⁺ |
 | [`make_all_surfaces.py`](examples/make_all_surfaces.py) | ion-etch | Generate a simulation directory for every supported surface |
