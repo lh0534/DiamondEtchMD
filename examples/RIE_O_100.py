@@ -17,11 +17,11 @@ ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 spec = SimSpec(
     orientation    = "100",
     surface        = "2x1",
-    temperature    = 300.0,
+    surface_temperature    = 300.0,
 
     species        = "O",
     energy         = 20.0,      # eV
-    angle          = 0.0,
+    ion_angle          = 0.0,
 
     fluence        = 20,
     ml             = ml,

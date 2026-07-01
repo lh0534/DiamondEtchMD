@@ -17,11 +17,11 @@ ml = compute_ml("111", nx, ny)
 spec = SimSpec(
     orientation    = "111",
     surface        = "1x1_O",
-    temperature    = 300.0,
+    surface_temperature    = 300.0,
 
     species        = "O",
     energy         = 15.0,          # eV
-    angle          = 0.0,
+    ion_angle          = 0.0,
 
     fluence        = 50,
     ml             = ml,

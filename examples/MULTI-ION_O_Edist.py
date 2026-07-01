@@ -17,7 +17,7 @@ ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 spec = SimSpec(
     orientation    = "100",
     surface        = "O_ether",
-    temperature    = 300.0,
+    surface_temperature    = 300.0,
 
     ion_mix = [
         IonComponent(species="O", fraction=0.60, energy=20.0),

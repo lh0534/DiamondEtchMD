@@ -53,7 +53,7 @@ for orient, surface in CASES:
         surface     = surface,
         species     = "O",
         energy      = 0.5,
-        temperature = 300.0,
+        surface_temperature = 300.0,
         ml          = ml,
         box_x       = dx,
         box_y       = dy,

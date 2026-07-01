@@ -14,7 +14,7 @@ ml = compute_ml("100", nx, ny)   # 64 atoms/ML for 8×8 box
 spec = SimSpec(
     orientation = "100",
     surface     = "O_ether",
-    temperature = 300.0,
+    surface_temperature = 300.0,
 
     ml          = ml,
     box_x       = nx,

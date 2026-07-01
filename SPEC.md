@@ -83,8 +83,9 @@ along with valid values, defaults, simulation modes, and output file formats.
 **Stochastic radical sampling notes:**
 
 - When `radical_temperature` is set, three Box-Muller Gaussian deviates (σ = √(k_B T/m)) give the 3D velocity components; the speed follows the Maxwell-Boltzmann speed distribution.
-- When `radical_angle_distribution=True`, the polar angle θ is sampled from the Lambert cosine law: θ = arcsin(√U), φ = 2π·U₂ (full 3-D cosine).
-- In stochastic mode (either flag), each radical's halt time is computed as min(2 × `radical_i_above` / |v_z|, `max_inter_neutral_time`) so low-energy radicals have enough time to reach the surface.
+- When `radical_angle_distribution=True`, the polar angle θ is sampled from the Lambert cosine (flux-weighted) distribution: θ = arcsin(√U), φ = 2π·U₂. This is the correct distribution for thermalized species hitting a surface, where the flux is weighted by the normal velocity component cos θ.
+- Both flags are independent and can be combined. Fixed-angle + Boltzmann speed is also valid (e.g. normal incidence with a thermal speed distribution).
+- In stochastic mode, `max_inter_neutral_time` is used as the MD window for every radical.
 - Sampled velocities are logged per-radical to `radical_log.txt` (columns: `impact cn energy_eV polar_deg azimuthal_deg`) and visualised in `radical_distribution.png`.
 
 ### Timing parameters
@@ -269,9 +270,12 @@ Key flags:
 --energy 0.5               # eV
 --fluence 50               # monolayers
 --flux-ratio 5             # O• radicals per impact (0 = ion-etch)
---radical-energy 0.2       # eV per O• radical
+--radical-energy 0.2       # eV per O• radical (fixed-energy mode)
+--radical-temperature 500  # K; enables Maxwell-Boltzmann speed sampling
+--radical-angle-distribution   # Lambert cosine polar angles for radicals
+--max-inter-neutral-time 5000  # fs; cap on per-radical MD window (stochastic mode)
 --box-x 9 --box-y 9        # lateral box size in lattice units
---temperature 300          # K
+--surface-temperature 300  # K
 --wall-hours 24            # SLURM wall time
 --name my_sim              # SLURM job name
 --email user@example.com   # SLURM mail address (omit for no mail)

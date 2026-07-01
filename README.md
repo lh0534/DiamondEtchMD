@@ -36,10 +36,10 @@ nx, ny = 5, 9
 spec = SimSpec(
     orientation    = "111",
     surface        = "2x1_pandey",
-    temperature    = 300.0,
+    surface_temperature = 300.0,
     species        = "O2",
     energy         = 50.0,                          # 50 eV total -> 25 eV per O atom
-    angle          = 0.0,
+    ion_angle      = 0.0,
     fluence        = 20,
     ml             = compute_ml("111", nx, ny),
     box_x          = nx,
@@ -72,7 +72,7 @@ ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 spec = SimSpec(
     orientation    = "100",
     surface        = "O_ether",
-    temperature    = 300.0,
+    surface_temperature = 300.0,
 
     ion_mix = [
         IonComponent(species="O", fraction=0.60, energy=20.0),
@@ -114,10 +114,10 @@ ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 spec = SimSpec(
     orientation    = "100",
     surface        = "2x1",
-    temperature    = 300.0,
+    surface_temperature = 300.0,
     species        = "O",
     energy         = 20.0,
-    angle          = 0.0,
+    ion_angle      = 0.0,
     fluence        = 20,
     ml             = ml,
     box_x          = nx,
@@ -155,7 +155,7 @@ ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 spec = SimSpec(
     orientation    = "100",
     surface        = "O_ether",
-    temperature    = 300.0,
+    surface_temperature = 300.0,
 
     ion_mix = [
         IonComponent(species="Ar", fraction=0.30, energy=50.0),
@@ -184,7 +184,54 @@ make_sim(spec, Path("MULTI_RIE_100_Oether_Ar_O2"))
 
 ---
 
-### 5. Cycle etch — Ar⁺ / O₂⁺ ALE/IDLE
+### 5. RIE-etch with stochastic radicals — Maxwell-Boltzmann speeds + Lambert cosine angles
+
+```python
+# examples/RIE_O_100_boltzRads.py
+from pathlib import Path
+from diamond_etch_md import SimSpec, compute_ml, make_sim, validate, etch_mode
+
+nx, ny = 8, 8
+ml = compute_ml("100", nx, ny)               # 64 atoms/ML for 8×8 box
+
+spec = SimSpec(
+    orientation    = "100",
+    surface        = "2x1",
+    surface_temperature = 300.0,
+
+    species        = "Ar",
+    energy         = 100.0,                  # eV
+    ion_angle      = 0.0,
+
+    fluence        = 20,
+    ml             = ml,
+    box_x          = nx,
+    box_y          = ny,
+    box_depth      = 6,
+
+    flux_ratio          = 10,                # 10 O• radicals before each Ar⁺ impact
+    radical_temperature = 500.0,             # K — Maxwell-Boltzmann speed distribution
+    radical_angle_distribution  = True,      # Lambert cosine polar angles
+    radical_i_above    = 6.0,                # Å above surface to inject radical
+    max_inter_neutral_time = 5000.0,         # fs — cap on per-radical run time
+
+    impact_time         = 1000.0,
+    thermalization_time = 500.0,
+
+    wall_hours     = 24,
+    account        = "dgraves",
+    name           = "RIE_O_100_boltzRads",
+    email          = "",
+)
+
+validate(spec)
+print(f"etch_mode = {etch_mode(spec)}")   # → "rie-etch"
+make_sim(spec, Path("RIE_O_100_boltzRads"))
+```
+
+---
+
+### 7. Cycle etch — Ar⁺ / O₂⁺ ALE/IDLE
 
 ![cycling_Ar_O2_IDLE](examples/cycling_Ar_O2_IDLE/etch_trajectory.png)
 
@@ -199,7 +246,7 @@ ml = compute_ml("100", nx, ny)   # 64 atoms/ML for 8×8 box
 spec = SimSpec(
     orientation = "100",
     surface     = "O_ether",
-    temperature = 300.0,
+    surface_temperature = 300.0,
     ml          = ml,
     box_x       = nx,
     box_y       = ny,
@@ -232,7 +279,7 @@ make_sim(spec, Path("cycling_Ar_O2_IDLE"))
 
 ---
 
-### 6. 3-Phase cycle etch — Ar⁺ / O₂⁺ / O⁺
+### 8. 3-Phase cycle etch — Ar⁺ / O₂⁺ / O⁺
 
 ![cycling_3phase_Ar_O2_O](examples/cycling_3phase_Ar_O2_O/etch_trajectory.png)
 
@@ -247,7 +294,7 @@ ml = compute_ml("100", nx, ny)   # 36 atoms/ML for 6×6 box
 spec = SimSpec(
     orientation = "100",
     surface     = "O_ether",
-    temperature = 300.0,
+    surface_temperature = 300.0,
     ml          = ml,
     box_x       = nx,
     box_y       = ny,
@@ -286,9 +333,17 @@ before each ion impact. The radical pre-exposure builds up surface oxygen, which
 is then driven off as volatile COₓ by the subsequent ion. This is the standard
 atomistic model for plasma-assisted reactive-ion etching of carbon.
 
-`flux_ratio` is the number of O• radicals per ion impact (ratio of radical and ion fluxes: $J_{O•}/J_{ion^+}$). `radical_energy` is
-the kinetic energy of each radical. The default of 0.2 eV is hyperthermal (~95th percentile of the Maxwell–Boltzmann
-distribution at 600 K) to simulate higher flux ratios.
+`flux_ratio` is the number of O• radicals per ion impact (ratio of radical and ion fluxes: $J_{O•}/J_{ion^+}$).
+
+**Fixed-energy mode** (default): all radicals arrive with the same kinetic energy (`radical_energy`) and polar angle (`radical_angle`).
+
+**Stochastic mode**: set `radical_temperature` and/or `radical_angle_distribution=True` to draw each radical's velocity on-the-fly during the LAMMPS run:
+
+- `radical_temperature` (K) — each radical's speed is drawn from the Maxwell-Boltzmann distribution at the specified temperature. The three Cartesian velocity components are sampled via Box-Muller, giving a 3-D speed distributed as Maxwell-Boltzmann.
+- `radical_angle_distribution=True` — polar angle θ is drawn from the Lambert cosine (flux-weighted) distribution: θ = arcsin(√U), φ = 2π·U₂. This is the correct distribution for thermalized species impacting a surface, where the flux is weighted by the normal velocity component (cos θ).
+- Both flags can be combined: Boltzmann speed + cosine angles gives the most physically realistic radical distribution for a plasma.
+- `max_inter_neutral_time` caps the MD window for each radical (default 5000 fs).
+- Sampled velocities are logged per-radical to `radical_log.txt` and plotted in `radical_distribution.png`.
 
 ### multi-ion-etch / multi-RIE-etch — stochastic multi-component ion mix
 
@@ -460,7 +515,7 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim
 spec = SimSpec(
     orientation    = "100",
     surface        = "O_ether",
-    temperature    = 300.0,
+    surface_temperature = 300.0,
     species        = "O",
     energy         = 0.5,          # eV
     fluence        = 50,           # ML
@@ -490,7 +545,7 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim, validate
 spec = SimSpec(
     orientation    = "100",
     surface        = "1x1",
-    temperature    = 300.0,
+    surface_temperature = 300.0,
     species        = "O",
     energy         = 20.0,         # eV
     fluence        = 50,
@@ -523,7 +578,7 @@ ml = compute_ml("100", 9, 9)
 spec = SimSpec(
     orientation = "100",
     surface     = "1x1",
-    temperature = 300.0,
+    surface_temperature = 300.0,
     ml=ml, box_x=9, box_y=9, box_depth=6,
     ion_mix = [
         IonComponent(species="O",  fraction=0.5, energy=50.0),
@@ -570,7 +625,7 @@ ml = compute_ml("100", 8, 8)  # 64 atoms/ML
 spec = SimSpec(
     orientation = "100",
     surface     = "O_ether",
-    temperature = 300.0,
+    surface_temperature = 300.0,
     ml=ml, box_x=8, box_y=8, box_depth=5,
     phases = [
         CyclePhase(species="Ar", energy=30.0, fluence_ml=5),
@@ -589,7 +644,7 @@ make_ale(spec, Path("ALE_Ar_O2"))   # validates exactly 2 phases
 spec3 = SimSpec(
     orientation = "100",
     surface     = "O_ether",
-    temperature = 300.0,
+    surface_temperature = 300.0,
     ml=ml, box_x=8, box_y=8, box_depth=6,
     phases = [
         CyclePhase(species="Ar", energy=50.0, fluence_ml=5),
@@ -765,6 +820,7 @@ annotations on every field.
 | [`angled_Ar_100.py`](examples/angled_Ar_100.py) | ion-etch | 45° off-normal Ar⁺ incidence |
 | [`high_energy_O_100.py`](examples/high_energy_O_100.py) | ion-etch | 200 eV O⁺ with deep slab |
 | [`RIE_etching_100.py`](examples/RIE_etching_100.py) | RIE-etch | O⁺ at 20 eV + O• pre-exposure (flux_ratio=5) |
+| [`RIE_O_100_boltzRads.py`](examples/RIE_O_100_boltzRads.py) | RIE-etch | Ar⁺ at 100 eV + Maxwell-Boltzmann O• radicals (500 K, Lambert cosine angles) |
 | [`cycling_Ar_O2_100.py`](examples/cycling_Ar_O2_100.py) | cycle/ALE | Ar⁺→O₂⁺, O⁺→O₂⁺, 3-phase Ar⁺→O⁺→O₂⁺ |
 | [`make_all_surfaces.py`](examples/make_all_surfaces.py) | ion-etch | Generate a simulation directory for every supported surface |
 
