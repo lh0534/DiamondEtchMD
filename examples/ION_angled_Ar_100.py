@@ -5,7 +5,7 @@ Non-zero angle is in degrees from the surface normal; the velocity is
 decomposed into normal (vz) and lateral (vy) components.
 
 python examples/ION_angled_Ar_100.py
-sbatch ION_100_2x1_angled_Ar/submit
+cd ION_100_2x1_angled_Ar; sbatch submit
 """
 
 from pathlib import Path

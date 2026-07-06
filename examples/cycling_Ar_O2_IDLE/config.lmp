@@ -7,7 +7,7 @@ variable    ML equal 64            # atoms per monolayer
 variable    cycles equal 3
 variable    end_fluence equal 150  # total ML
 
-variable    angl equal 0.0       # incident angle (deg from normal)
+variable    ion_angl equal 0.0   # ion beam angle (deg from normal)
 variable    T equal 300.0    # substrate temperature (K)
 variable    pot string REAX
 
@@ -26,12 +26,11 @@ variable    reconstruct equal false
 variable    O_terminate equal false
 variable    O_ether_terminate equal true
 
-variable    impact_time equal 2000.0
+variable    impact_time equal 1000.0
 variable    thermalization_time equal 500.0
-variable    inter_neutral_time equal 1000.0
 
 variable    ion_i_above equal 6.0     # Å above surface to inject ion
-variable    chemical_i_above equal 6.0 # Å above surface to inject O•
+variable    radical_i_above equal 12.0  # Å above surface to inject O• radical
 
 variable    M_C equal 12.011
 variable    M_H equal 1.00784
@@ -44,8 +43,10 @@ variable    seed_adjust equal 0
 variable    phase_0_ml equal 20       # ML per cycle (Ar)
 variable    phase_0_energy equal 30.0 # eV/atom
 variable    phase_0_flux_ratio equal 0
-variable    phase_0_radical_energy equal 0.2
 variable    phase_1_ml equal 30       # ML per cycle (O2)
 variable    phase_1_energy equal 6.0 # eV/atom
 variable    phase_1_flux_ratio equal 1
 variable    phase_1_radical_energy equal 0.2
+variable    phase_1_radical_i_above equal 12.0
+variable    phase_1_inter_neutral_time equal 1500.0
+variable    phase_1_rad_angl equal 0.0

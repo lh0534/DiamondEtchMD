@@ -207,16 +207,14 @@ def analyze_run(
         ry_mean, ry_err = block_stats(rad_yields, n_blocks)
         stats['etch_yield_per_radical'] = ry_mean
         stats['etch_yield_per_radical_err'] = ry_err
-        total_impacts = n_ion + n_radical
-        if total_impacts > 0:
-            stats['etch_yield_total'] = (
-                (ey_mean * n_ion + ry_mean * n_radical) / total_impacts
-            )
-        else:
-            stats['etch_yield_total'] = 0.0
+        # Total C removed (ion + radical steps) normalised by number of ion impacts
+        stats['etch_yield_total_per_ion'] = (
+            (ey_mean * n_ion + ry_mean * n_radical) / n_ion
+        ) if n_ion > 0 else 0.0
     else:
         stats['etch_yield_per_radical'] = None
         stats['etch_yield_per_radical_err'] = None
+        stats['etch_yield_total_per_ion'] = ey_mean
         stats['etch_yield_total'] = ey_mean
 
     # ── cumulative etch ───────────────────────────────────────────────────────
@@ -402,7 +400,7 @@ def write_summary(stats: Dict, path) -> None:
     ml_s = stats.get('ml', 1) or 1
     lines.append(f"Total ion dose (MLs):{_fmt(n_ion_s / ml_s)}")
     lines.append(
-        f"Etch yield (C/ion):{_fmt(stats.get('etch_yield_per_ion'), stats.get('etch_yield_per_ion_err'))}"
+        f"Total etch yield (C/ion):{_fmt(stats.get('etch_yield_total_per_ion'))}"
     )
     if has_radicals:
         lines.append(
@@ -410,9 +408,6 @@ def write_summary(stats: Dict, path) -> None:
         )
         lines.append(
             f"  Radical etch yield (C/radical):{_fmt(stats.get('etch_yield_per_radical'), stats.get('etch_yield_per_radical_err'))}"
-        )
-        lines.append(
-            f"  Total etch yield:{_fmt(stats.get('etch_yield_total'))}"
         )
 
     if per_phase:

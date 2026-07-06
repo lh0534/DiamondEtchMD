@@ -5,7 +5,7 @@ flux_ratio O• radicals are deposited before each ion impact, building up
 surface oxygen that is driven off as volatile COx by the subsequent ion.
 
 python examples/RIE_O_100.py
-sbatch RIE_O_20eV_R5/submit
+cd RIE_O_20eV_R5; sbatch submit
 """
 
 from pathlib import Path

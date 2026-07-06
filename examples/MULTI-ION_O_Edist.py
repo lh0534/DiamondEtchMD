@@ -5,7 +5,7 @@ Three IonComponent entries with the same species at different energies sample a
 trimodal beam (three delta functions): 60% at 20 eV, 30% at 30 eV, 10% at 50 eV.
 
 python examples/MULTI-ION_O_Edist.py
-sbatch MULTI_ION_100_Oether_O_Edist/submit
+cd MULTI_ION_100_Oether_O_Edist; sbatch submit
 """
 
 from pathlib import Path

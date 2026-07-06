@@ -5,7 +5,7 @@ O• radicals are co-deposited with the ion beam (flux_ratio per impact); one io
 is drawn at random from the mix. Requires hybrid ReaxFF+ZBL pair style for Ar.
 
 python examples/MULTI-RIE_Ar_O2.py
-sbatch MULTI_RIE_100_Oether_Ar_O2/submit
+cd MULTI_RIE_100_Oether_Ar_O2; sbatch submit
 """
 
 from pathlib import Path

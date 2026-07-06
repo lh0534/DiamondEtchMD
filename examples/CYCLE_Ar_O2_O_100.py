@@ -2,7 +2,7 @@
 3-Phase cycle-etch: Ar+ → O2+ → O+ on C(100) O-ether surface.
 
 python examples/CYCLE_Ar_O2_O_100.py
-sbatch cycling_3phase_Ar_O2_O/submit
+cd cycling_3phase_Ar_O2_O; sbatch submit
 """
 
 from pathlib import Path

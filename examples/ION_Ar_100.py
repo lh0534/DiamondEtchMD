@@ -2,7 +2,7 @@
 Ar+ physical sputtering of C(100) 2x1 surface.
 
 python examples/ION_Ar_100.py
-sbatch ION_100_Ar/submit
+cd ION_100_Ar; sbatch submit
 """
 
 from pathlib import Path

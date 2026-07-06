@@ -1,0 +1,11 @@
+# CG minimization before thermalization (first run only)
+fix         minimfreeze anchor setforce 0.0 0.0 0.0
+min_style   cg
+minimize    1.0e-4 1.0e-6 1000 10000
+unfix       minimfreeze
+
+# NVT equilibration
+fix         therm_init mobile nvt temp ${T} ${T} 100.0
+run         10000000
+unfix       therm_init
+write_data  initial_config_${T}K.data

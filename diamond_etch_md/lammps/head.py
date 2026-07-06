@@ -319,10 +319,22 @@ def _radical_loop_block(spec: SimSpec) -> str:
     return blk
 
 
-def _build_ion_dump_blocks(spec: SimSpec):
+def _build_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
     """Return (ion_dump_open, etch_event_block, channeling_block, ion_dump_close)
     strings for get_head_lmp / get_head_lmp_multi_ion based on dump_mode."""
     dm = spec.dump_mode
+    # Carbon-etch: threshold is 2 Å below the lowest anchor atom (set at startup as
+    # channeling_z), so anchor atoms never false-trigger the channeling check.
+    channeling_region_cmd = (
+        f"region channelled block INF INF INF INF INF ${{channeling_z}} units box"
+        if is_carbon_etch
+        else f"region channelled block INF INF INF INF INF ${{bottom}} units lattice"
+    )
+    notify_cmd = (
+        f"\"print 'Impact ${{c}}: atom channeled below anchor region.' append ATOM_CHANNELED\""
+        if is_carbon_etch
+        else f'"include notify_channeled.lmp"'
+    )
     dump_file = f"etch_event_trajs/event_dump_${{c}}.dump"
     dump_cols  = "id type x y z vx vy vz fx fy fz q"
 
@@ -337,7 +349,7 @@ def _build_ion_dump_blocks(spec: SimSpec):
         channeling_block = (
             f'if "${{one_clust}} == 0" then &\n'
             f'"include sweep.lmp" &\n'
-            f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
+            f'"{channeling_region_cmd}" &\n'
             f'"group channelled_group region channelled" &\n'
             f'"variable n_channelled equal count(channelled_group)" &\n'
             f'"region channelled delete" &\n'
@@ -348,7 +360,7 @@ def _build_ion_dump_blocks(spec: SimSpec):
             f'"run 0" &\n'
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0" &\n'
-            f'"include notify_channeled.lmp"\n'
+            f"{notify_cmd}\n"
         )
 
     elif dm == "all":
@@ -362,7 +374,7 @@ def _build_ion_dump_blocks(spec: SimSpec):
         channeling_block = (
             f'if "${{one_clust}} == 0" then &\n'
             f'"include sweep.lmp" &\n'
-            f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
+            f'"{channeling_region_cmd}" &\n'
             f'"group channelled_group region channelled" &\n'
             f'"variable n_channelled equal count(channelled_group)" &\n'
             f'"region channelled delete" &\n'
@@ -373,7 +385,7 @@ def _build_ion_dump_blocks(spec: SimSpec):
             f'"run 0" &\n'
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0" &\n'
-            f'"include notify_channeled.lmp"\n'
+            f"{notify_cmd}\n"
         )
 
     else:  # etch_only
@@ -394,7 +406,7 @@ def _build_ion_dump_blocks(spec: SimSpec):
         channeling_block = (
             f'if "${{one_clust}} == 0" then &\n'
             f'"include sweep.lmp" &\n'
-            f'"region channelled block INF INF INF INF INF ${{bottom}} units lattice" &\n'
+            f'"{channeling_region_cmd}" &\n'
             f'"group channelled_group region channelled" &\n'
             f'"variable n_channelled equal count(channelled_group)" &\n'
             f'"region channelled delete" &\n'
@@ -406,7 +418,7 @@ def _build_ion_dump_blocks(spec: SimSpec):
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0" &\n'
             f'"variable keep_dump equal 1" &\n'
-            f'"include notify_channeled.lmp"\n'
+            f"{notify_cmd}\n"
         )
 
     return ion_dump_open, etch_event_block, channeling_block, ion_dump_close
@@ -652,6 +664,7 @@ def get_head_lmp(spec: SimSpec) -> str:
 
 
 # ── Multi-ion helpers ─────────────────────────────────────────────────────────
+
 
 def _multi_ion_select_block(spec: SimSpec) -> str:
     """Generate the per-impact stochastic ion selection block for multi-ion runs.
@@ -948,4 +961,479 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"# ========================= End Per-Impact Outer Loop =========================\n"
         f"next\t\ta\n"
         f"jump\t\tSELF loop\n"
+    )
+
+
+# ── Carbon-etch helpers ───────────────────────────────────────────────────────
+
+def _carbon_etch_load_block() -> str:
+    """Surface-loading block for carbon-etch.
+
+    builder.py patches the copied data file to declare 4 atom types and adds
+    Masses entries for types 2-4, so a plain read_data works here.
+    data_file = initial_config.data on first run, latest impact_snaps/*.data on restarts.
+    """
+    return f"read_data   ${{data_file}}\n"
+
+
+def _carbon_etch_anchor_block() -> str:
+    """Anchor-region definition for carbon-etch (box units, anchor_z_max from config.lmp)."""
+    return (
+        f"region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
+        f"region          anchor block INF INF INF INF INF ${{anchor_z_max}} units box\n"
+    )
+
+
+def _carbon_etch_initial_therm_block(enable: bool) -> str:
+    """Emit a one-time include guard for init_thermalization.lmp.
+
+    The actual content lives in a separate file so it is skipped on restarts
+    (n_complete > 0).  builder.py writes init_thermalization.lmp when
+    initial_thermalization=True.
+    """
+    if not enable:
+        return ""
+    return (
+        f'if "${{n_complete}} == 0" then "include init_thermalization.lmp"\n'
+        f"\n"
+    )
+
+
+def get_init_thermalization_lmp(steps: int = 10000) -> str:
+    """Content of init_thermalization.lmp: CG minimize then NVT equilibration.
+
+    FIRE minimizer is not used — incompatible with Kokkos.
+    Anchor atoms are frozen during minimization via setforce 0 0 0.
+    """
+    return (
+        f"# CG minimization before thermalization (first run only)\n"
+        f"fix         minimfreeze anchor setforce 0.0 0.0 0.0\n"
+        f"min_style   cg\n"
+        f"minimize    1.0e-4 1.0e-6 1000 10000\n"
+        f"unfix       minimfreeze\n"
+        f"\n"
+        f"# NVT equilibration\n"
+        f"fix         therm_init mobile nvt temp ${{T}} ${{T}} 100.0\n"
+        f"run         {steps}\n"
+        f"unfix       therm_init\n"
+        f"write_data  initial_config_${{T}}K.data\n"
+    )
+
+
+def _carbon_etch_slab_check() -> str:
+    """Thin-slab check at top of per-impact loop: jump to end_sim if slab nearly depleted."""
+    return (
+        f"# Carbon-etch thin-slab stop: halt if fewer than 2x anchor atoms remain\n"
+        f"variable    n_total_now equal count(all)\n"
+        f'if "${{n_total_now}} < ${{n_anchor_2x}}" then "jump SELF end_sim"\n'
+        f"\n"
+    )
+
+
+def _carbon_etch_end_label() -> str:
+    """End-of-script label written after next/jump loop; writes SLAB_DEPLETED flag."""
+    return (
+        f"\n"
+        f"label end_sim\n"
+        f'print "SLAB_DEPLETED: carbon count below 2x anchor region" file SLAB_DEPLETED\n'
+    )
+
+
+def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
+    """Generate head.lmp for carbon-etch + single-species (ion-etch or rie-etch).
+
+    Differences vs get_head_lmp:
+    - read_data extra/atom/types 3 instead of create_box + read_data add merge
+    - anchor defined by anchor_z_max (A, box units) not lattice units
+    - no addfix replenishment block
+    - thin-slab stop condition + SLAB_DEPLETED flag at end
+    """
+    species = SPECIES[spec.species]
+    is_rie  = spec.flux_ratio > 0
+
+    molecule_decl    = "molecule O2 O2.molecule\n" if species["is_molecule"] else ""
+    nonargon_regroup = "group nonargon type 1 2 3\n" if species["needs_zbl"] else ""
+
+    rie_pre_loop = ""
+    rie_loop_top = ""
+    if is_rie:
+        rie_pre_loop = (
+            f"variable    cn_start equal ${{neut_complete}}\n"
+            f"variable    cn equal 0\n"
+        )
+        rie_loop_top = (
+            f'if "${{cn_start}} > 0" then "variable cn equal ${{cn_start}}" else "variable cn equal 0"\n'
+            f"\n"
+        )
+
+    if is_rie:
+        ncarbon_print = f'print "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        write_data    = f"write_data impact_snaps/${{c}}_0.data nofix nocoeff\n"
+    else:
+        ncarbon_print = f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        write_data    = f"write_data impact_snaps/${{c}}.data nofix nocoeff\n"
+
+    radical_loop      = _radical_loop_block(spec) if is_rie else ""
+    loop_counter_line = f"variable    c equal ${{c}}+1\n"
+
+    ion_dump_open, etch_event_block, channeling_block, ion_dump_close = (
+        _build_ion_dump_blocks(spec, is_carbon_etch=True)
+    )
+
+    return (
+        f"# head.lmp - generated by DiamondEtchMD (carbon-etch)\n"
+        f"# config_file={spec.initial_config_file}  species={spec.species}"
+        f"  {spec.energy}eV  {spec.surface_temperature}K  angle={spec.ion_angle}deg\n"
+        f"package kokkos neigh/qeq full neigh half newton on\n"
+        f"units\t\treal\n"
+        f"include     config.lmp\n"
+        f'if "${{pot}} == COMB3" then &\n'
+        f'"atom_style charge" &\n'
+        f'elif "${{pot}} == REAX" &\n'
+        f'"atom_style charge" &\n'
+        f"else &\n"
+        f'"atom_style atomic"\n'
+        f"\n"
+        f"boundary\tp p m\n"
+        f"\n"
+        f"# Load user-supplied config (type 1 = C only); allocate types 2-4 for H/O/Ar\n"
+        f"{_carbon_etch_load_block()}"
+        f"\n"
+        f"variable \tlp equal $(v_end_fluence*v_ML)-${{n_complete}}\n"
+        f"variable    a loop ${{lp}}\n"
+        f"\n"
+        f"# Regions\n"
+        f"{_carbon_etch_anchor_block()}"
+        f"\n"
+        f"# Groups\n"
+        f"group \tanchor region anchor\n"
+        f"group\tinsert empty\n"
+        f"group \tmobile subtract all anchor\n"
+        f"group   carbon type 1\n"
+        f"\n"
+        f"# Thin-slab threshold: 2x frozen atom count\n"
+        f"variable    n_anchor_2x equal 2*count(anchor)\n"
+        f"# Channeling threshold: 2 Å below the lowest anchor atom (avoids false positives)\n"
+        f"variable    channeling_z equal bound(anchor,zmin)-2.0\n"
+        f"\n"
+        f"# mass 1 is set by read_data; set here again to use consistent M_C variable\n"
+        f"mass        1 ${{M_C}}\n"
+        f"mass        2 ${{M_H}}\n"
+        f"mass        3 ${{M_O}}\n"
+        f"mass        4 ${{M_Ar}}\n"
+        f"\n"
+        f"# Potential\n"
+        f"{_potential_block(species)}"
+        f"\n"
+        f"variable c equal ${{n_complete}}\n"
+        f"variable event_count equal ${{n_events}}\n"
+        f"{rie_pre_loop or 'variable    cn equal 0\n'}"
+        f"\n"
+        f"variable\tnfixed   equal count(anchor)\n"
+        f"variable\tnmobile  equal count(mobile)\n"
+        f"variable \tninject  equal count(insert)\n"
+        f"\n"
+        f"variable \tvel equal sqrt(2*${{energ}}*6.02214129*1.0e+7/${{M_incident}}/6242)/1000\n"
+        f"variable \tvelz equal cos(${{ion_angl}}*PI/180)*${{vel}}\n"
+        f"variable \tvely equal sin(${{ion_angl}}*PI/180)*${{vel}}\n"
+        f"\n"
+        f"compute     ake all ke\n"
+        f"compute     ape all pe\n"
+        f"compute     ike insert ke\n"
+        f"variable    ate equal c_ake+c_ape+ecouple\n"
+        f"\n"
+        f"variable\tcheckevery equal 1000\n"
+        f"compute\t    clusts all cluster/atom 3.0\n"
+        f"compute\t    clust_min all reduce min c_clusts\n"
+        f"compute\t    clust_max all reduce max c_clusts\n"
+        f"variable    one_clust equal \"c_clust_min == c_clust_max\"\n"
+        f"fix\t\t    stopclust all halt ${{checkevery}} v_one_clust == 0 error continue message yes\n"
+        f"\n"
+        f"compute     cclusts carbon cluster/atom 1.8\n"
+        f"compute     cc1 carbon chunk/atom c_cclusts compress yes\n"
+        f"compute     nclusts carbon reduce max c_cc1\n"
+        f"\n"
+        f"thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts\n"
+        f"compute     \tmtemp mobile temp\n"
+        f"compute_modify  mtemp dynamic/dof yes\n"
+        f"thermo_modify   temp mtemp\n"
+        f"thermo_modify   lost warn flush yes\n"
+        f"\n"
+        f'print "${{c}}" file begin.txt\n'
+        f"{molecule_decl}"
+        f"{_carbon_etch_initial_therm_block(spec.initial_thermalization)}"
+        f"\n"
+        f"# ========================= Begin Per-Impact Outer Loop =========================\n"
+        f"label\t\tloop\n"
+        f"region bbox delete\n"
+        f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
+        f"{_carbon_etch_slab_check()}"
+        f"{rie_loop_top}"
+        f"\n"
+        f"group       insert clear\n"
+        f"group \t    mobile subtract all anchor\n"
+        f"{nonargon_regroup}"
+        f"\n"
+        f"{radical_loop}"
+        f"{loop_counter_line}"
+        f"{ion_dump_open}"
+        f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{c}}))\n"
+        f"{_deposit_line(species)}"
+        f"\n"
+        f"fix     2 mobile nve\n"
+        f"fix     3 insert nve\n"
+        f"\n"
+        f"timestep 1e-10\n"
+        f"run 1 post no\n"
+        f"variable starting_nclusts equal $(c_nclusts)\n"
+        f"\n"
+        f"fix ats all dt/reset 1 NULL 1.00 0.01 units box\n"
+        f"thermo      100\n"
+        f"\n"
+        f"variable    t0 equal $(time)\n"
+        f"variable    time_elapsed equal time-${{t0}}\n"
+        f"fix         thalt all halt 1 v_time_elapsed > ${{impact_time}} error continue message yes\n"
+        f"\n"
+        f"run         0 post no\n"
+        f"variable    n_channelled equal 0\n"
+        f"# =========================== begin inner loop ===========================\n"
+        f"label\t\tcontinue_impact\n"
+        f"\n"
+        f"run         1000000000 pre no post no\n"
+        f"run         0\n"
+        f"{etch_event_block}"
+        f"{channeling_block}"
+        f"\n"
+        f'if "$(time-v_t0) < ${{impact_time}}" then "jump SELF continue_impact"\n'
+        f"unfix thalt\n"
+        f"# ============================ end inner loop ============================\n"
+        f"\n"
+        f"unfix   depo\n"
+        f"unfix   ats\n"
+        f"\n"
+        f"include thermalize.lmp\n"
+        f"\n"
+        f"unfix       2\n"
+        f"unfix       3\n"
+        f"\n"
+        + (
+        f"# Remove any implanted Ar\n"
+        f"group       argon type 4\n"
+        f"delete_atoms group argon\n"
+        f"group       argon delete\n"
+        f"\n"
+        if species["needs_zbl"] and spec.remove_ar else ""
+        ) +
+        f"# Atom counts (no replenishment in carbon-etch)\n"
+        f"group       carbon type 1\n"
+        f"group       hydrogen type 2\n"
+        f"group       oxygen type 3\n"
+        f"variable    ncarbon equal count(carbon)\n"
+        f"variable    nhydrogen equal count(hydrogen)\n"
+        f"variable    noxygen equal count(oxygen)\n"
+        f"\n"
+        f'print "Run ${{c}} complete"\n'
+        f'print "C_COUNT: ${{ncarbon}}"\n'
+        f"{ncarbon_print}"
+        f"\n"
+        f"{write_data}"
+        f"if '$(v_c%v_ML) == 0' then \"write_dump all custom ML_impacts.dump id type q x y z vx vy vz modify sort id append yes\"\n"
+        f"\n"
+        f"{ion_dump_close}"
+        f"# ========================= End Per-Impact Outer Loop =========================\n"
+        f"next\t\ta\n"
+        f"jump\t\tSELF loop\n"
+        f"{_carbon_etch_end_label()}"
+    )
+
+
+def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
+    """Generate head.lmp for carbon-etch + multi-ion (ion_mix) mode."""
+    mix          = spec.ion_mix
+    has_zbl      = any(SPECIES[c.species]["needs_zbl"]   for c in mix)
+    has_molecule = any(SPECIES[c.species]["is_molecule"] for c in mix)
+    is_rie       = spec.flux_ratio > 0
+
+    potential        = _potential_block(SPECIES["Ar"] if has_zbl else SPECIES["O"])
+    molecule_decl    = "molecule O2 O2.molecule\n" if has_molecule else ""
+    nonargon_regroup = "group nonargon type 1 2 3\n" if has_zbl else ""
+
+    rie_pre_loop = ""
+    rie_loop_top = ""
+    if is_rie:
+        rie_pre_loop = (
+            f"variable    cn_start equal ${{neut_complete}}\n"
+            f"variable    cn equal 0\n"
+        )
+        rie_loop_top = (
+            f'if "${{cn_start}} > 0" then "variable cn equal ${{cn_start}}" else "variable cn equal 0"\n'
+            f"\n"
+        )
+
+    if is_rie:
+        ncarbon_print = f'print "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        write_data    = f"write_data impact_snaps/${{c}}_0.data nofix nocoeff\n"
+    else:
+        ncarbon_print = f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        write_data    = f"write_data impact_snaps/${{c}}.data nofix nocoeff\n"
+
+    radical_loop      = _radical_loop_block(spec) if is_rie else ""
+    loop_counter_line = f"variable    c equal ${{c}}+1\n"
+
+    ion_dump_open, etch_event_block, channeling_block, ion_dump_close = (
+        _build_ion_dump_blocks(spec, is_carbon_etch=True)
+    )
+
+    return (
+        f"# head.lmp - generated by DiamondEtchMD (carbon-etch multi-ion)\n"
+        f"# config_file={spec.initial_config_file}\n"
+        f"# ions=[{', '.join(f'{c.species}@{c.energy}eV*{c.fraction:.0%}' for c in mix)}]\n"
+        f"# T={spec.surface_temperature}K  angle={spec.ion_angle}deg\n"
+        f"package kokkos neigh/qeq full neigh half newton on\n"
+        f"units\t\treal\n"
+        f"include     config.lmp\n"
+        f'if "${{pot}} == COMB3" then &\n'
+        f'"atom_style charge" &\n'
+        f'elif "${{pot}} == REAX" &\n'
+        f'"atom_style charge" &\n'
+        f"else &\n"
+        f'"atom_style atomic"\n'
+        f"\n"
+        f"boundary\tp p m\n"
+        f"\n"
+        f"{_carbon_etch_load_block()}"
+        f"\n"
+        f"variable \tlp equal $(v_end_fluence*v_ML)-${{n_complete}}\n"
+        f"variable    a loop ${{lp}}\n"
+        f"\n"
+        f"{_carbon_etch_anchor_block()}"
+        f"\n"
+        f"group \tanchor region anchor\n"
+        f"group\tinsert empty\n"
+        f"group \tmobile subtract all anchor\n"
+        f"group   carbon type 1\n"
+        f"\n"
+        f"variable    n_anchor_2x equal 2*count(anchor)\n"
+        f"# Channeling threshold: 2 Å below the lowest anchor atom (avoids false positives)\n"
+        f"variable    channeling_z equal bound(anchor,zmin)-2.0\n"
+        f"\n"
+        f"mass        1 ${{M_C}}\n"
+        f"\n"
+        f"{potential}"
+        f"\n"
+        f"variable c equal ${{n_complete}}\n"
+        f"variable event_count equal ${{n_events}}\n"
+        f"{rie_pre_loop or 'variable    cn equal 0\n'}"
+        f"\n"
+        f"variable\tnfixed   equal count(anchor)\n"
+        f"variable\tnmobile  equal count(mobile)\n"
+        f"variable \tninject  equal count(insert)\n"
+        f"\n"
+        f"compute     ake all ke\n"
+        f"compute     ape all pe\n"
+        f"compute     ike insert ke\n"
+        f"variable    ate equal c_ake+c_ape+ecouple\n"
+        f"\n"
+        f"variable\tcheckevery equal 1000\n"
+        f"compute\t    clusts all cluster/atom 3.0\n"
+        f"compute\t    clust_min all reduce min c_clusts\n"
+        f"compute\t    clust_max all reduce max c_clusts\n"
+        f"variable    one_clust equal \"c_clust_min == c_clust_max\"\n"
+        f"fix\t\t    stopclust all halt ${{checkevery}} v_one_clust == 0 error continue message yes\n"
+        f"\n"
+        f"compute     cclusts carbon cluster/atom 1.8\n"
+        f"compute     cc1 carbon chunk/atom c_cclusts compress yes\n"
+        f"compute     nclusts carbon reduce max c_cc1\n"
+        f"\n"
+        f"thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts\n"
+        f"compute     \tmtemp mobile temp\n"
+        f"compute_modify  mtemp dynamic/dof yes\n"
+        f"thermo_modify   temp mtemp\n"
+        f"thermo_modify   lost warn flush yes\n"
+        f"\n"
+        f'print "${{c}}" file begin.txt\n'
+        f"{molecule_decl}"
+        f"{_carbon_etch_initial_therm_block(spec.initial_thermalization)}"
+        f"\n"
+        f"# ========================= Begin Per-Impact Outer Loop =========================\n"
+        f"label\t\tloop\n"
+        f"region bbox delete\n"
+        f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
+        f"{_carbon_etch_slab_check()}"
+        f"{rie_loop_top}"
+        f"\n"
+        f"group       insert clear\n"
+        f"group \t    mobile subtract all anchor\n"
+        f"{nonargon_regroup}"
+        f"\n"
+        f"{radical_loop}"
+        f"{loop_counter_line}"
+        f"{ion_dump_open}"
+        f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{c}}))\n"
+        f"{_multi_ion_select_block(spec)}"
+        f"{_multi_ion_deposit_line()}"
+        f"\n"
+        f"fix     2 mobile nve\n"
+        f"fix     3 insert nve\n"
+        f"\n"
+        f"timestep 1e-10\n"
+        f"run 1 post no\n"
+        f"variable starting_nclusts equal $(c_nclusts)\n"
+        f"\n"
+        f"fix ats all dt/reset 1 NULL 1.00 0.01 units box\n"
+        f"thermo      100\n"
+        f"\n"
+        f"variable    t0 equal $(time)\n"
+        f"variable    time_elapsed equal time-${{t0}}\n"
+        f"fix         thalt all halt 1 v_time_elapsed > ${{impact_time}} error continue message yes\n"
+        f"\n"
+        f"run         0 post no\n"
+        f"variable    n_channelled equal 0\n"
+        f"# =========================== begin inner loop ===========================\n"
+        f"label\t\tcontinue_impact\n"
+        f"\n"
+        f"run         1000000000 pre no post no\n"
+        f"run         0\n"
+        f"{etch_event_block}"
+        f"{channeling_block}"
+        f"\n"
+        f'if "$(time-v_t0) < ${{impact_time}}" then "jump SELF continue_impact"\n'
+        f"unfix thalt\n"
+        f"# ============================ end inner loop ============================\n"
+        f"\n"
+        f"unfix   depo\n"
+        f"unfix   ats\n"
+        f"\n"
+        f"include thermalize.lmp\n"
+        f"\n"
+        f"unfix       2\n"
+        f"unfix       3\n"
+        f"\n"
+        + (
+        f"# Remove any implanted Ar\n"
+        f"group       argon type 4\n"
+        f"delete_atoms group argon\n"
+        f"group       argon delete\n"
+        f"\n"
+        if has_zbl and spec.remove_ar else ""
+        ) +
+        f"group       carbon type 1\n"
+        f"group       hydrogen type 2\n"
+        f"group       oxygen type 3\n"
+        f"variable    ncarbon equal count(carbon)\n"
+        f"variable    nhydrogen equal count(hydrogen)\n"
+        f"variable    noxygen equal count(oxygen)\n"
+        f"\n"
+        f'print "Run ${{c}} complete"\n'
+        f'print "C_COUNT: ${{ncarbon}}"\n'
+        f"{ncarbon_print}"
+        f"\n"
+        f"{write_data}"
+        f"if '$(v_c%v_ML) == 0' then \"write_dump all custom ML_impacts.dump id type q x y z vx vy vz modify sort id append yes\"\n"
+        f"\n"
+        f"{ion_dump_close}"
+        f"# ========================= End Per-Impact Outer Loop =========================\n"
+        f"next\t\ta\n"
+        f"jump\t\tSELF loop\n"
+        f"{_carbon_etch_end_label()}"
     )

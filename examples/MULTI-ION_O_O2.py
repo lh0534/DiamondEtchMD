@@ -5,7 +5,7 @@ Each impact draws an ion at random from the mix; no O• radicals (flux_ratio=0)
 O2+ is injected as a dimer — its energy is the total dimer KE (halved per atom).
 
 python examples/MULTI-ION_O_O2.py
-sbatch MULTI_ION_100_Oether_O_O2/submit
+cd MULTI_ION_100_Oether_O_O2; sbatch submit
 """
 
 from pathlib import Path

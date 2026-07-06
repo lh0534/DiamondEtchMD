@@ -6,7 +6,7 @@ Run from the DiamondEtchMD directory:
     python make_all_surfaces.py
 
 Each surface gets its own directory under surfaces/.
-Submit with:  sbatch surfaces/<name>/submit
+Submit with:  cd surfaces/<name>; sbatch submit
 Open impact_snaps/0.data or ML_impacts.dump in OVITO after running.
 """
 
@@ -66,5 +66,5 @@ for orient, surface in CASES:
     make_sim(spec, OUTDIR / dirname)
 
 print(f"\nGenerated {len(CASES)} surface directories under {OUTDIR}/")
-print("Submit each with:  sbatch surfaces/<name>/submit")
+print("Submit each with:  cd surfaces/<name>; sbatch submit")
 print("Open impact_snaps/0.data or ML_impacts.dump in OVITO after running.")

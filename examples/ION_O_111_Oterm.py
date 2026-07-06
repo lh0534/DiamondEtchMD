@@ -5,7 +5,7 @@ Valid 111 surface keys:
   1x1, 2x1_single, 2x1_pandey, 1x1_O, 2x1_single_O, 2x1_pandey_O
 
 python examples/ION_O_111_Oterm.py
-sbatch ION_O_111_Oterm/submit
+cd ION_O_111_Oterm; sbatch submit
 """
 
 from pathlib import Path

@@ -2,7 +2,7 @@
 O2+ ion bombardment of C(111) Pandey-chain reconstructed surface.
 
 python examples/ION_O2_111p.py
-sbatch ION_O2_111p/submit
+cd ION_O2_111p; sbatch submit
 """
 
 from pathlib import Path

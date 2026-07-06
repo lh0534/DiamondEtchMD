@@ -7,7 +7,7 @@ during the LAMMPS simulation.  Only impacts that produce an etch event or
 channeled atom keep their trajectory dump (dump_mode="etch_only").
 
 python examples/boltzmann_radical_rie/RIE_O_100_boltzmannRads.py
-sbatch boltzmann_radical_rie/submit
+cd boltzmann_radical_rie; sbatch submit
 """
 
 from pathlib import Path

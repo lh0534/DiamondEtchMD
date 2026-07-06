@@ -1,26 +1,32 @@
-# we want to ID the leaving cluster(s), which will be the ones without the anchor atoms
-group       unchecked union all all # set all atoms to be checked
+# Identify and remove ejected clusters.
+# A cluster is an etch product only if its CoM z is above ALL remaining atoms
+# (not just the anchor cluster) and it has a positive z velocity.
+group       unchecked union all all
 compute     surf_clust_num anchor reduce min c_clusts
-compute     max_unchecked_clust_num unchecked reduce max c_clusts # this finds the max diff in unchecked clusters
+compute     max_unchecked_clust_num unchecked reduce max c_clusts
 
-# need to run with computes output so the values are initialized (lammps hackiness)
 thermo_style custom c_max_unchecked_clust_num c_surf_clust_num
 run 0 post no
 
 variable    in_surf_clust atom "c_clusts == c_surf_clust_num"
 variable    in_small_clust atom "c_clusts == c_max_unchecked_clust_num"
-group       surf variable in_surf_clust # create the surface group
-group       checked intersect all surf # count surface atoms as checked
+group       surf variable in_surf_clust
+group       checked intersect all surf
 group       unchecked clear
-group       unchecked subtract all checked # make unchecked everything else (i.e. not surface)
+group       unchecked subtract all checked
 
-compute     top_surf surf reduce max z # highest non-cluster atom
-thermo_style custom c_max_unchecked_clust_num c_top_surf
-
+thermo_style custom c_max_unchecked_clust_num
 label       resweep
 run 0 post no
 
 group       small_clust variable in_small_clust
+
+# max z of every atom NOT in the candidate cluster — the true ejection threshold
+group       rest subtract all small_clust
+compute     top_rest rest reduce max z
+# include c_top_rest in thermo so LAMMPS evaluates it during run 0
+thermo_style custom c_max_unchecked_clust_num c_top_rest
+run 0 post no
 
 group       carbon type 1
 group       hydrogen type 2
@@ -31,15 +37,17 @@ group       clust_hydrogen intersect hydrogen small_clust
 group       clust_oxygen intersect oxygen small_clust
 group       clust_argon intersect argon small_clust
 
-# if the center of mass is higher than the top atom, the cluster's z velocity is positive,
-# and there are actually atoms in both the surface and the leaving cluster, then print the etch product and delete the cluster
-if "$(xcm(small_clust,z) > c_top_surf) && $(vcm(small_clust,z) > 0) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)+count(clust_argon)) > 0" then &
+# Eject only if CoM is above ALL other atoms and moving upward
+if "$(xcm(small_clust,z) > c_top_rest) && $(vcm(small_clust,z) > 0) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)+count(clust_argon)) > 0" then &
 "print '${c} ${cn} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen)) $(count(clust_argon))' append etch_products.txt" &
 "delete_atoms group small_clust" &
 "change_box      all z final $(zlo) $(zhi) units box" &
 "region          bbox delete" &
 "region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE" &
 else "group checked union checked small_clust"
+
+uncompute top_rest
+group rest delete
 group small_clust clear
 group clust_carbon clear
 group clust_hydrogen clear
@@ -47,10 +55,11 @@ group clust_oxygen clear
 group clust_argon clear
 group unchecked clear
 group unchecked subtract all checked
-if "$(count(unchecked)) > 0" then "jump SELF resweep" # continue until all unchecked atoms have been checked
+# reset thermo_style before next iteration so c_top_rest (now uncomputed) is not referenced
+thermo_style custom c_max_unchecked_clust_num
+if "$(count(unchecked)) > 0" then "jump SELF resweep"
 
 uncompute surf_clust_num
-uncompute top_surf
 uncompute max_unchecked_clust_num
 group surf delete
 group unchecked delete
@@ -66,4 +75,3 @@ thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clu
 thermo_modify   temp mtemp
 thermo_modify   lost warn flush yes
 run 0 post no
-# if "${one_clust} == 0" then "jump SELF resweep" # to make sure we get all the clusters

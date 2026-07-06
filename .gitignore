@@ -9,4 +9,5 @@ build/
 log*.lammps
 *.dump
 *.data
+impact_*.txt
 slurm*.out

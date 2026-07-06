@@ -1,0 +1,31 @@
+# DiamondEtchMD generated config (carbon-etch)
+# initial_config_file: /scratch/gpfs/DGRAVES/lh0534/jack_reax/graphullerene/graphullerene_start.dat
+# anchor_z_max: 7.0 Å
+
+variable    ML equal 115
+variable    ion_angl equal 45.0
+variable    T equal 300.0
+variable    pot string REAX
+
+variable    anchor_z_max equal 7.0
+variable    bottom equal 7.0   # Å; for thermalize.lmp zbottom formula
+variable    lat_a equal 1.4142136           # sqrt(2) → zbottom = ceil(bottom) Å
+
+variable    impact_time equal 1000.0
+variable    thermalization_time equal 500.0
+
+variable    M_C equal 12.011
+variable    M_H equal 1.00784
+variable    M_O equal 16.0
+variable    M_Ar equal 39.948
+
+variable    seed_adjust equal 0
+variable    simdepo equal 1
+
+# Single-species sub-mode: Ar @ 100.0 eV
+
+variable    end_fluence equal 2
+variable    energ equal 100.0
+variable    i_above equal 6.0
+variable    M_incident equal ${M_Ar}
+variable    incident_type_index equal 4

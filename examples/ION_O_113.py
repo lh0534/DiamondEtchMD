@@ -2,7 +2,7 @@
 O+ etching of the C(113) surface.
 
 python examples/ION_O_113.py
-sbatch ION_O_113/submit
+cd ION_O_113; sbatch submit
 """
 
 from pathlib import Path

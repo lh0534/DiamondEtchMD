@@ -2,7 +2,7 @@
 O+ etching of the bare C(110) surface.
 
 python examples/ION_O_110.py
-sbatch ION_110_O/submit
+cd ION_110_O; sbatch submit
 """
 
 from pathlib import Path

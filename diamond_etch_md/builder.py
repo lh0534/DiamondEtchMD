@@ -19,6 +19,7 @@ if any phase uses it.
 import dataclasses
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,13 +27,92 @@ from pathlib import Path
 
 from .orientations import ORIENT
 from .species import SPECIES
-from .spec import SimSpec, etch_mode
-from .lammps.config import get_config_lmp, get_config_lmp_cycle_etch, get_config_lmp_multi_ion
-from .lammps.head import get_head_lmp, get_head_lmp_multi_ion
-from .lammps.head_cycling import get_head_lmp_cycle_etch
-from .lammps.submit import get_submit_script, get_submit_script_cycle_etch
+from .spec import SimSpec, etch_mode, parse_data_file_box, compute_ml_langmuir
+from .lammps.config import (get_config_lmp, get_config_lmp_cycle_etch,
+                             get_config_lmp_multi_ion, get_config_lmp_carbon_etch)
+from .lammps.head import (get_head_lmp, get_head_lmp_multi_ion,
+                           get_head_lmp_carbon_etch, get_head_lmp_carbon_etch_multi_ion,
+                           get_init_thermalization_lmp)
+from .lammps.head_cycling import get_head_lmp_cycle_etch, get_head_lmp_carbon_etch_cycle
+from .lammps.submit import (get_submit_script, get_submit_script_cycle_etch,
+                             get_submit_script_carbon_etch)
 
 _TEMPLATES = Path(__file__).parent / "lammps" / "templates"
+
+# Masses for types 2-4 added to carbon-etch data files
+_CARBON_ETCH_MASSES = {
+    2: ("H",  1.00784),
+    3: ("O",  15.9994),
+    4: ("Ar", 39.948),
+}
+
+
+def _patch_data_file_for_carbon_etch(src_path: str, dst_path: Path) -> None:
+    """Copy a LAMMPS data file to dst_path, patching it for carbon-etch use.
+
+    Changes made:
+    - Header line "N atom types" → "4 atom types"
+    - Ensures a Masses section exists with entries for types 1-4
+      (type 1 kept from original if present; types 2-4 always written as H/O/Ar)
+    """
+    with open(src_path) as f:
+        text = f.read()
+
+    lines = text.splitlines()
+
+    # ── 1. Patch "N atom types" header ────────────────────────────────────────
+    patched = []
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^\d+\s+atom\s+types\s*$", stripped):
+            patched.append("4 atom types")
+        else:
+            patched.append(line)
+
+    # ── 2. Find / update Masses section ───────────────────────────────────────
+    masses_start = None
+    for i, line in enumerate(patched):
+        if line.strip() == "Masses":
+            masses_start = i
+            break
+
+    # Parse existing mass for type 1 (C) if present
+    type1_mass = 12.011  # carbon default
+    if masses_start is not None:
+        j = masses_start + 1
+        while j < len(patched) and patched[j].strip() == "":
+            j += 1
+        while j < len(patched) and patched[j].strip() != "":
+            parts = patched[j].split()
+            if len(parts) >= 2 and parts[0] == "1":
+                try:
+                    type1_mass = float(parts[1])
+                except ValueError:
+                    pass
+            j += 1
+        # Remove old Masses section (from "Masses" up to first blank line after entries)
+        end = j
+        patched = patched[:masses_start] + patched[end:]
+
+    # Build new Masses section
+    masses_lines = ["", "Masses", "", f"1  {type1_mass}  # C"]
+    for t, (sym, mass) in _CARBON_ETCH_MASSES.items():
+        masses_lines.append(f"{t}  {mass}  # {sym}")
+    masses_lines.append("")
+
+    # Insert before "Atoms" section (or append before end if not found)
+    atoms_start = None
+    for i, line in enumerate(patched):
+        if re.match(r"^Atoms\b", line.strip()):
+            atoms_start = i
+            break
+
+    if atoms_start is not None:
+        patched = patched[:atoms_start] + masses_lines + patched[atoms_start:]
+    else:
+        patched = patched + masses_lines
+
+    dst_path.write_text("\n".join(patched) + "\n")
 
 
 def _check_no_running_job(spec: SimSpec, outdir: Path) -> None:
@@ -100,6 +180,144 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
     _check_no_running_job(spec, outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
+    mode = etch_mode(spec)
+    is_carbon = spec.initial_config_file is not None
+
+    if is_carbon:
+        _make_sim_carbon_etch(spec, outdir, mode)
+    else:
+        _make_sim_diamond_etch(spec, outdir, mode)
+
+    # Save spec as JSON for analysis tools
+    spec_dict = dataclasses.asdict(spec)
+    (outdir / 'spec.json').write_text(json.dumps(spec_dict, indent=2))
+
+    print(f"\nTo submit: cd {outdir}; sbatch submit")
+    if not is_carbon:
+        print(f"\nNote: verify ML={spec.ml} matches actual surface atom count from impact_snaps/0.data")
+
+
+def _make_sim_carbon_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
+    """Build a carbon-etch simulation directory (arbitrary initial config)."""
+    # Auto-compute ml from box dimensions if not set
+    lx, ly = parse_data_file_box(spec.initial_config_file)
+    if spec.ml == 0:
+        spec = dataclasses.replace(spec, ml=compute_ml_langmuir(lx, ly))
+
+    # Copy and patch the initial config data file
+    dst_data = outdir / "initial_config.data"
+    _patch_data_file_for_carbon_etch(spec.initial_config_file, dst_data)
+
+    # Write init_thermalization.lmp if requested (included once, guarded by n_complete==0)
+    if spec.initial_thermalization:
+        (outdir / "init_thermalization.lmp").write_text(get_init_thermalization_lmp(spec.initial_thermalization_steps))
+
+    # Symlink shared LAMMPS scripts (no make_surf.lmp, no lat_a.txt needed)
+    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp",
+                  "notify_channeled.lmp",
+                  "ffield.reax", "lmp_env.sh", "auto-plot.py",
+                  "make_impact_dump.py"):
+        dst = outdir / fname
+        if not dst.exists():
+            dst.symlink_to(_TEMPLATES / fname)
+
+    if spec.phases is not None:
+        # ── Carbon cycle-etch ─────────────────────────────────────────────────
+        (outdir / "head.lmp").write_text(get_head_lmp_carbon_etch_cycle(spec))
+        (outdir / "config.lmp").write_text(get_config_lmp_carbon_etch(spec))
+        submit = outdir / "submit"
+        submit.write_text(get_submit_script_carbon_etch(spec))
+        submit.chmod(0o755)
+
+        for p in spec.phases:
+            mol = SPECIES[p.species]["molecule_file"]
+            if mol:
+                mol_dst = outdir / mol
+                if not mol_dst.exists():
+                    mol_dst.symlink_to(_TEMPLATES / mol)
+
+        total_ml = spec.cycles * sum(p.fluence_ml for p in spec.phases)
+        phase_str = " → ".join(
+            f"{p.species}@{p.energy}eV×{p.fluence_ml}ML"
+            + (f"+O•R{p.flux_ratio}" if p.flux_ratio > 0 else "")
+            for p in spec.phases
+        )
+        print(f"Simulation created at: {outdir}  [{mode}]")
+        print(f"  config:      {spec.initial_config_file}")
+        print(f"  anchor_z_max:{spec.anchor_z_max} Å   ML={spec.ml} impacts/monolayer")
+        print(f"  phases:      {phase_str}")
+        print(f"  cycles:      {spec.cycles}  ({total_ml} ML total, {total_ml * spec.ml} impacts)")
+        print(f"  box:         {lx:.2f}×{ly:.2f} Å")
+        print(f"  T={spec.surface_temperature} K  angle={spec.ion_angle}°")
+        print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
+
+    elif spec.ion_mix is not None:
+        # ── Carbon multi-ion-etch or multi-RIE-etch ───────────────────────────
+        (outdir / "head.lmp").write_text(get_head_lmp_carbon_etch_multi_ion(spec))
+        (outdir / "config.lmp").write_text(get_config_lmp_carbon_etch(spec))
+        submit = outdir / "submit"
+        submit.write_text(get_submit_script_carbon_etch(spec))
+        submit.chmod(0o755)
+
+        for comp in spec.ion_mix:
+            mol = SPECIES[comp.species]["molecule_file"]
+            if mol:
+                mol_dst = outdir / mol
+                if not mol_dst.exists():
+                    mol_dst.symlink_to(_TEMPLATES / mol)
+
+        total = sum(c.fraction for c in spec.ion_mix)
+        mix_str = " + ".join(
+            f"{c.species}@{c.energy}eV({c.fraction/total:.0%})"
+            for c in spec.ion_mix
+        )
+        rie_str = (
+            f"  flux_ratio:  {spec.flux_ratio} O• radicals/impact  "
+            f"(radical_energy={spec.radical_energy} eV)\n"
+        ) if "multi-rie" in mode else ""
+
+        print(f"Simulation created at: {outdir}  [{mode}]")
+        print(f"  config:      {spec.initial_config_file}")
+        print(f"  anchor_z_max:{spec.anchor_z_max} Å   ML={spec.ml} impacts/monolayer")
+        print(f"  ion mix:     {mix_str}  angle={spec.ion_angle}°  T={spec.surface_temperature} K")
+        if rie_str:
+            print(rie_str, end="")
+        print(f"  box:         {lx:.2f}×{ly:.2f} Å")
+        print(f"  fluence:     {spec.fluence} ML  ({spec.fluence * spec.ml} total impacts)")
+        print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
+
+    else:
+        # ── Carbon ion-etch or RIE-etch ───────────────────────────────────────
+        (outdir / "head.lmp").write_text(get_head_lmp_carbon_etch(spec))
+        (outdir / "config.lmp").write_text(get_config_lmp_carbon_etch(spec))
+        submit = outdir / "submit"
+        submit.write_text(get_submit_script_carbon_etch(spec))
+        submit.chmod(0o755)
+
+        species_cfg = SPECIES[spec.species]
+        if species_cfg["molecule_file"]:
+            mol_dst = outdir / species_cfg["molecule_file"]
+            if not mol_dst.exists():
+                mol_dst.symlink_to(_TEMPLATES / species_cfg["molecule_file"])
+
+        rie_str = (
+            f"  flux_ratio:  {spec.flux_ratio} O• radicals/impact  "
+            f"(radical_energy={spec.radical_energy} eV)\n"
+        ) if "rie" in mode else ""
+
+        print(f"Simulation created at: {outdir}  [{mode}]")
+        print(f"  config:      {spec.initial_config_file}")
+        print(f"  anchor_z_max:{spec.anchor_z_max} Å   ML={spec.ml} impacts/monolayer")
+        print(f"  bombardment: {spec.species} at {spec.energy} eV, angle={spec.ion_angle}°, T={spec.surface_temperature} K")
+        if rie_str:
+            print(rie_str, end="")
+        print(f"  box:         {lx:.2f}×{ly:.2f} Å")
+        print(f"  fluence:     {spec.fluence} ML  ({spec.fluence * spec.ml} total impacts)")
+        print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
+
+
+def _make_sim_diamond_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
+    """Build a diamond-etch simulation directory (generated diamond surface)."""
     # make_surf.lmp — copied from the package template for this surface
     shutil.copy(get_make_surf_source(spec), outdir / "make_surf.lmp")
 
@@ -113,8 +331,6 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
             dst.symlink_to(_TEMPLATES / fname)
 
     surface_label = spec.surface if spec.surface else "(unterminated)"
-
-    mode = etch_mode(spec)
 
     if spec.phases is not None:
         # ── Cycle-etch mode ───────────────────────────────────────────────────
@@ -206,13 +422,6 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
         print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")
         print(f"  fluence:     {spec.fluence} ML  ({spec.fluence * spec.ml} total impacts)")
         print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
-
-    # Save spec as JSON for analysis tools
-    spec_dict = dataclasses.asdict(spec)
-    (outdir / 'spec.json').write_text(json.dumps(spec_dict, indent=2))
-
-    print(f"\nTo submit: sbatch {outdir}/submit")
-    print(f"\nNote: verify ML={spec.ml} matches actual surface atom count from impact_snaps/0.data")
 
 
 def make_ale(spec: SimSpec, outdir: Path) -> None:

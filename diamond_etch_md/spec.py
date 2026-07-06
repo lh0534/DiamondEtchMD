@@ -13,9 +13,15 @@ multi-rie-etch — multiple ion species sampled stochastically, with O• radica
                  (ion_mix is not None, flux_ratio > 0).
 cycle-etch     — multi-phase cycling (phases is not None).
 ALE-etch       — cycle-etch with exactly 2 phases; validated via make_ale().
+
+carbon-etch prefix — any of the above modes run on an arbitrary LAMMPS data file instead
+                 of a generated diamond surface.  Triggered by setting initial_config_file.
+                 Uses anchor_z_max (Å) to define the frozen region, Langmuir ML from the
+                 box XY area, and no carbon replenishment.
 """
 
 import dataclasses
+import os
 import sys
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
@@ -102,6 +108,11 @@ class SimSpec:
     cycles:                 int   = 1      # how many times the phase list repeats
     # ── Multi-ion mode ────────────────────────────────────────────────────────
     ion_mix:                Optional[List[IonComponent]] = None   # None = single-species mode
+    # ── Carbon-etch mode (arbitrary initial config file) ─────────────────────
+    initial_config_file:    Optional[str]   = None   # abs path to LAMMPS data file; triggers carbon-etch
+    anchor_z_max:           Optional[float] = None   # Å; top of frozen anchor region (required for carbon-etch)
+    initial_thermalization: bool            = False  # run NVT equilibration before impacts (carbon-etch)
+    initial_thermalization_steps: int       = 10000  # NVT steps for initial thermalization
 
     @classmethod
     def from_dict(cls, data: dict) -> "SimSpec":
@@ -133,29 +144,66 @@ def compute_ml(orientation: str, box_x: int, box_y: int) -> int:
     return ORIENT[orientation]["ml_factor"] * box_x * box_y
 
 
+def parse_data_file_box(path: str) -> tuple:
+    """Parse lx, ly (Å) from a LAMMPS data file header.
+
+    Reads until both 'xlo xhi' and 'ylo yhi' lines are found.
+    Raises ValueError if either dimension cannot be found.
+    """
+    lx = ly = None
+    with open(path) as f:
+        for line in f:
+            stripped = line.strip()
+            if "xlo xhi" in stripped:
+                parts = stripped.split()
+                lx = float(parts[1]) - float(parts[0])
+            elif "ylo yhi" in stripped:
+                parts = stripped.split()
+                ly = float(parts[1]) - float(parts[0])
+            if lx is not None and ly is not None:
+                break
+    if lx is None or ly is None:
+        raise ValueError(f"Could not parse box dimensions from {path}")
+    return lx, ly
+
+
+def compute_ml_langmuir(lx: float, ly: float) -> int:
+    """Return ML (impacts per monolayer) from box XY dimensions using Langmuir normalization.
+
+    1 Langmuir ML = 10^15 ions/cm².  Box area A_Å² in Å² = A_cm² * 1e16 cm².
+    Impacts/ML = 10^15 * A_cm² = 10^15 * A_Å² * 1e-16 = A_Å² / 10.
+    """
+    return max(1, round(lx * ly / 10))
+
+
 def etch_mode(spec: "SimSpec") -> str:
     """Return the etch mode string for a SimSpec.
 
     Returns:
-        "ion-etch"       — single species, no radicals
-        "rie-etch"       — single species with O• radicals
-        "multi-ion-etch" — stochastic multi-ion mix, no radicals
-        "multi-rie-etch" — stochastic multi-ion mix with O• radicals
-        "cycle-etch"     — multi-phase cycling
+        "ion-etch"              — single species, no radicals
+        "rie-etch"              — single species with O• radicals
+        "multi-ion-etch"        — stochastic multi-ion mix, no radicals
+        "multi-rie-etch"        — stochastic multi-ion mix with O• radicals
+        "cycle-etch"            — multi-phase cycling
+        "carbon-ion-etch"       — carbon-etch + ion-etch
+        "carbon-rie-etch"       — carbon-etch + rie-etch
+        "carbon-multi-ion-etch" — carbon-etch + multi-ion-etch
+        "carbon-multi-rie-etch" — carbon-etch + multi-rie-etch
+        "carbon-cycle-etch"     — carbon-etch + cycle-etch
     """
+    prefix = "carbon-" if spec.initial_config_file else ""
     if spec.phases is not None:
-        return "cycle-etch"
+        return f"{prefix}cycle-etch"
     if spec.ion_mix is not None:
-        return "multi-rie-etch" if spec.flux_ratio > 0 else "multi-ion-etch"
+        return f"{prefix}multi-rie-etch" if spec.flux_ratio > 0 else f"{prefix}multi-ion-etch"
     if spec.flux_ratio > 0:
-        return "rie-etch"
-    return "ion-etch"
+        return f"{prefix}rie-etch"
+    return f"{prefix}ion-etch"
 
 
 def validate(spec: "SimSpec") -> None:
     """Validate a SimSpec; exit with an informative message on any error."""
-    if spec.orientation not in ORIENT:
-        sys.exit(f"Unknown orientation '{spec.orientation}'. Choose from: {list(ORIENT)}")
+    is_carbon = spec.initial_config_file is not None
 
     if spec.dump_mode not in ("all", "etch_only", "none"):
         sys.exit(f"dump_mode must be 'all', 'etch_only', or 'none'; got '{spec.dump_mode}'.")
@@ -163,26 +211,38 @@ def validate(spec: "SimSpec") -> None:
     if spec.radical_temperature is not None and spec.radical_temperature <= 0:
         sys.exit(f"radical_temperature must be > 0 K; got {spec.radical_temperature}.")
 
-    orient_cfg = ORIENT[spec.orientation]
-    valid_surfaces = list(orient_cfg["surfaces"])
-    if spec.surface not in orient_cfg["surfaces"]:
-        sys.exit(
-            f"Surface '{spec.surface}' not valid for {spec.orientation}. "
-            f"Choose from: {valid_surfaces}"
-        )
-
-    if spec.ml <= 0:
-        sys.exit("ML (atoms per monolayer) must be > 0.")
-
     if spec.nice < 1:
         sys.exit(f"nice must be >= 1, got {spec.nice}.")
 
-    if spec.orientation == "100" and spec.surface in ("2x1", "2x1_O"):
-        if spec.box_x % 2 != 0 or spec.box_y % 2 != 0:
+    if is_carbon:
+        if spec.anchor_z_max is None:
+            sys.exit("carbon-etch mode requires anchor_z_max (Å above box origin).")
+        if spec.anchor_z_max <= 0:
+            sys.exit(f"anchor_z_max must be > 0 Å; got {spec.anchor_z_max}.")
+        if not os.path.exists(spec.initial_config_file):
+            sys.exit(f"initial_config_file not found: {spec.initial_config_file}")
+        # ml is computed from data file box at make_sim() time; skip ml <= 0 check
+    else:
+        if spec.orientation not in ORIENT:
+            sys.exit(f"Unknown orientation '{spec.orientation}'. Choose from: {list(ORIENT)}")
+
+        orient_cfg = ORIENT[spec.orientation]
+        valid_surfaces = list(orient_cfg["surfaces"])
+        if spec.surface not in orient_cfg["surfaces"]:
             sys.exit(
-                f"C(100) 2×1 reconstruction requires even box dimensions; "
-                f"got box_x={spec.box_x}, box_y={spec.box_y}."
+                f"Surface '{spec.surface}' not valid for {spec.orientation}. "
+                f"Choose from: {valid_surfaces}"
             )
+
+        if spec.ml <= 0:
+            sys.exit("ML (atoms per monolayer) must be > 0.")
+
+        if spec.orientation == "100" and spec.surface in ("2x1", "2x1_O"):
+            if spec.box_x % 2 != 0 or spec.box_y % 2 != 0:
+                sys.exit(
+                    f"C(100) 2×1 reconstruction requires even box dimensions; "
+                    f"got box_x={spec.box_x}, box_y={spec.box_y}."
+                )
 
     if spec.phases is not None:
         # ── Cycling-mode validation ────────────────────────────────────────

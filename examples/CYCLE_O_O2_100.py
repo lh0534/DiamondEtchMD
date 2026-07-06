@@ -2,7 +2,7 @@
 Cycle-etch: O+ chemical etching alternating with O2+ etching on C(100) O-ether surface.
 
 python examples/CYCLE_O_O2_100.py
-sbatch cycling_O_O2/submit
+cd cycling_O_O2; sbatch submit
 """
 
 from pathlib import Path

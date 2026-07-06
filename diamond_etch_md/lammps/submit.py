@@ -220,6 +220,149 @@ def get_submit_script(spec: SimSpec) -> str:
     )
 
 
+def get_submit_script_carbon_etch(spec: "SimSpec") -> str:
+    """Generate the SLURM submit script for carbon-etch mode (any sub-mode).
+
+    Differences vs get_submit_script:
+    - No make_surf.lmp step; data_file falls back to initial_config.data on first run
+    - n_lat_0 not passed to LAMMPS (no carbon replenishment)
+    - Checks SLAB_DEPLETED flag before re-queuing
+    """
+    mail_lines = (
+        f"#SBATCH --mail-type=END,FAIL\n"
+        f"#SBATCH --mail-user={spec.email}\n"
+    ) if spec.email else ""
+
+    plot_loop  = _plot_loop_block(spec.plot_interval_hours)
+    cna_loop   = _cna_loop_block(spec.plot_interval_hours)
+    dump_loop  = _dump_loop_block(spec.plot_interval_hours)
+    plot_kill  = _plot_kill_block()
+    final_plot = _final_plot_block()
+
+    is_rie = spec.flux_ratio > 0 or (
+        spec.phases is not None and any(p.flux_ratio > 0 for p in spec.phases)
+    )
+
+    if is_rie:
+        cn_start_lines    = (
+            f"cn_start=$(tail -1 ncarbon.txt 2>/dev/null | awk 'NF>=5{{print $2}} NF<5{{print 0}}')\n"
+            f"cn_start=${{cn_start:-0}}\n"
+        )
+        neut_complete_var = f"    -var neut_complete $cn_start \\\n"
+    else:
+        cn_start_lines    = ""
+        neut_complete_var = ""
+
+    return (
+        f"#!/bin/bash\n"
+        f"#SBATCH --job-name={spec.name}\n"
+        f"#SBATCH --nodes=1\n"
+        f"#SBATCH --mem=16G\n"
+        f"#SBATCH --ntasks=1\n"
+        f"#SBATCH --cpus-per-task=1\n"
+        f"#SBATCH --gres=gpu:1\n"
+        f"#SBATCH --time={spec.wall_hours}:00:00\n"
+        f"#SBATCH --dependency=singleton\n"
+        f"#SBATCH --signal=B:USR1@120\n"
+        f"#SBATCH --nice={spec.nice}\n"
+        f"#SBATCH --account={spec.account}\n"
+        f"{mail_lines}"
+        f"\n"
+        f"module purge\n"
+        f"module load {spec.lammps_module}\n"
+        f"\n"
+        f"mkdir -p etch_event_trajs impact_snaps\n"
+        f"\n"
+        f"export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK\n"
+        f"export OMP_PROC_BIND=spread\n"
+        f"export OMP_PLACES=threads\n"
+        f"\n"
+        f"_resubmitted=0\n"
+        f"_resubmit() {{\n"
+        f"    local nc ml ef ec\n"
+        f"    nc=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $1}}'); nc=${{nc:-0}}\n"
+        f"    ml=$(grep 'ML equal' config.lmp | awk '{{print $4}}')\n"
+        f"    ef=$(grep 'end_fluence equal' config.lmp | awk '{{print $4}}')\n"
+        f"    ec=$(( ef * ml ))\n"
+        f"    if [ \"$nc\" -lt \"$ec\" ] && [ ! -f SLAB_DEPLETED ]; then\n"
+        f"        echo \"Wall-time signal: $nc / $ec impacts done — re-submitting.\"\n"
+        f"        {plot_kill}"
+        f"        sbatch \"$0\"\n"
+        f"        _resubmitted=1\n"
+        f"    fi\n"
+        f"}}\n"
+        f"trap '_resubmit' USR1\n"
+        f"\n"
+        f"# First run uses initial_config.data; restarts use latest impact_snaps snapshot\n"
+        f"n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $1}}')\n"
+        f"n_complete=${{n_complete:-0}}\n"
+        f"{cn_start_lines}"
+        f"data_file=$(ls -t impact_snaps/*.data 2>/dev/null | head -1)\n"
+        f"data_file=${{data_file:-initial_config.data}}\n"
+        f"log_file=log$(echo \"$(ls | grep -c .lammps)+1\" | bc).lammps\n"
+        f"event_count=$(ls etch_event_trajs/event_dump_*.dump 2>/dev/null | wc -l)\n"
+        f"\n"
+        f"ML=$(grep 'ML equal' config.lmp | awk '{{print $4}}')\n"
+        f"end_fluence=$(grep 'end_fluence equal' config.lmp | awk '{{print $4}}')\n"
+        f"end_c=$(( end_fluence * ML ))\n"
+        f"if [ \"$n_complete\" -ge \"$end_c\" ]; then\n"
+        f"    echo \"Simulation already complete: $n_complete / $end_c impacts.\"\n"
+        f"    exit 0\n"
+        f"fi\n"
+        f"if [ -f SLAB_DEPLETED ]; then\n"
+        f"    echo \"Slab already depleted — not re-queuing.\"\n"
+        f"    exit 0\n"
+        f"fi\n"
+        f"\n"
+        f"[ -f LAMMPS_FAILED ] && mv LAMMPS_FAILED \"LAMMPS_FAILED.$(date '+%Y%m%d_%H%M%S')\"\n"
+        f"\n"
+        f"srun lmp -k on g 1 -sf kk \\\n"
+        f"    -var data_file $data_file \\\n"
+        f"    -var n_complete $n_complete \\\n"
+        f"{neut_complete_var}"
+        f"    -var log_file $log_file \\\n"
+        f"    -var n_events $event_count \\\n"
+        f"    -log $log_file \\\n"
+        f"    -screen none \\\n"
+        f"    -nocite \\\n"
+        f"    -in head.lmp &\n"
+        f"SRUN_PID=$!\n"
+        f"{plot_loop}"
+        f"{cna_loop}"
+        f"{dump_loop}"
+        f"wait $SRUN_PID\n"
+        f"lmp_exit=$?\n"
+        f"{plot_kill}"
+        f"\n"
+        f"[ $_resubmitted -eq 1 ] && exit 0\n"
+        f"\n"
+        f"if [ $lmp_exit -ne 0 ]; then\n"
+        f"    echo \"LAMMPS exited with code $lmp_exit — not re-submitting.\"\n"
+        f"    err=$(grep '^ERROR:' \"$log_file\" 2>/dev/null | tail -1)\n"
+        f"    [ -z \"$err\" ] && err=\"LAMMPS exited with code $lmp_exit (no ERROR line in $log_file)\"\n"
+        f"    n_at_fail=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $1}}'); n_at_fail=${{n_at_fail:-0}}\n"
+        f"    echo \"$(date '+%Y-%m-%d %H:%M:%S')  impact=$n_at_fail  $err\" >> LAMMPS_FAILED\n"
+        f"    exit $lmp_exit\n"
+        f"fi\n"
+        f"\n"
+        f"if [ -f SLAB_DEPLETED ]; then\n"
+        f"    echo \"Slab depleted after $n_complete impacts — not re-submitting.\"\n"
+        f"    {final_plot}"
+        f"    exit 0\n"
+        f"fi\n"
+        f"\n"
+        f"n_complete=$(tail -1 ncarbon.txt 2>/dev/null | awk '{{print $1}}')\n"
+        f"n_complete=${{n_complete:-0}}\n"
+        f"if [ \"$n_complete\" -lt \"$end_c\" ]; then\n"
+        f"    echo \"Progress: $n_complete / $end_c impacts. Re-submitting...\"\n"
+        f"    sbatch \"$0\"\n"
+        f"else\n"
+        f"    echo \"Simulation complete: $n_complete / $end_c impacts.\"\n"
+        f"    {final_plot}"
+        f"fi\n"
+    )
+
+
 def get_submit_script_cycle_etch(spec: SimSpec) -> str:
     """Generate the SLURM submit script for a cycle-etch SimSpec.
 

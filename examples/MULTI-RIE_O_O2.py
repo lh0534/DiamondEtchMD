@@ -5,7 +5,7 @@ Before each ion impact, flux_ratio O• radicals are deposited; then one ion is
 drawn at random from the mix.
 
 python examples/MULTI-RIE_O_O2.py
-sbatch MULTI_RIE_100_Oether_O_O2/submit
+cd MULTI_RIE_100_Oether_O_O2; sbatch submit
 """
 
 from pathlib import Path

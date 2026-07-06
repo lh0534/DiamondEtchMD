@@ -9,7 +9,7 @@ the O2+ fluence is longer (30 ML) to ensure full monolayer oxidation.
 Ar+ → O2+ (2-phase IDLE cycle)
 
 python examples/CYCLE_Ar_O2_100_IDLE.py
-sbatch cycling_Ar_O2_IDLE/submit
+cd cycling_Ar_O2_IDLE; sbatch submit
 """
 
 from pathlib import Path

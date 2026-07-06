@@ -1,0 +1,81 @@
+# Identify and remove ejected clusters.
+# A cluster is an etch product only if its CoM z is above ALL remaining atoms
+# (not just the anchor cluster) and it has a positive z velocity.
+group       unchecked union all all
+compute     surf_clust_num anchor reduce min c_clusts
+compute     max_unchecked_clust_num unchecked reduce max c_clusts
+
+thermo_style custom c_max_unchecked_clust_num c_surf_clust_num
+run 0 post no
+
+variable    in_surf_clust atom "c_clusts == c_surf_clust_num"
+variable    in_small_clust atom "c_clusts == c_max_unchecked_clust_num"
+group       surf variable in_surf_clust
+group       checked intersect all surf
+group       unchecked clear
+group       unchecked subtract all checked
+
+thermo_style custom c_max_unchecked_clust_num
+label       resweep
+run 0 post no
+
+group       small_clust variable in_small_clust
+
+# max z of every atom NOT in the candidate cluster — the true ejection threshold
+group       rest subtract all small_clust
+compute     top_rest rest reduce max z
+# include c_top_rest in thermo so LAMMPS evaluates it during run 0
+thermo_style custom c_max_unchecked_clust_num c_top_rest
+run 0 post no
+
+group       carbon type 1
+group       hydrogen type 2
+group       oxygen type 3
+group       argon type 4
+group       clust_carbon intersect carbon small_clust
+group       clust_hydrogen intersect hydrogen small_clust
+group       clust_oxygen intersect oxygen small_clust
+group       clust_argon intersect argon small_clust
+
+# Log to etch_products.txt only if cluster contains C/H/O (reflected Ar is not a product).
+# 0.005 Å/fs threshold prevents whole graphene layers (low CoM velocity) from being logged.
+if "$(xcm(small_clust,z) > c_top_rest) && $(vcm(small_clust,z) > 0.005) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)) > 0" then &
+"print '${c} ${cn} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen)) $(count(clust_argon))' append etch_products.txt"
+
+# Delete cluster (including pure Ar) if ejection condition met; else mark as remaining.
+if "$(xcm(small_clust,z) > c_top_rest) && $(vcm(small_clust,z) > 0.005) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)+count(clust_argon)) > 0" then &
+"delete_atoms group small_clust" &
+"change_box      all z final $(zlo) $(zhi) units box" &
+"region          bbox delete" &
+"region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE" &
+else "group checked union checked small_clust"
+
+uncompute top_rest
+group rest delete
+group small_clust clear
+group clust_carbon clear
+group clust_hydrogen clear
+group clust_oxygen clear
+group clust_argon clear
+group unchecked clear
+group unchecked subtract all checked
+# reset thermo_style before next iteration so c_top_rest (now uncomputed) is not referenced
+thermo_style custom c_max_unchecked_clust_num
+if "$(count(unchecked)) > 0" then "jump SELF resweep"
+
+uncompute surf_clust_num
+uncompute max_unchecked_clust_num
+group surf delete
+group unchecked delete
+group checked delete
+group small_clust delete
+group clust_carbon delete
+group clust_hydrogen delete
+group clust_oxygen delete
+group clust_argon delete
+
+# reset thermo_style and run 0 to reinitialize everything
+thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts
+thermo_modify   temp mtemp
+thermo_modify   lost warn flush yes
+run 0 post no

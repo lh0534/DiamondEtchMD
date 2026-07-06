@@ -5,7 +5,7 @@ O2+ at 2 eV per atom is near-threshold — it modifies the surface layer without
 The Ar+ phase then removes the modified layer, giving quasi-atomic-layer precision.
 
 python examples/CYCLE_Ar_O2_100_ALE.py
-sbatch cycling_Ar_O2_ALE/submit
+cd cycling_Ar_O2_ALE; sbatch submit
 """
 
 from pathlib import Path

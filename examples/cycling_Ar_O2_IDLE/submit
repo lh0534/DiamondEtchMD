@@ -61,6 +61,9 @@ if [ "$n_complete" -ge "$end_c" ]; then
     exit 0
 fi
 
+# Archive any previous LAMMPS_FAILED so this run starts with a clean flag
+[ -f LAMMPS_FAILED ] && mv LAMMPS_FAILED "LAMMPS_FAILED.$(date '+%Y%m%d_%H%M%S')"
+
 # Run LAMMPS in background so the USR1 trap can fire during 'wait'
 srun lmp -k on g 1 -sf kk \
     -var data_file $data_file \
