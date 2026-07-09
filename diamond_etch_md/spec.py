@@ -101,7 +101,8 @@ class SimSpec:
     radical_angle:          float = 0.0    # deg from normal for radicals in fixed-angle mode
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
-    radical_i_above:       float = 12.0   # Å above surface to inject O• radical
+    radical_i_above:        float = 12.0   # Å above surface to inject O• radical
+    skip_radical_thermalization: bool = False  # omit thermalize.lmp between successive radicals
     dump_mode:              str   = "all"  # "all" | "etch_only" | "none"
     # ── Cycling mode ──────────────────────────────────────────────────────────
     phases:                 Optional[List[CyclePhase]]    = None  # None = single-species mode

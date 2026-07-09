@@ -185,11 +185,11 @@ def _radical_loop_block(spec: SimSpec) -> str:
         )
 
     # ── Per-radical halt time ─────────────────────────────────────────────────
-    # Ideally rad_halt_t = min(2*i_above/|vz|, max_inter_neutral_time) per radical,
-    # but any formula chaining through random() (vz → rad_speed → gx_sq → u1a)
-    # triggers LAMMPS's "Invalid special function" error in both fix halt and
-    # ${varname} substitution contexts in this build.  Use max_inter_neutral_time
-    # for all radicals — the cap is the same; fast radicals simply run to that limit.
+    # rad_halt_t = min(1.5*i_above/|vz|, max_inter_neutral_time)
+    # i_above/|vz| is the one-way travel time; ×1.5 gives time for surface interaction.
+    # |vz| = speed×cos(θ) so the window is automatically longer for glancing radicals.
+    # The +1e-10 guards against exact θ=90° (vz=0) without affecting any real case.
+    # This is evaluated as a frozen equal-style variable since vz_rad is a frozen constant.
 
     # ── Logging to radical_log.txt ────────────────────────────────────────────
     # Columns: impact  radical_idx  energy_eV  polar_deg  azimuthal_deg
@@ -252,10 +252,11 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"variable    starting_nclusts equal $(c_nclusts)\n"
         f"variable    t0 equal $(time)\n"
         f"variable    time_elapsed equal time-${{t0}}\n"
+        f"variable    rad_halt_t equal min(1.5*${{radical_i_above}}/(abs(v_vz_rad)+1e-10),${{max_inter_neutral_time}})\n"
     )
 
     blk += (
-        f"fix         thalt all halt 1 v_time_elapsed > ${{max_inter_neutral_time}} "
+        f"fix         thalt all halt 1 v_time_elapsed > v_rad_halt_t "
         f"error continue message yes\n"
     )
 
@@ -272,7 +273,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
     )
 
     blk += (
-        f'if "$(time-v_t0) < ${{max_inter_neutral_time}}" then "jump SELF continue_n_impact"\n'
+        f'if "$(time-v_t0) < v_rad_halt_t" then "jump SELF continue_n_impact"\n'
     )
 
     blk += (
@@ -298,8 +299,10 @@ def _radical_loop_block(spec: SimSpec) -> str:
 
     blk += (
         f"unfix       depo\n"
-        f"# Thermalize after each radical\n"
-        f"include     thermalize.lmp\n"
+    )
+    if not spec.skip_radical_thermalization:
+        blk += f"# Thermalize after each radical\ninclude     thermalize.lmp\n"
+    blk += (
         f"unfix       2\n"
         f"unfix       3\n"
         f"# ===================== End radical inner loop =====================\n"
