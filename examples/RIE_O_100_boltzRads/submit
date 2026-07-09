@@ -5,10 +5,10 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
+#SBATCH --time=1:00:00
 #SBATCH --dependency=singleton
 #SBATCH --signal=B:USR1@120
-#SBATCH --nice=2
+#SBATCH --nice=1
 #SBATCH --account=dgraves
 
 module purge

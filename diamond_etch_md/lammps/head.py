@@ -133,15 +133,19 @@ def _radical_loop_block(spec: SimSpec) -> str:
         blk += (
             f"variable    sigma_rad equal sqrt(${{kT_rad}}*6.02214129e7/${{M_O}}/6242)/1000\n"
             f"variable    bms equal v_c*100000+v_cn+${{seed_adjust}}*1000000\n"
-            f"variable    u1a equal random(1e-10,1.0,v_bms+1)\n"
-            f"variable    u2a equal random(1e-10,1.0,v_bms+2)\n"
-            f"variable    u1b equal random(1e-10,1.0,v_bms+3)\n"
-            f"variable    u2b equal random(1e-10,1.0,v_bms+4)\n"
-            f"variable    u1c equal random(1e-10,1.0,v_bms+5)\n"
-            f"variable    u2c equal random(1e-10,1.0,v_bms+6)\n"
-            f"variable    gx_sq equal (-2*ln(v_u1a))*(1+cos(4*PI*v_u2a))/2*${{sigma_rad}}*${{sigma_rad}}\n"
-            f"variable    gy_sq equal (-2*ln(v_u1b))*(1+cos(4*PI*v_u2b))/2*${{sigma_rad}}*${{sigma_rad}}\n"
-            f"variable    gz_sq equal (-2*ln(v_u1c))*(1+cos(4*PI*v_u2c))/2*${{sigma_rad}}*${{sigma_rad}}\n"
+            # Freeze each draw immediately with $() so every downstream reference
+            # sees a literal constant — the bare random() form advances the persistent
+            # RNG on every variable evaluation, making logged values inconsistent with
+            # the actually deposited velocity.
+            f"variable    u1a equal $(random(1e-10,1.0,v_bms+1))\n"
+            f"variable    u2a equal $(random(1e-10,1.0,v_bms+2))\n"
+            f"variable    u1b equal $(random(1e-10,1.0,v_bms+3))\n"
+            f"variable    u2b equal $(random(1e-10,1.0,v_bms+4))\n"
+            f"variable    u1c equal $(random(1e-10,1.0,v_bms+5))\n"
+            f"variable    u2c equal $(random(1e-10,1.0,v_bms+6))\n"
+            f"variable    gx_sq equal (-2*ln(v_u1a))*(1+cos(4*PI*v_u2a))/2*v_sigma_rad*v_sigma_rad\n"
+            f"variable    gy_sq equal (-2*ln(v_u1b))*(1+cos(4*PI*v_u2b))/2*v_sigma_rad*v_sigma_rad\n"
+            f"variable    gz_sq equal (-2*ln(v_u1c))*(1+cos(4*PI*v_u2c))/2*v_sigma_rad*v_sigma_rad\n"
             f"variable    rad_speed equal sqrt(v_gx_sq+v_gy_sq+v_gz_sq)\n"
         )
     else:
@@ -156,14 +160,14 @@ def _radical_loop_block(spec: SimSpec) -> str:
         # seed offsets 7-8 (Boltzmann) or 1-2 (cosine-only, own seed)
         if use_boltzmann:
             blk += (
-                f"variable    u_th equal random(0.0,1.0,v_bms+7)\n"
-                f"variable    u_ph equal random(0.0,1.0,v_bms+8)\n"
+                f"variable    u_th equal $(random(0.0,1.0,v_bms+7))\n"
+                f"variable    u_ph equal $(random(0.0,1.0,v_bms+8))\n"
             )
         else:
             blk += (
                 f"variable    bms_ang equal v_c*100000+v_cn+${{seed_adjust}}*1000000\n"
-                f"variable    u_th equal random(0.0,1.0,v_bms_ang+1)\n"
-                f"variable    u_ph equal random(0.0,1.0,v_bms_ang+2)\n"
+                f"variable    u_th equal $(random(0.0,1.0,v_bms_ang+1))\n"
+                f"variable    u_ph equal $(random(0.0,1.0,v_bms_ang+2))\n"
             )
         blk += (
             f"variable    cos_theta equal sqrt(v_u_th)\n"

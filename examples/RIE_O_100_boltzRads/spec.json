@@ -33,5 +33,9 @@
   "dump_mode": "all",
   "phases": null,
   "cycles": 1,
-  "ion_mix": null
+  "ion_mix": null,
+  "initial_config_file": null,
+  "anchor_z_max": null,
+  "initial_thermalization": false,
+  "initial_thermalization_steps": 10000
 }
