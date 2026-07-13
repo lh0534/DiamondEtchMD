@@ -245,6 +245,37 @@ def analyze_run(
         stats['amorphous_thickness_A'] = None
         stats['amorphous_thickness_A_err'] = None
 
+    # ── radical sticking ─────────────────────────────────────────────────────
+    # A radical "bounces" if its impact step produces a monoatomic-O etch product
+    # (nC=0, nH=0, nO=1, nAr=0, cn>0).  Count unique (impact, cn) steps that
+    # ejected at least one such product; sticking = 1 - bounce_rate.
+    # Block averaging is done over the per-radical binary bounce sequence.
+    if has_radicals_nc and ep:
+        rad_bounce_steps = {
+            (r['impact'], r['cn'])
+            for r in ep
+            if r['cn'] > 0
+            and r['n_C'] == 0 and r['n_H'] == 0 and r['n_O'] == 1 and r['n_Ar'] == 0
+        }
+        n_bounce = len(rad_bounce_steps)
+        stats['n_radical_bounce'] = n_bounce
+        if n_radical > 0:
+            # Per-radical bounce indicator (1=bounced, 0=stuck) in deposition order
+            bounce_seq = np.array([
+                1.0 if (r['impact'], r['cn']) in rad_bounce_steps else 0.0
+                for r in nc if r['cn'] > 0
+            ])
+            bounce_mean, bounce_err = block_stats(bounce_seq, n_blocks)
+            stats['radical_sticking'] = 1.0 - bounce_mean
+            stats['radical_sticking_err'] = bounce_err
+        else:
+            stats['radical_sticking'] = None
+            stats['radical_sticking_err'] = None
+    else:
+        stats['n_radical_bounce'] = None
+        stats['radical_sticking'] = None
+        stats['radical_sticking_err'] = None
+
     # ── product composition ───────────────────────────────────────────────────
     if ep_carbon:
         oc_ratios = [r['n_O'] / r['n_C'] if r['n_C'] > 0 else 0.0 for r in ep_carbon]
@@ -409,6 +440,12 @@ def write_summary(stats: Dict, path) -> None:
         lines.append(
             f"  Radical etch yield (C/radical):{_fmt(stats.get('etch_yield_per_radical'), stats.get('etch_yield_per_radical_err'))}"
         )
+        sc = stats.get('radical_sticking')
+        nb = stats.get('n_radical_bounce')
+        if sc is not None:
+            lines.append(
+                f"  Radical sticking coefficient:{_fmt(sc, stats.get('radical_sticking_err'))}  ({nb} bounces / {stats.get('n_radical_impacts')} radicals)"
+            )
 
     if per_phase:
         for pi, ps in sorted(per_phase.items()):

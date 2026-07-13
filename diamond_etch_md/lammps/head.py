@@ -49,7 +49,7 @@ def _potential_block(species: dict) -> str:
             f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
             f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
             f'"group nonargon type 1 2 3" &\n'
-            f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
+            f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
     else:
         # O, O2, H: plain ReaxFF — type 4 slot maps to C so all pair coeffs are set
@@ -93,7 +93,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
     still reach the surface.
 
     Logs energy and angles of every radical to radical_log.txt.
-    Radical trajectory dumps only created when dump_mode == "all".
+    Radical etch-event trajectories saved when dump_mode == "all" or "etch_only".
     """
     use_boltzmann = spec.radical_temperature is not None
     use_cosine    = spec.radical_angle_distribution
@@ -234,9 +234,16 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"fix         3 insert nve\n"
     )
 
-    # ── Radical dump (only in "all" mode) ─────────────────────────────────────
+    # ── Radical dump ("all": always record; "etch_only": record, delete if no etch) ──
     if dm == "all":
         blk += (
+            f"dump        current_dump_n all custom 100 "
+            f"etch_event_trajs/event_dump_n${{c}}_${{cn}}.dump "
+            f"id type x y z vx vy vz fx fy fz q\n"
+        )
+    elif dm == "etch_only":
+        blk += (
+            f"variable    keep_dump_n equal 0\n"
             f"dump        current_dump_n all custom 100 "
             f"etch_event_trajs/event_dump_n${{c}}_${{cn}}.dump "
             f"id type x y z vx vy vz fx fy fz q\n"
@@ -252,11 +259,16 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"variable    starting_nclusts equal $(c_nclusts)\n"
         f"variable    t0 equal $(time)\n"
         f"variable    time_elapsed equal time-${{t0}}\n"
-        f"variable    rad_halt_t equal min(1.5*${{radical_i_above}}/(abs(v_vz_rad)+1e-10),${{max_inter_neutral_time}})\n"
+        # min() and abs() are not available as pairwise math functions in this build.
+        # Use sqrt(x*x) for |x|; cap with an if statement instead of min(a,b).
+        # ${} substitution calls the full variable evaluator (sqrt works); the if
+        # then overwrites rad_halt_t with the cap if the travel time exceeds it.
+        f"variable    rad_halt_t equal 1.5*${{radical_i_above}}/(sqrt(v_vz_rad*v_vz_rad)+1e-10)\n"
+        f'if "${{rad_halt_t}} > ${{max_inter_neutral_time}}" then "variable rad_halt_t equal ${{max_inter_neutral_time}}"\n'
     )
 
     blk += (
-        f"fix         thalt all halt 1 v_time_elapsed > v_rad_halt_t "
+        f"fix         thalt all halt 1 v_time_elapsed > ${{rad_halt_t}} "
         f"error continue message yes\n"
     )
 
@@ -268,12 +280,14 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"run         0\n"
         f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
         f'"variable event_count equal ${{event_count}}+1" &\n'
-        f'"variable starting_nclusts equal $(c_nclusts)"\n'
-        f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
+        f'"variable starting_nclusts equal $(c_nclusts)"'
+        + (' &\n"variable keep_dump_n equal 1"' if dm == "etch_only" else "")
+        + "\n"
+        + f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
     )
 
     blk += (
-        f'if "$(time-v_t0) < v_rad_halt_t" then "jump SELF continue_n_impact"\n'
+        f'if "$(time-v_t0) < ${{rad_halt_t}}" then "jump SELF continue_n_impact"\n'
     )
 
     blk += (
@@ -296,6 +310,12 @@ def _radical_loop_block(spec: SimSpec) -> str:
 
     if dm == "all":
         blk += f"undump      current_dump_n\n"
+    elif dm == "etch_only":
+        blk += (
+            f'if "${{keep_dump_n}} == 0" then '
+            f'"shell rm etch_event_trajs/event_dump_n${{c}}_${{cn}}.dump"\n'
+            f"undump      current_dump_n\n"
+        )
 
     blk += (
         f"unfix       depo\n"

@@ -1,4 +1,3 @@
-# consider updating so thermalize only atoms in surface clust?
 variable    log_file index log.lammps # sets log file to default if not already set in command line
 
 log therm.log # don't output all this thermostat setting to normal log. too much info
@@ -17,10 +16,12 @@ if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variab
 # set thermostats
 variable ztop equal ${zbottom}+${dz}
 region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
-group temp region r${zname}
-group g${zname} subtract temp anchor
-group temp delete
-region r${zname} delete # we don't need the region anymore
+group temp_rgn region r${zname}
+group temp_c intersect temp_rgn carbon
+group g${zname} subtract temp_c anchor
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
 variable nregion equal count(g${zname})
 # while there are atoms in the group set thermostat and loop again
 if "${nregion}!=0" then & 
