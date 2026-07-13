@@ -259,18 +259,27 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"variable    starting_nclusts equal $(c_nclusts)\n"
         f"variable    t0 equal $(time)\n"
         f"variable    time_elapsed equal time-${{t0}}\n"
+    )
+
+    # ── Halt time: stochastic uses angle-dependent rad_halt_t; fixed uses inter_neutral_time ──
+    if use_stochastic:
         # min() and abs() are not available as pairwise math functions in this build.
         # Use sqrt(x*x) for |x|; cap with an if statement instead of min(a,b).
         # ${} substitution calls the full variable evaluator (sqrt works); the if
         # then overwrites rad_halt_t with the cap if the travel time exceeds it.
-        f"variable    rad_halt_t equal 1.5*${{radical_i_above}}/(sqrt(v_vz_rad*v_vz_rad)+1e-10)\n"
-        f'if "${{rad_halt_t}} > ${{max_inter_neutral_time}}" then "variable rad_halt_t equal ${{max_inter_neutral_time}}"\n'
-    )
-
-    blk += (
-        f"fix         thalt all halt 1 v_time_elapsed > ${{rad_halt_t}} "
-        f"error continue message yes\n"
-    )
+        blk += (
+            f"variable    rad_halt_t equal 1.5*${{radical_i_above}}/(sqrt(v_vz_rad*v_vz_rad)+1e-10)\n"
+            f'if "${{rad_halt_t}} > ${{max_inter_neutral_time}}" then "variable rad_halt_t equal ${{max_inter_neutral_time}}"\n'
+            f"fix         thalt all halt 1 v_time_elapsed > ${{rad_halt_t}} "
+            f"error continue message yes\n"
+        )
+        halt_var = "${rad_halt_t}"
+    else:
+        blk += (
+            f"fix         thalt all halt 1 v_time_elapsed > ${{inter_neutral_time}} "
+            f"error continue message yes\n"
+        )
+        halt_var = "${inter_neutral_time}"
 
     blk += (
         f"\n"
@@ -287,7 +296,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
     )
 
     blk += (
-        f'if "$(time-v_t0) < ${{rad_halt_t}}" then "jump SELF continue_n_impact"\n'
+        f'if "$(time-v_t0) < {halt_var}" then "jump SELF continue_n_impact"\n'
     )
 
     blk += (
