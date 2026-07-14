@@ -59,13 +59,13 @@ def _potential_switch_block() -> str:
         f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         f'if "${{prev_needs_zbl}} == 0 && ${{current_needs_zbl}} == 1" then &\n'
         f'"unfix reax_qeq" &\n'
-        f'"pair_style hybrid reaxff NULL mincap 200 safezone 1.5 zbl 5.0 6.0" &\n'
+        f'"pair_style hybrid reaxff NULL zbl 5.0 6.0" &\n'
         f'"pair_coeff * * reaxff ffield.reax C H O NULL" &\n'
         f'"pair_coeff 1 4 zbl 6.0 18.0" &\n'
         f'"pair_coeff 2 4 zbl 1.0 18.0" &\n'
         f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
         f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
-        f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
+        f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         f"variable prev_needs_zbl equal ${{current_needs_zbl}}\n"
         f"\n"
     )
@@ -79,18 +79,18 @@ def _potential_block(has_ar: bool) -> str:
     if has_ar:
         return (
             f'if "${{pot}} == REAX" then &\n'
-            f'"pair_style  hybrid reaxff NULL mincap 200 safezone 1.5 zbl 5.0 6.0" &\n'
+            f'"pair_style  hybrid reaxff NULL zbl 5.0 6.0" &\n'
             f'"pair_coeff * * reaxff ffield.reax C H O NULL" &\n'
             f'"pair_coeff 1 4 zbl 6.0 18.0" &\n'
             f'"pair_coeff 2 4 zbl 1.0 18.0" &\n'
             f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
             f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
-            f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
+            f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
     else:
         return (
             f'if "${{pot}} == REAX" then &\n'
-            f'"pair_style reaxff NULL mincap 200 safezone 1.5" &\n'
+            f'"pair_style reaxff NULL" &\n'
             f'"pair_coeff * * ffield.reax C H O" &\n'
             f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )

@@ -42,20 +42,20 @@ def _potential_block(species: dict) -> str:
         # Ar: hybrid ReaxFF + ZBL for short-range nuclear repulsion
         return (
             f'if "${{pot}} == REAX" then &\n'
-            f'"pair_style  hybrid reaxff NULL mincap 200 safezone 1.5 zbl 5.0 6.0" &\n'
+            f'"pair_style  hybrid reaxff NULL zbl 5.0 6.0" &\n'
             f'"pair_coeff * * reaxff ffield.reax C H O NULL" &\n'
             f'"pair_coeff 1 4 zbl 6.0 18.0" &\n'
             f'"pair_coeff 2 4 zbl 1.0 18.0" &\n'
             f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
             f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
             f'"group nonargon type 1 2 3" &\n'
-            f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
+            f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
     else:
         # O, O2, H: plain ReaxFF — type 4 slot maps to C so all pair coeffs are set
         return (
             f'if "${{pot}} == REAX" then &\n'
-            f'"pair_style reaxff NULL mincap 200 safezone 1.5" &\n'
+            f'"pair_style reaxff NULL" &\n'
             f'"pair_coeff * * ffield.reax C H O C" &\n'
             f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
@@ -99,6 +99,15 @@ def _radical_loop_block(spec: SimSpec) -> str:
     use_cosine    = spec.radical_angle_distribution
     use_stochastic = use_boltzmann or use_cosine
     dm = spec.dump_mode
+    # Determine whether this sim uses hybrid ZBL (Ar ions) → QEQ group is "nonargon"
+    # (Kokkos fix qeq/reaxff doesn't resize its internal arrays when atoms are
+    # deposited mid-run, so we must unfix/refix after each deposit to force a
+    # full reinitialisation that picks up the new atom.)
+    if spec.ion_mix:
+        _has_zbl = any(SPECIES[c.species]["needs_zbl"] for c in spec.ion_mix)
+    else:
+        _has_zbl = SPECIES[spec.species]["needs_zbl"]
+    _qeq_group = "nonargon" if _has_zbl else "all"
 
     blk = (
         f"# ========= Begin RIE-etch O• radical deposition loop =========\n"
@@ -250,10 +259,17 @@ def _radical_loop_block(spec: SimSpec) -> str:
         )
 
     # ── Run radical impact ────────────────────────────────────────────────────
+    # For ZBL (Ar+) sims, refresh the nonargon group AFTER the deposit so the
+    # Kokkos fix qeq/reaxff picks up the new O• atom before the dynamics run
+    # (mirrors what nonargon_regroup does for O2+ ions in the outer loop).
+    nonargon_refresh_rad = (
+        f"group       nonargon type 1 2 3\n" if _has_zbl else ""
+    )
     blk += (
         f"\n"
         f"timestep    1e-10\n"
         f"run         1 post no\n"
+        f"{nonargon_refresh_rad}"
         f"run         0\n"
         f"fix         ats_n all dt/reset 1 NULL 1.00 0.01 units box\n"
         f"variable    starting_nclusts equal $(c_nclusts)\n"
