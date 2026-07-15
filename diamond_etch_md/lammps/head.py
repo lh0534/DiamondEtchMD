@@ -371,6 +371,213 @@ def _radical_loop_block(spec: SimSpec) -> str:
     return blk
 
 
+def _radical_burst_block(spec: SimSpec) -> str:
+    """Return the LAMMPS burst O• injection block for burst-mode RIE.
+
+    Injects flux_ratio O• atoms in chunks of radical_burst_chunk before each ion
+    impact.  All atoms in a chunk are deposited at the same z height:
+    bound(all,zmax) + radical_i_above, evaluated once at the start of each chunk.
+    A narrow region (±0.1 Å) is used instead of 'global lo hi' so the box never
+    grows during deposition — atoms land inside the existing vacuum above the surface.
+    Only valid for mono-energetic fixed-angle mode (no Boltzmann, no cosine).
+
+    Output: one ncarbon.txt entry (cn=1) per burst + one write_data snapshot.
+    Restart: if cn_start >= 1 the burst is skipped (already complete for this impact).
+    Per-chunk thermalization is controlled by skip_radical_thermalization.
+    """
+    ml         = spec.ml
+    auto_chunk = max(1, round(0.5 * ml))
+    chunk_size = spec.radical_burst_chunk if spec.radical_burst_chunk > 0 else auto_chunk
+    total      = max(1, spec.flux_ratio)
+    n_full     = total // chunk_size
+    remainder  = total % chunk_size
+    chunks     = [chunk_size] * n_full + ([remainder] if remainder > 0 else [])
+
+    # ZBL (Ar ions) → must refresh nonargon group after each deposit
+    if spec.ion_mix:
+        _has_zbl = any(SPECIES[c.species]["needs_zbl"] for c in spec.ion_mix)
+    else:
+        _has_zbl = SPECIES[spec.species]["needs_zbl"]
+    nonargon_refresh = f"group       nonargon type 1 2 3\n" if _has_zbl else ""
+
+    dm        = spec.dump_mode
+    dump_cols = "id type x y z vx vy vz fx fy fz q"
+
+    blk = (
+        f"# ========= Begin radical burst deposition"
+        f" ({len(chunks)} chunk(s) × ≤{chunk_size} atoms = {total} total) =========\n"
+        f'if "${{cn_start}} >= 1" then "jump SELF skip_burst"\n'
+        f"\n"
+        f"# Fixed velocity for all burst atoms\n"
+        f"variable    vel_chem_burst equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+        f"variable    vx_burst equal 0.0\n"
+        f"variable    vy_burst equal v_vel_chem_burst*sin(${{rad_angl}}*PI/180)\n"
+        f"variable    vz_burst equal -v_vel_chem_burst*cos(${{rad_angl}}*PI/180)\n"
+        f"timestep    1e-10\n"
+        f"\n"
+    )
+
+    for ci, csize in enumerate(chunks):
+        dump_file = f"etch_event_trajs/event_dump_burst_${{c}}_{ci}.dump"
+
+        # Per-chunk dump open / etch-event / dump close
+        if dm == "none":
+            chunk_dump_open  = ""
+            chunk_dump_close = ""
+            etch_event_line  = (
+                f'if "$(c_nclusts) > ${{burst_nclusts0}}" then &\n'
+                f'"variable event_count equal ${{event_count}}+1" &\n'
+                f'"variable burst_nclusts0 equal $(c_nclusts)"\n'
+            )
+        elif dm == "all":
+            chunk_dump_open  = f"dump        current_dump_burst all custom 100 {dump_file} {dump_cols}\n"
+            chunk_dump_close = f"undump      current_dump_burst\n"
+            etch_event_line  = (
+                f'if "$(c_nclusts) > ${{burst_nclusts0}}" then &\n'
+                f'"variable event_count equal ${{event_count}}+1" &\n'
+                f'"variable burst_nclusts0 equal $(c_nclusts)"\n'
+            )
+        else:  # etch_only
+            chunk_dump_open  = (
+                f"variable    keep_dump_burst equal 0\n"
+                f"dump        current_dump_burst all custom 100 {dump_file} {dump_cols}\n"
+            )
+            chunk_dump_close = (
+                f'if "${{keep_dump_burst}} == 0" then "shell rm {dump_file}"\n'
+                f"undump      current_dump_burst\n"
+            )
+            etch_event_line  = (
+                f'if "$(c_nclusts) > ${{burst_nclusts0}}" then &\n'
+                f'"variable event_count equal ${{event_count}}+1" &\n'
+                f'"variable burst_nclusts0 equal $(c_nclusts)" &\n'
+                f'"variable keep_dump_burst equal 1"\n'
+            )
+
+        # ── All atoms in chunk: narrow z-region at bound(all,zmax)+radical_i_above ──
+        # z_ins{ci} is captured once per chunk; all csize atoms land at the same z.
+        # No 'global' needed — the region sits inside the existing vacuum above the
+        # surface, so the box never grows during deposition.
+        blk += (
+            f"# --- Burst chunk {ci+1}/{len(chunks)}: {csize} atoms (deposit phase) ---\n"
+            f"variable    z_ins{ci} equal bound(all,zmax)+${{radical_i_above}}\n"
+            f"region      bzone{ci} block EDGE EDGE EDGE EDGE "
+            f"$(v_z_ins{ci} - 0.1) $(v_z_ins{ci} + 0.1) units box\n"
+            f"group       insert clear\n"
+            f"group       mobile subtract all anchor\n"
+            f"variable    burst_seed{ci}_1 equal "
+            f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+{ci+1}))\n"
+            f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{ci}_1}} "
+            f"attempt 50 "
+            f"vx ${{vx_burst}} ${{vx_burst}} "
+            f"vy ${{vy_burst}} ${{vy_burst}} "
+            f"vz ${{vz_burst}} ${{vz_burst}} "
+            f"region bzone{ci} near 2.0\n"
+            f"fix         2 mobile nve\n"
+            f"fix         3 insert nve\n"
+            f"run         1 post no\n"
+            f"run         0\n"
+            f"{nonargon_refresh}"
+            f"unfix       burst_depo\n"
+            f"unfix       2\n"
+            f"unfix       3\n"
+        )
+        # ── Atoms 2..csize: same bzone region, same z ─────────────────────────────
+        if csize > 1:
+            blk += (
+                f"variable    burst_lp{ci} loop {csize - 1}\n"
+                f"label       burst_dep_{ci}\n"
+                f"group       insert clear\n"
+                f"group       mobile subtract all anchor\n"
+                f"variable    burst_seed{ci} equal "
+                f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+v_burst_lp{ci}))\n"
+                f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{ci}}} "
+                f"attempt 50 "
+                f"vx ${{vx_burst}} ${{vx_burst}} "
+                f"vy ${{vy_burst}} ${{vy_burst}} "
+                f"vz ${{vz_burst}} ${{vz_burst}} "
+                f"region bzone{ci} near 2.0\n"
+                f"fix         2 mobile nve\n"
+                f"fix         3 insert nve\n"
+                f"run         1 post no\n"
+                f"run         0\n"
+                f"{nonargon_refresh}"
+                f"unfix       burst_depo\n"
+                f"unfix       2\n"
+                f"unfix       3\n"
+                f"next        burst_lp{ci}\n"
+                f"jump        SELF burst_dep_{ci}\n"
+            )
+        blk += (
+            f"region      bzone{ci} delete\n"
+            f"variable    z_ins{ci} delete\n"
+        )
+        # ── Dynamics phase ───────────────────────────────────────────────────────
+        blk += (
+            f"\n"
+            f"# --- Burst chunk {ci+1}/{len(chunks)}: dynamics phase ---\n"
+            f"# All {csize} deposited atoms are now in mobile; run dynamics together\n"
+            f"group       insert clear\n"
+            f"group       mobile subtract all anchor\n"
+            f"fix         2 mobile nve\n"
+            f"fix         3 insert nve\n"
+            f"{chunk_dump_open}"
+            f"fix         ats_burst all dt/reset 1 NULL 1.00 0.01 units box\n"
+            f"variable    t0_burst equal $(time)\n"
+            f"variable    burst_elapsed equal time-${{t0_burst}}\n"
+            f"variable    burst_nclusts0 equal $(c_nclusts)\n"
+            f"fix         burst_thalt all halt 1 v_burst_elapsed > ${{inter_neutral_time}} "
+            f"error continue message yes\n"
+            f"run         0\n"
+            f"label       burst_inner_{ci}\n"
+            f"run         500 pre no post no\n"
+            f"run         0\n"
+            f"{etch_event_line}"
+            f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
+            f'if "$(time-v_t0_burst) < ${{inter_neutral_time}}" then "jump SELF burst_inner_{ci}"\n'
+            f"unfix       burst_thalt\n"
+            f"unfix       ats_burst\n"
+            f"{chunk_dump_close}"
+        )
+        if not spec.skip_radical_thermalization:
+            blk += f"include     thermalize.lmp\n"
+        blk += (
+            f"unfix       2\n"
+            f"unfix       3\n"
+            f"timestep    1e-10\n"
+            f"\n"
+        )
+
+    blk += (
+        f"\n"
+        f"group       carbon type 1\n"
+        f"group       hydrogen type 2\n"
+        f"group       oxygen type 3\n"
+        f"variable    ncarbon equal count(carbon)\n"
+        f"variable    nhydrogen equal count(hydrogen)\n"
+        f"variable    noxygen equal count(oxygen)\n"
+        f"\n"
+        f'print       "Burst complete"\n'
+        f'print       "C_COUNT_burst: ${{ncarbon}}"\n'
+        f'print       "${{c}} 1 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
+        f"write_data  impact_snaps/${{c}}_1.data nofix nocoeff\n"
+        f"\n"
+        f"label       skip_burst\n"
+        f"variable    cn_start equal 0\n"
+        f"variable    cn equal 0\n"
+        f"# ========= End radical burst deposition =========\n"
+        f"\n"
+        f"# Final thermalize before ion impact\n"
+        f"include     thermalize.lmp\n"
+        f"\n"
+        f"# Refresh bbox: thermalize (boundary p p m) may shrink zhi\n"
+        f"region bbox delete\n"
+        f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
+        f"\n"
+    )
+
+    return blk
+
+
 def _build_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
     """Return (ion_dump_open, etch_event_block, channeling_block, ion_dump_close)
     strings for get_head_lmp / get_head_lmp_multi_ion based on dump_mode."""
@@ -485,7 +692,9 @@ def get_head_lmp(spec: SimSpec) -> str:
     lattice_cmd = cfg["lattice_cmd"]
     bottom_expr = cfg["bottom_expr"]
     species = SPECIES[spec.species]
-    is_rie = spec.flux_ratio > 0
+    is_burst     = spec.flux_ratio > 0 and spec.radical_burst
+    is_rie       = spec.flux_ratio > 0 and not spec.radical_burst
+    has_radicals = spec.flux_ratio > 0
 
     # O2 molecule declaration (before the loop)
     molecule_decl = ""
@@ -497,32 +706,37 @@ def get_head_lmp(spec: SimSpec) -> str:
     if species["needs_zbl"]:
         nonargon_regroup = f"group nonargon type 1 2 3\n"
 
-    # RIE-etch: cn (radical counter) restart variables before the loop
+    # RIE/burst: cn (radical counter) restart variables before the loop
     rie_pre_loop = ""
-    if is_rie:
+    if has_radicals:
         rie_pre_loop = (
             f"variable    cn_start equal ${{neut_complete}}\n"
             f"variable    cn equal 0\n"
         )
 
-    # RIE-etch: cn_start reset at top of loop iteration
+    # RIE/burst: cn_start reset at top of loop iteration
     rie_loop_top = ""
-    if is_rie:
+    if has_radicals:
         rie_loop_top = (
             f'if "${{cn_start}} > 0" then "variable cn equal ${{cn_start}}" else "variable cn equal 0"\n'
             f"\n"
         )
 
-    # ncarbon.txt output format: 5-col for RIE-etch, 4-col for ion-etch
-    if is_rie:
+    # ncarbon.txt output format: 5-col for RIE/burst, 4-col for ion-etch
+    if has_radicals:
         ncarbon_print = f'print "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}_0.data nofix nocoeff\n"
     else:
         ncarbon_print = f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}.data nofix nocoeff\n"
 
-    # RIE-etch radical loop block (inserted before the ion deposit section)
-    radical_loop = _radical_loop_block(spec) if is_rie else ""
+    # Radical/burst block (inserted before the ion deposit section)
+    if is_burst:
+        radical_loop = _radical_burst_block(spec)
+    elif is_rie:
+        radical_loop = _radical_loop_block(spec)
+    else:
+        radical_loop = ""
 
     loop_counter_line = f"variable    c equal ${{c}}+1\n"
 
@@ -813,7 +1027,9 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
     mix     = spec.ion_mix
     has_zbl      = any(SPECIES[c.species]["needs_zbl"]   for c in mix)
     has_molecule = any(SPECIES[c.species]["is_molecule"] for c in mix)
-    is_rie       = spec.flux_ratio > 0
+    is_burst     = spec.flux_ratio > 0 and spec.radical_burst
+    is_rie       = spec.flux_ratio > 0 and not spec.radical_burst
+    has_radicals = spec.flux_ratio > 0
 
     # Potential block — Ar mix needs hybrid ZBL; O/O2 mix uses plain ReaxFF
     potential = _potential_block(SPECIES["Ar"] if has_zbl else SPECIES["O"])
@@ -823,7 +1039,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
 
     rie_pre_loop = ""
     rie_loop_top = ""
-    if is_rie:
+    if has_radicals:
         rie_pre_loop = (
             f"variable    cn_start equal ${{neut_complete}}\n"
             f"variable    cn equal 0\n"
@@ -833,14 +1049,19 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
             f"\n"
         )
 
-    if is_rie:
+    if has_radicals:
         ncarbon_print = f'print "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}_0.data nofix nocoeff\n"
     else:
         ncarbon_print = f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}.data nofix nocoeff\n"
 
-    radical_loop    = _radical_loop_block(spec) if is_rie else ""
+    if is_burst:
+        radical_loop = _radical_burst_block(spec)
+    elif is_rie:
+        radical_loop = _radical_loop_block(spec)
+    else:
+        radical_loop = ""
     loop_counter_line = f"variable    c equal ${{c}}+1\n"
 
     ion_dump_open, etch_event_block, channeling_block, ion_dump_close = (
@@ -1100,15 +1321,17 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
     - no addfix replenishment block
     - thin-slab stop condition + SLAB_DEPLETED flag at end
     """
-    species = SPECIES[spec.species]
-    is_rie  = spec.flux_ratio > 0
+    species      = SPECIES[spec.species]
+    is_burst     = spec.flux_ratio > 0 and spec.radical_burst
+    is_rie       = spec.flux_ratio > 0 and not spec.radical_burst
+    has_radicals = spec.flux_ratio > 0
 
     molecule_decl    = "molecule O2 O2.molecule\n" if species["is_molecule"] else ""
     nonargon_regroup = "group nonargon type 1 2 3\n" if species["needs_zbl"] else ""
 
     rie_pre_loop = ""
     rie_loop_top = ""
-    if is_rie:
+    if has_radicals:
         rie_pre_loop = (
             f"variable    cn_start equal ${{neut_complete}}\n"
             f"variable    cn equal 0\n"
@@ -1118,14 +1341,19 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
             f"\n"
         )
 
-    if is_rie:
+    if has_radicals:
         ncarbon_print = f'print "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}_0.data nofix nocoeff\n"
     else:
         ncarbon_print = f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}.data nofix nocoeff\n"
 
-    radical_loop      = _radical_loop_block(spec) if is_rie else ""
+    if is_burst:
+        radical_loop = _radical_burst_block(spec)
+    elif is_rie:
+        radical_loop = _radical_loop_block(spec)
+    else:
+        radical_loop = ""
     loop_counter_line = f"variable    c equal ${{c}}+1\n"
 
     ion_dump_open, etch_event_block, channeling_block, ion_dump_close = (
@@ -1304,7 +1532,9 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
     mix          = spec.ion_mix
     has_zbl      = any(SPECIES[c.species]["needs_zbl"]   for c in mix)
     has_molecule = any(SPECIES[c.species]["is_molecule"] for c in mix)
-    is_rie       = spec.flux_ratio > 0
+    is_burst     = spec.flux_ratio > 0 and spec.radical_burst
+    is_rie       = spec.flux_ratio > 0 and not spec.radical_burst
+    has_radicals = spec.flux_ratio > 0
 
     potential        = _potential_block(SPECIES["Ar"] if has_zbl else SPECIES["O"])
     molecule_decl    = "molecule O2 O2.molecule\n" if has_molecule else ""
@@ -1312,7 +1542,7 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
 
     rie_pre_loop = ""
     rie_loop_top = ""
-    if is_rie:
+    if has_radicals:
         rie_pre_loop = (
             f"variable    cn_start equal ${{neut_complete}}\n"
             f"variable    cn equal 0\n"
@@ -1322,14 +1552,19 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
             f"\n"
         )
 
-    if is_rie:
+    if has_radicals:
         ncarbon_print = f'print "${{c}} 0 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}_0.data nofix nocoeff\n"
     else:
         ncarbon_print = f'print "${{c}} ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
         write_data    = f"write_data impact_snaps/${{c}}.data nofix nocoeff\n"
 
-    radical_loop      = _radical_loop_block(spec) if is_rie else ""
+    if is_burst:
+        radical_loop = _radical_burst_block(spec)
+    elif is_rie:
+        radical_loop = _radical_loop_block(spec)
+    else:
+        radical_loop = ""
     loop_counter_line = f"variable    c equal ${{c}}+1\n"
 
     ion_dump_open, etch_event_block, channeling_block, ion_dump_close = (

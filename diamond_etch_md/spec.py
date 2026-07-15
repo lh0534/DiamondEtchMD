@@ -60,7 +60,7 @@ class CyclePhase:
     radical_angle:          float = 0.0    # deg from normal for fixed-angle radicals
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
-    radical_i_above:       float = 12.0   # Å above surface to inject O• radical
+    radical_i_above:       float = 6.0    # Å above surface to inject O• radical
 
 
 @dataclass
@@ -101,8 +101,10 @@ class SimSpec:
     radical_angle:          float = 0.0    # deg from normal for radicals in fixed-angle mode
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
-    radical_i_above:        float = 12.0   # Å above surface to inject O• radical
+    radical_i_above:        float = 6.0    # Å above surface to inject O• radical
     skip_radical_thermalization: bool = False  # omit thermalize.lmp between successive radicals
+    radical_burst:          bool  = False  # inject flux_ratio O• as a burst instead of one-by-one; mono-energetic fixed-angle only
+    radical_burst_chunk:    int   = 0      # max atoms deposited before running dynamics; 0 = auto (0.5 ML)
     dump_mode:              str   = "all"  # "all" | "etch_only" | "none"
     # ── Cycling mode ──────────────────────────────────────────────────────────
     phases:                 Optional[List[CyclePhase]]    = None  # None = single-species mode
@@ -198,7 +200,7 @@ def etch_mode(spec: "SimSpec") -> str:
     if spec.ion_mix is not None:
         return f"{prefix}multi-rie-etch" if spec.flux_ratio > 0 else f"{prefix}multi-ion-etch"
     if spec.flux_ratio > 0:
-        return f"{prefix}rie-etch"
+        return f"{prefix}burst-rie-etch" if spec.radical_burst else f"{prefix}rie-etch"
     return f"{prefix}ion-etch"
 
 
@@ -211,6 +213,18 @@ def validate(spec: "SimSpec") -> None:
 
     if spec.radical_temperature is not None and spec.radical_temperature <= 0:
         sys.exit(f"radical_temperature must be > 0 K; got {spec.radical_temperature}.")
+
+    if spec.radical_burst:
+        if spec.radical_temperature is not None or spec.radical_angle_distribution:
+            sys.exit(
+                "radical_burst requires mono-energetic fixed-angle mode "
+                "(radical_temperature must be None, radical_angle_distribution must be False)."
+            )
+        if spec.ml <= 0:
+            sys.exit(
+                f"radical_burst requires ml > 0 (got {spec.ml}). "
+                "Set ml explicitly when using burst mode."
+            )
 
     if spec.nice < 1:
         sys.exit(f"nice must be >= 1, got {spec.nice}.")

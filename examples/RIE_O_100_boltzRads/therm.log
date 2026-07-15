@@ -1,0 +1,398 @@
+
+timestep 	0.25
+
+label setuploop
+variable dz equal ceil(($(zhi)-$(zlo))/16) #16 groups max to prevent going over 36 total
+variable dz equal ceil((62.296849568486102555-$(zlo))/16) 
+variable dz equal ceil((62.296849568486102555--4.01106056486613749)/16) 
+if "${dz}<5" then "variable dz equal 5" # minimum lat_a
+variable zbottom equal ceil(${bottom}*${lat_a}/sqrt(2)) # for 001
+variable zbottom equal ceil(-1.125*${lat_a}/sqrt(2)) 
+variable zbottom equal ceil(-1.125*3.5653871687699/sqrt(2)) 
+# variable zbottom equal ceil(${bottom}*${lat_a}*sqrt(3)) # for 111
+variable zbottom0 equal $(v_zbottom)
+variable zbottom0 equal -2
+# =============================== begin thermostat setting loop ==========
+label set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string _$(abs(v_zbottom))
+variable zname string _2
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal -2+${dz}
+variable ztop equal -2+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r_2 block INF INF INF INF ${zbottom} ${ztop} units box
+region r_2 block INF INF INF INF -2 ${ztop} units box
+region r_2 block INF INF INF INF -2 3 units box
+group temp_rgn region r${zname}
+group temp_rgn region r_2
+384 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+384 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g_2 subtract temp_c anchor
+384 atoms in group g_2
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r_2 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g_2)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t_2 g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t_2 g_2 temp/berendsen $T $T $(250*dt)
+fix		    t_2 g_2 temp/berendsen 300 $T $(250*dt)
+fix		    t_2 g_2 temp/berendsen 300 300 $(250*dt)
+fix		    t_2 g_2 temp/berendsen 300 300 62.5
+variable zbottom equal ${ztop}
+variable zbottom equal 3
+jump SELF set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 3
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal 3+${dz}
+variable ztop equal 3+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r3 block INF INF INF INF ${zbottom} ${ztop} units box
+region r3 block INF INF INF INF 3 ${ztop} units box
+region r3 block INF INF INF INF 3 8 units box
+group temp_rgn region r${zname}
+group temp_rgn region r3
+323 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+323 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g3 subtract temp_c anchor
+323 atoms in group g3
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r3 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g3)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t3 g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t3 g3 temp/berendsen $T $T $(250*dt)
+fix		    t3 g3 temp/berendsen 300 $T $(250*dt)
+fix		    t3 g3 temp/berendsen 300 300 $(250*dt)
+fix		    t3 g3 temp/berendsen 300 300 62.5
+variable zbottom equal ${ztop}
+variable zbottom equal 8
+jump SELF set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 8
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal 8+${dz}
+variable ztop equal 8+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r8 block INF INF INF INF ${zbottom} ${ztop} units box
+region r8 block INF INF INF INF 8 ${ztop} units box
+region r8 block INF INF INF INF 8 13 units box
+group temp_rgn region r${zname}
+group temp_rgn region r8
+384 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+384 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g8 subtract temp_c anchor
+384 atoms in group g8
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r8 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g8)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t8 g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t8 g8 temp/berendsen $T $T $(250*dt)
+fix		    t8 g8 temp/berendsen 300 $T $(250*dt)
+fix		    t8 g8 temp/berendsen 300 300 $(250*dt)
+fix		    t8 g8 temp/berendsen 300 300 62.5
+variable zbottom equal ${ztop}
+variable zbottom equal 13
+jump SELF set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 13
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal 13+${dz}
+variable ztop equal 13+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r13 block INF INF INF INF ${zbottom} ${ztop} units box
+region r13 block INF INF INF INF 13 ${ztop} units box
+region r13 block INF INF INF INF 13 18 units box
+group temp_rgn region r${zname}
+group temp_rgn region r13
+321 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+317 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g13 subtract temp_c anchor
+317 atoms in group g13
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r13 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g13)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t13 g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t13 g13 temp/berendsen $T $T $(250*dt)
+fix		    t13 g13 temp/berendsen 300 $T $(250*dt)
+fix		    t13 g13 temp/berendsen 300 300 $(250*dt)
+fix		    t13 g13 temp/berendsen 300 300 62.5
+variable zbottom equal ${ztop}
+variable zbottom equal 18
+jump SELF set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 18
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal 18+${dz}
+variable ztop equal 18+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r18 block INF INF INF INF ${zbottom} ${ztop} units box
+region r18 block INF INF INF INF 18 ${ztop} units box
+region r18 block INF INF INF INF 18 23 units box
+group temp_rgn region r${zname}
+group temp_rgn region r18
+235 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+229 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g18 subtract temp_c anchor
+229 atoms in group g18
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r18 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g18)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t18 g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t18 g18 temp/berendsen $T $T $(250*dt)
+fix		    t18 g18 temp/berendsen 300 $T $(250*dt)
+fix		    t18 g18 temp/berendsen 300 300 $(250*dt)
+fix		    t18 g18 temp/berendsen 300 300 62.5
+variable zbottom equal ${ztop}
+variable zbottom equal 23
+jump SELF set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 23
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal 23+${dz}
+variable ztop equal 23+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r23 block INF INF INF INF ${zbottom} ${ztop} units box
+region r23 block INF INF INF INF 23 ${ztop} units box
+region r23 block INF INF INF INF 23 28 units box
+group temp_rgn region r${zname}
+group temp_rgn region r23
+80 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+68 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g23 subtract temp_c anchor
+68 atoms in group g23
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r23 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g23)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t23 g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t23 g23 temp/berendsen $T $T $(250*dt)
+fix		    t23 g23 temp/berendsen 300 $T $(250*dt)
+fix		    t23 g23 temp/berendsen 300 300 $(250*dt)
+fix		    t23 g23 temp/berendsen 300 300 62.5
+variable zbottom equal ${ztop}
+variable zbottom equal 28
+jump SELF set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 28
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal 28+${dz}
+variable ztop equal 28+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r28 block INF INF INF INF ${zbottom} ${ztop} units box
+region r28 block INF INF INF INF 28 ${ztop} units box
+region r28 block INF INF INF INF 28 33 units box
+group temp_rgn region r${zname}
+group temp_rgn region r28
+7 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+1 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g28 subtract temp_c anchor
+1 atoms in group g28
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r28 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g28)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t28 g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t28 g28 temp/berendsen $T $T $(250*dt)
+fix		    t28 g28 temp/berendsen 300 $T $(250*dt)
+fix		    t28 g28 temp/berendsen 300 300 $(250*dt)
+fix		    t28 g28 temp/berendsen 300 300 62.5
+variable zbottom equal ${ztop}
+variable zbottom equal 33
+jump SELF set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 33
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal 33+${dz}
+variable ztop equal 33+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r33 block INF INF INF INF ${zbottom} ${ztop} units box
+region r33 block INF INF INF INF 33 ${ztop} units box
+region r33 block INF INF INF INF 33 38 units box
+group temp_rgn region r${zname}
+group temp_rgn region r33
+0 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+0 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g33 subtract temp_c anchor
+0 atoms in group g33
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r33 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g33)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+# note thermostat damping is 250x the timestep, 10% of the thermostat time
+# ================================= end thermostat setting loop ==========
+
+# unset empty group and region
+variable zbottom_final equal ${zbottom}
+variable zbottom_final equal 33
+group g${zname} delete
+group g33 delete
+
+# run thermostats
+log ${log_file} append # ok log this part
+log log3.lammps append 
+
+variable zbottom equal ${zbottom0}
+variable zbottom equal -2
+# =============================== begin thermostat UNsetting loop ========
+label unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string _$(abs(v_zbottom))
+variable zname string _2
+unfix t${zname}
+unfix t_2
+group g${zname} delete
+group g_2 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal -2+${dz}
+variable zbottom equal -2+5
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 3
+unfix t${zname}
+unfix t3
+group g${zname} delete
+group g3 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 3+${dz}
+variable zbottom equal 3+5
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 8
+unfix t${zname}
+unfix t8
+group g${zname} delete
+group g8 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 8+${dz}
+variable zbottom equal 8+5
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 13
+unfix t${zname}
+unfix t13
+group g${zname} delete
+group g13 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 13+${dz}
+variable zbottom equal 13+5
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 18
+unfix t${zname}
+unfix t18
+group g${zname} delete
+group g18 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 18+${dz}
+variable zbottom equal 18+5
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 23
+unfix t${zname}
+unfix t23
+group g${zname} delete
+group g23 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 23+${dz}
+variable zbottom equal 23+5
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 28
+unfix t${zname}
+unfix t28
+group g${zname} delete
+group g28 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 28+${dz}
+variable zbottom equal 28+5
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+# ================================= end UNthermostat setting loop ========
+log ${log_file} append
+log log3.lammps append

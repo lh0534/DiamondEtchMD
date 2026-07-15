@@ -293,6 +293,23 @@ Radicals can be injected with fixed or stochastic velocities:
 - **Cosine angles**: set `radical_angle_distribution=True` — polar angle drawn from the Lambert cosine (flux-weighted) distribution, φ uniform. Correct for thermalized species impacting a surface.
 - Both flags are independent and can be combined. Sampled velocities are logged to `radical_log.txt` and plotted in `radical_distribution.png`.
 
+### Burst radical injection
+
+Set `radical_burst=True` to deposit all `flux_ratio` radicals as a burst before each ion impact, instead of one at a time. The burst is split into chunks of `radical_burst_chunk` atoms (default: 0.5 ML); after each chunk, dynamics run for `inter_neutral_time` fs before the next chunk is deposited.
+
+All atoms in a chunk land at the same z height: `bound(all,zmax) + radical_i_above` (evaluated once at the start of each chunk). This uses a narrow LAMMPS region (±0.1 Å) rather than `fix deposit global`, so the simulation box never grows during deposition and all atoms in a chunk start at the same height above the surface.
+
+Key parameters:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `radical_burst` | `False` | Enable burst mode |
+| `radical_burst_chunk` | `0` (auto = 0.5 ML) | Atoms deposited per chunk |
+| `radical_i_above` | `6.0` | Å above current surface top to inject |
+| `skip_radical_thermalization` | `False` | Skip thermalize.lmp between chunks |
+
+Only valid for mono-energetic fixed-angle mode (no `radical_temperature`, no `radical_angle_distribution`).
+
 ---
 
 ## How simulations work
@@ -307,7 +324,7 @@ Each impact event has two steps:
    the simulation runs in the NVE (microcanonical) ensemble, allowing full
    energy transfer without thermostat bias. In RIE-etch and cycle-etch phases
    with `flux_ratio > 0`, `flux_ratio` O• radicals are delivered one at a time
-   before each ion impact.
+   before each ion impact. With `radical_burst=True`, all radicals are deposited as a burst in chunks before the ion.
 
 2. **Thermalisation** — the mobile atoms are thermalised in the NVT (canonical)
    ensemble, returning the substrate to the target temperature. Ar is by default deleted after each impact.

@@ -36,12 +36,12 @@ spec = SimSpec(
     radical_angle_distribution  = True,      # Lambert cosine polar angles
     radical_i_above    = 6.0,                # Å above surface to inject radical
     max_inter_neutral_time = 2000.0,         # fs — cap on per-radical halt time
-
-    impact_time         = 1000.0,
-    thermalization_time = 500.0,
     skip_radical_thermalization=True,
 
-    dump_mode           = "all",             # dump all impacts, not just etch events
+    impact_time         = 500.0,
+    thermalization_time = 500.0,
+
+    dump_mode           = "etch_only",             # dump all impacts, not just etch events
 
     wall_hours     = 24,
     account        = "dgraves",
