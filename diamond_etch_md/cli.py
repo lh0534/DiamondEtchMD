@@ -547,5 +547,70 @@ def status_main():
         print(fmt_row([r[c] for c in cols]))
 
 
+def view_main():
+    """Entry point for diamond-etch-md-view.
+
+    Creates (or refreshes) a viewing/ directory inside each simulation run folder,
+    populating it with symlinks to the most-recent ion-impact and radical dumps
+    from etch_event_trajs/.  Re-running clears old links before creating new ones.
+
+    Dump patterns recognised:
+        ion      — event_dump_<N>.dump   (digit immediately after event_dump_)
+        radical  — event_dump_n*.dump    (non-burst)
+                   event_dump_burst_*.dump (burst mode)
+
+    Usage:
+        diamond-etch-md-view [run_dir ...] [-n N]
+    """
+    import argparse
+    import re
+
+    vp = argparse.ArgumentParser(
+        description="Symlink the latest ion and radical dump files into <run_dir>/viewing/.",
+    )
+    vp.add_argument(
+        "run_dirs", nargs="*", default=["."],
+        help="Simulation run directory/directories (default: current directory)",
+    )
+    vp.add_argument(
+        "-n", "--num", type=int, default=10,
+        help="Number of most-recent dumps to link for each type (default: 10)",
+    )
+    args = vp.parse_args()
+
+    _ion_pat = re.compile(r"^event_dump_\d+\.dump$")
+
+    for raw in args.run_dirs:
+        run_dir = Path(raw).resolve()
+        trajs   = run_dir / "etch_event_trajs"
+        viewing = run_dir / "viewing"
+
+        if not trajs.is_dir():
+            print(f"{run_dir.name}: no etch_event_trajs/ found, skipping")
+            continue
+
+        viewing.mkdir(exist_ok=True)
+
+        for link in viewing.iterdir():
+            if link.is_symlink():
+                link.unlink()
+
+        all_dumps = sorted(trajs.glob("event_dump_*.dump"), key=lambda p: p.stat().st_mtime)
+
+        ion_dumps     = [p for p in all_dumps if _ion_pat.match(p.name)]
+        radical_dumps = [p for p in all_dumps if not _ion_pat.match(p.name)]
+
+        selected = ion_dumps[-args.num:] + radical_dumps[-args.num:]
+
+        for src in selected:
+            (viewing / src.name).symlink_to(src)
+
+        print(
+            f"{run_dir.name}: viewing/ refreshed — "
+            f"{min(len(ion_dumps), args.num)} ion, "
+            f"{min(len(radical_dumps), args.num)} radical dumps"
+        )
+
+
 if __name__ == "__main__":
     main()

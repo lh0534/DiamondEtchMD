@@ -3,9 +3,10 @@ timestep 	0.25
 
 label setuploop
 variable dz equal ceil(($(zhi)-$(zlo))/16) #16 groups max to prevent going over 36 total
-variable dz equal ceil((62.296849568486102555-$(zlo))/16) 
-variable dz equal ceil((62.296849568486102555--4.01106056486613749)/16) 
+variable dz equal ceil((50.868587818237422482-$(zlo))/16) 
+variable dz equal ceil((50.868587818237422482--4.01106056486613749)/16) 
 if "${dz}<5" then "variable dz equal 5" # minimum lat_a
+variable dz equal 5
 variable zbottom equal ceil(${bottom}*${lat_a}/sqrt(2)) # for 001
 variable zbottom equal ceil(-1.125*${lat_a}/sqrt(2)) 
 variable zbottom equal ceil(-1.125*3.5653871687699/sqrt(2)) 
@@ -63,12 +64,12 @@ region r3 block INF INF INF INF 3 ${ztop} units box
 region r3 block INF INF INF INF 3 8 units box
 group temp_rgn region r${zname}
 group temp_rgn region r3
-323 atoms in group temp_rgn
+320 atoms in group temp_rgn
 group temp_c intersect temp_rgn carbon
-323 atoms in group temp_c
+320 atoms in group temp_c
 group g${zname} subtract temp_c anchor
 group g3 subtract temp_c anchor
-323 atoms in group g3
+320 atoms in group g3
 group temp_c delete
 group temp_rgn delete
 region r${zname} delete
@@ -99,12 +100,12 @@ region r8 block INF INF INF INF 8 ${ztop} units box
 region r8 block INF INF INF INF 8 13 units box
 group temp_rgn region r${zname}
 group temp_rgn region r8
-391 atoms in group temp_rgn
+384 atoms in group temp_rgn
 group temp_c intersect temp_rgn carbon
-390 atoms in group temp_c
+384 atoms in group temp_c
 group g${zname} subtract temp_c anchor
 group g8 subtract temp_c anchor
-390 atoms in group g8
+384 atoms in group g8
 group temp_c delete
 group temp_rgn delete
 region r${zname} delete
@@ -135,12 +136,12 @@ region r13 block INF INF INF INF 13 ${ztop} units box
 region r13 block INF INF INF INF 13 18 units box
 group temp_rgn region r${zname}
 group temp_rgn region r13
-314 atoms in group temp_rgn
+321 atoms in group temp_rgn
 group temp_c intersect temp_rgn carbon
-309 atoms in group temp_c
+321 atoms in group temp_c
 group g${zname} subtract temp_c anchor
 group g13 subtract temp_c anchor
-309 atoms in group g13
+321 atoms in group g13
 group temp_c delete
 group temp_rgn delete
 region r${zname} delete
@@ -171,12 +172,12 @@ region r18 block INF INF INF INF 18 ${ztop} units box
 region r18 block INF INF INF INF 18 23 units box
 group temp_rgn region r${zname}
 group temp_rgn region r18
-199 atoms in group temp_rgn
+385 atoms in group temp_rgn
 group temp_c intersect temp_rgn carbon
-187 atoms in group temp_c
+385 atoms in group temp_c
 group g${zname} subtract temp_c anchor
 group g18 subtract temp_c anchor
-187 atoms in group g18
+385 atoms in group g18
 group temp_c delete
 group temp_rgn delete
 region r${zname} delete
@@ -207,12 +208,12 @@ region r23 block INF INF INF INF 23 ${ztop} units box
 region r23 block INF INF INF INF 23 28 units box
 group temp_rgn region r${zname}
 group temp_rgn region r23
-88 atoms in group temp_rgn
+327 atoms in group temp_rgn
 group temp_c intersect temp_rgn carbon
-75 atoms in group temp_c
+319 atoms in group temp_c
 group g${zname} subtract temp_c anchor
 group g23 subtract temp_c anchor
-75 atoms in group g23
+319 atoms in group g23
 group temp_c delete
 group temp_rgn delete
 region r${zname} delete
@@ -243,12 +244,12 @@ region r28 block INF INF INF INF 28 ${ztop} units box
 region r28 block INF INF INF INF 28 33 units box
 group temp_rgn region r${zname}
 group temp_rgn region r28
-7 atoms in group temp_rgn
+143 atoms in group temp_rgn
 group temp_c intersect temp_rgn carbon
-4 atoms in group temp_c
+82 atoms in group temp_c
 group g${zname} subtract temp_c anchor
 group g28 subtract temp_c anchor
-4 atoms in group g28
+82 atoms in group g28
 group temp_c delete
 group temp_rgn delete
 region r${zname} delete
@@ -304,7 +305,7 @@ group g33 delete
 
 # run thermostats
 log ${log_file} append # ok log this part
-log log4.lammps append 
+log log6.lammps append 
 
 variable zbottom equal ${zbottom0}
 variable zbottom equal -2
@@ -395,4 +396,4 @@ variable zbottom equal 28+5
 if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
 # ================================= end UNthermostat setting loop ========
 log ${log_file} append
-log log4.lammps append
+log log6.lammps append
