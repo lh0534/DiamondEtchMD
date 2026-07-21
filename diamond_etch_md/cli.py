@@ -612,5 +612,264 @@ def view_main():
         )
 
 
+def render_main():
+    """Entry point for diamond-etch-md-render.
+
+    Renders a LAMMPS dump file to an mp4 video using an OVITO session file for
+    visualization settings (modifiers, camera, colors).  Runs locally in
+    parallel (good for vis nodes) or submits a SLURM batch job.
+
+    Usage:
+        diamond-etch-md-render dump.dump --config scene.ovito
+        diamond-etch-md-render dump.dump --config scene.ovito --frames 200
+        diamond-etch-md-render dump.dump --config scene.ovito --interactive
+        diamond-etch-md-render dump.dump --config scene.ovito --slurm --cores 32
+    """
+    import os, sys
+    _ANA_LIB = "/usr/licensed/anaconda3/2024.10/lib"
+    if _ANA_LIB not in os.environ.get("LD_LIBRARY_PATH", ""):
+        os.environ["LD_LIBRARY_PATH"] = _ANA_LIB + ":" + os.environ.get("LD_LIBRARY_PATH", "")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    import argparse, warnings
+    from .render import render_local, render_slurm, patch_ovito_scene, interactive_adjust
+
+    rp = argparse.ArgumentParser(
+        description="Render a LAMMPS dump file to mp4 via OVITO.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    rp.add_argument("dump", help="LAMMPS dump file to render")
+    rp.add_argument(
+        "--config", required=True, metavar="OVITO_FILE",
+        help="OVITO session file (.ovito) with pipeline/camera settings",
+    )
+    rp.add_argument(
+        "--output", default=None, metavar="FILE",
+        help="Output video path (default: <dump_dir>/<dump_stem>.mp4)",
+    )
+    rp.add_argument(
+        "--fps", type=int, default=15,
+        help="Frames per second in output video (default: 15)",
+    )
+    rp.add_argument(
+        "--stride", type=int, default=1, metavar="N",
+        help="Render every Nth dump frame (default: 1 = all)",
+    )
+    rp.add_argument(
+        "--start-frame", type=int, default=0, dest="start_frame", metavar="N",
+        help="First dump frame to include (default: 0)",
+    )
+    rp.add_argument(
+        "--end-frame", type=int, default=None, dest="end_frame", metavar="N",
+        help="Last dump frame to include, inclusive (default: last)",
+    )
+    rp.add_argument(
+        "--frames", type=int, default=None, metavar="N",
+        help="Render only the first N frames (shorthand for --end-frame N-1)",
+    )
+    rp.add_argument(
+        "--interactive", action="store_true",
+        help="Render first+last frames and prompt for zoom/z adjustments before full render",
+    )
+    rp.add_argument(
+        "--cores", type=int, default=None,
+        help="Parallel workers (default: 4 local, 16 SLURM)",
+    )
+    rp.add_argument(
+        "--slurm", action="store_true",
+        help="Submit as a SLURM batch job instead of running locally",
+    )
+    rp.add_argument(
+        "--account", default="dgraves",
+        help="SLURM account (default: dgraves)",
+    )
+    rp.add_argument(
+        "--wall-hours", type=int, default=1, dest="wall_hours",
+        help="SLURM wall-clock limit in hours (default: 1)",
+    )
+    rp.add_argument(
+        "--mem", type=int, default=32, metavar="GB",
+        help="SLURM memory request in GB (default: 32)",
+    )
+    args = rp.parse_args()
+
+    dump_arg = Path(args.dump)                 # keep original (may be a symlink)
+    dump     = dump_arg.resolve()              # real path for OVITO to read
+    config   = Path(args.config).resolve()
+    if args.output:
+        output  = Path(args.output).resolve()
+        viz_dir = output.parent
+    else:
+        # Put the visualization dir next to where the dump *appears* (symlink
+        # location), not next to the real file it points to.
+        viz_dir = (dump_arg.parent / (dump_arg.stem + "_visualization")).resolve()
+        output  = viz_dir / (dump_arg.stem + ".mp4")
+    viz_dir.mkdir(parents=True, exist_ok=True)
+
+    if not dump.exists():
+        print(f"Error: dump file not found: {dump}")
+        return
+    if not config.exists():
+        print(f"Error: ovito config not found: {config}")
+        return
+
+    # Determine frame list
+    import tempfile
+    patched = Path(tempfile.mktemp(suffix=".ovito"))
+    patch_ovito_scene(config, patched)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import ovito
+        ovito.scene.load(str(patched))
+        p = ovito.scene.pipelines[0]
+        p.source.load(str(dump))
+        total      = p.source.num_frames
+        _vp0       = ovito.scene.viewports.active_vp
+        base_fov   = float(_vp0.fov)
+        base_cam_z = float(_vp0.camera_pos[2])
+
+    end = args.end_frame
+    if args.frames is not None:
+        end = args.frames - 1
+    if end is None or end >= total:
+        end = total - 1
+
+    start_fr = args.start_frame
+    end_fr   = min(end, total - 1)
+    stride   = args.stride
+
+    # Show frame count + duration; let user adjust stride and fps before committing
+    print(f"\n  Dump: {dump.name}  ({total} frames total)")
+    while True:
+        frames_to_render = list(range(start_fr, end_fr + 1, stride))
+        duration = len(frames_to_render) / args.fps
+        mins, secs = divmod(duration, 60)
+        print(f"  Frames : {len(frames_to_render)}  "
+              f"(every {stride}th, indices {frames_to_render[0]}–{frames_to_render[-1]})")
+        print(f"  Video  : {duration:.1f}s  ({int(mins)}m {secs:.0f}s)  @ {args.fps} fps")
+        try:
+            raw_stride = input(f"  Stride [{stride}]    (enter to keep): ").strip()
+            raw_fps    = input(f"  FPS    [{args.fps}] (enter to keep): ").strip()
+        except EOFError:
+            break
+        if not raw_stride and not raw_fps:
+            break
+        if raw_stride:
+            try:
+                v = int(raw_stride)
+                if v >= 1:
+                    stride = v
+                else:
+                    print("  Stride must be ≥ 1.")
+            except ValueError:
+                print("  Invalid stride — enter a positive integer.")
+        if raw_fps:
+            try:
+                v = int(raw_fps)
+                if v >= 1:
+                    args.fps = v
+                else:
+                    print("  FPS must be ≥ 1.")
+            except ValueError:
+                print("  Invalid fps — enter a positive integer.")
+
+    # Auto-compute z shift: place the highest diamond-structured carbon atom 10% from
+    # the top of the frame.  Uses the scene pipeline so IdentifyDiamondModifier runs.
+    # Zoom stays at 1.0 (scene camera width already correct; user adjusts interactively).
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import numpy as np
+
+        def _highest_diamond_z(frame_idx):
+            data = p.compute(frame=frame_idx)
+            z    = data.particles.positions[:, 2]
+            try:
+                types  = data.particles['Particle Type'].array
+                struct = data.particles['Structure Type'].array
+                diam_z = z[(types == 1) & (struct >= 1)]
+                if len(diam_z) > 0:
+                    return float(diam_z.max())
+            except Exception:
+                pass
+            return float(np.percentile(z, 95))
+
+        zdiam_0 = _highest_diamond_z(frames_to_render[0])
+        zdiam_l = _highest_diamond_z(frames_to_render[-1])
+
+    # Place the crystalline/amorphous interface (highest diamond C) near the
+    # bottom of the frame and track it as the surface etches downward.
+    #
+    # Viewport geometry (empirically calibrated from rendered frames):
+    #   - Higher atom z → higher in image (Z not inverted)
+    #   - Positive z_shift lifts camera → viewing window rises → atom moves DOWN in frame
+    #   - Orbit center ≈ bounding-box z midpoint; fov_eff ≈ 2.42 × vp.fov
+    #   - fraction_from_bottom = 0.5 + (zdiam − z_orbit) / fov_eff
+    #
+    # Solve for z_shift so zdiam_0 lands at BOT_FRAC from the bottom:
+    #   z_shift = (fraction_current − BOT_FRAC) × fov_eff
+    BOT_FRAC     = 0.15
+    # fov_eff ≈ vp.fov: the reported fov is the full visible height in world units.
+    # z_orbit: use simulation cell midpoint (more stable than particle bbox).
+    # Positive z_shift lifts camera → viewport window rises → atoms appear lower.
+    fov_eff      = base_fov
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _d0      = p.compute(frame=frames_to_render[0])
+        _cell    = _d0.cell.matrix          # (3,4): cols 0-2 = cell vectors, col 3 = origin
+        z_lo     = float(_cell[2, 3])
+        z_hi     = float(_cell[2, 3] + _cell[2, 2])
+        z_orbit  = (z_lo + z_hi) / 2
+    frac_0       = 0.5 + (zdiam_0 - z_orbit) / fov_eff
+    auto_zoom_start = 1.0
+    auto_zoom_end   = 1.0
+    auto_z_start = (frac_0 - BOT_FRAC) * fov_eff
+    auto_z_end   = auto_z_start + (zdiam_l - zdiam_0)
+    print(f"  Camera: pos_z={base_cam_z:.3f}  fov={base_fov:.4f}")
+    print(f"  Cell z: {z_lo:.1f} → {z_hi:.1f}  orbit_z={z_orbit:.1f}")
+    print(f"  Highest diamond C: {zdiam_0:.3f} → {zdiam_l:.3f}  (Δ={zdiam_l-zdiam_0:+.3f})")
+    print(f"  Auto z_shift: {auto_z_start:.2f} → {auto_z_end:.2f} Å  "
+          f"(predicted surface at ~{frac_0:.0%}→{BOT_FRAC:.0%} from bottom)")
+
+    # Interactive camera adjustment (auto values as starting defaults)
+    zoom_start, zoom_end = auto_zoom_start, auto_zoom_end
+    z_start, z_end       = auto_z_start, auto_z_end
+    if args.interactive:
+        preview_dir = viz_dir
+        zoom_start, z_start, zoom_end, z_end = interactive_adjust(
+            patched, dump, preview_dir,
+            f_first=frames_to_render[0], f_last=frames_to_render[-1],
+            zoom_start_default=auto_zoom_start, z_start_default=auto_z_start,
+            zoom_end_default=auto_zoom_end,     z_end_default=auto_z_end)
+
+    patched.unlink(missing_ok=True)
+
+    # Final confirmation
+    print(f"\n  Output : {output}")
+    try:
+        ans = input("  Proceed? [y/n]: ").strip().lower()
+    except EOFError:
+        ans = "y"
+    if ans not in ("y", "yes", ""):
+        print("  Cancelled.")
+        return
+
+    if args.slurm:
+        cores = args.cores or 16
+        render_slurm(dump, config, output,
+                     fps=args.fps, cores=cores,
+                     frames_to_render=frames_to_render,
+                     zoom_start=zoom_start, zoom_end=zoom_end,
+                     z_start=z_start, z_end=z_end,
+                     account=args.account, wall_hours=args.wall_hours,
+                     mem_gb=args.mem)
+    else:
+        cores = args.cores or 4
+        render_local(dump, config, output,
+                     fps=args.fps, cores=cores,
+                     frames_to_render=frames_to_render,
+                     zoom_start=zoom_start, zoom_end=zoom_end,
+                     z_start=z_start, z_end=z_end)
+
+
 if __name__ == "__main__":
     main()

@@ -27,6 +27,7 @@ diamond-etch-md-ale    = "diamond_etch_md.cli:ale_main"
 diamond-etch-md-plot   = "diamond_etch_md.cli:plot_main"
 diamond-etch-md-status = "diamond_etch_md.cli:status_main"
 diamond-etch-md-view   = "diamond_etch_md.cli:view_main"
+diamond-etch-md-render = "diamond_etch_md.cli:render_main"
 
 [tool.setuptools.packages.find]
 where = ["."]

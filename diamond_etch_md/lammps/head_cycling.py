@@ -85,6 +85,7 @@ def _potential_block(has_ar: bool) -> str:
             f'"pair_coeff 2 4 zbl 1.0 18.0" &\n'
             f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
             f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
+            f'"group nonargon type 1 2 3" &\n'
             f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
     else:
@@ -145,6 +146,7 @@ def _phase_selection_block(phases: list, has_ar: bool,
     """
     N = len(phases)
     lines = []
+    has_any_radicals = any(p.flux_ratio > 0 for p in phases)
 
     # Default: last phase
     last = phases[-1]
@@ -157,7 +159,8 @@ def _phase_selection_block(phases: list, has_ar: bool,
     lines.append(f"variable current_ion_energy equal ${{phase_{N-1}_energy}}\n")
     lines.append(f"variable current_M_ion equal ${{{last_sp['mass_var']}}}\n")
     lines.append(f"variable current_flux_ratio equal ${{phase_{N-1}_flux_ratio}}\n")
-    lines.append(f"variable current_radical_energy equal ${{phase_{N-1}_radical_energy}}\n")
+    if has_any_radicals:
+        lines.append(f"variable current_radical_energy equal ${{phase_{N-1}_radical_energy}}\n")
     lines.append(f"variable current_rad_angl equal {rad_angl_v}\n")
     lines.append(f"variable current_inter_neutral_time equal {inter_t_v}\n")
     if has_ar:
@@ -185,6 +188,9 @@ def _phase_selection_block(phases: list, has_ar: bool,
             f' &\n"variable current_needs_zbl equal '
             f'{1 if sp["needs_zbl"] else 0}"'
         ) if switch_potential else ""
+        radical_energy_line = (
+            f'"variable current_radical_energy equal ${{phase_{i}_radical_energy}}" &\n'
+        ) if has_any_radicals else ""
         lines.append(
             f'if "${{idx_in_cycle}} < ${{phase_{i}_end}}" then &\n'
             f'"variable current_ion_type equal {sp["type_index"]}" &\n'
@@ -192,7 +198,7 @@ def _phase_selection_block(phases: list, has_ar: bool,
             f'"variable current_ion_energy equal ${{phase_{i}_energy}}" &\n'
             f'"variable current_M_ion equal ${{{sp["mass_var"]}}}" &\n'
             f'"variable current_flux_ratio equal ${{phase_{i}_flux_ratio}}" &\n'
-            f'"variable current_radical_energy equal ${{phase_{i}_radical_energy}}" &\n'
+            f"{radical_energy_line}"
             f'"variable current_rad_angl equal {rad_angl_v}" &\n'
             f'"variable current_inter_neutral_time equal {inter_t_v}"'
             f"{removal_line}"

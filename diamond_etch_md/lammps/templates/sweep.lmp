@@ -1,6 +1,8 @@
 # Identify and remove ejected clusters.
-# A cluster is an etch product only if its CoM z is above ALL remaining atoms
-# (not just the anchor cluster) and it has a positive z velocity.
+# A cluster is an etch product only if its CoM z is above all confirmed-surface
+# atoms (anchor cluster + prior non-leaving clusters) and it has a positive z velocity.
+# Using the `checked` group rather than `all - candidate` avoids a deadlock where
+# two simultaneously ejected clusters each prevent the other from being swept.
 group       unchecked union all all
 compute     surf_clust_num anchor reduce min c_clusts
 compute     max_unchecked_clust_num unchecked reduce max c_clusts
@@ -21,10 +23,10 @@ run 0 post no
 
 group       small_clust variable in_small_clust
 
-# max z of every atom NOT in the candidate cluster — the true ejection threshold
-group       rest subtract all small_clust
-compute     top_rest rest reduce max z
-# include c_top_rest in thermo so LAMMPS evaluates it during run 0
+# max z of confirmed-surface atoms (surface cluster + prior non-leaving clusters).
+# Using `checked` rather than `all - small_clust` prevents simultaneously ejected
+# clusters from raising each other's ejection threshold and deadlocking.
+compute     top_rest checked reduce max z
 thermo_style custom c_max_unchecked_clust_num c_top_rest
 run 0 post no
 
@@ -47,7 +49,6 @@ if "$(xcm(small_clust,z) > c_top_rest) && $(vcm(small_clust,z) > 0) && $(count(s
 else "group checked union checked small_clust"
 
 uncompute top_rest
-group rest delete
 group small_clust clear
 group clust_carbon clear
 group clust_hydrogen clear
