@@ -1,0 +1,28 @@
+# DiamondEtchMD generated config (single-impact statistics mode)
+# species=Ar  energy=50.0eV  ion_angle=0.0deg  T=300.0K
+# n_trials=100  randomize_velocities=True
+
+variable    n_trials equal 100
+
+variable    energ equal 50.0     # incident energy per atom (eV)
+variable    ion_angl equal 0.0   # ion beam angle (deg from normal)
+variable    T equal 300.0    # substrate temperature (K)
+variable    pot string REAX
+
+variable    impact_time equal 1000.0
+variable    thermalization_time equal 500.0
+
+variable    M_C equal 12.011
+variable    M_H equal 1.00784
+variable    M_O equal 16.0
+variable    M_Ar equal 39.948
+variable    M_incident equal ${M_Ar}
+variable    incident_type_index equal 4  # Ar
+variable    i_above equal 6.0    # Å above surface to inject ion
+
+variable    seed_adjust equal 0
+variable    simdepo equal 1
+
+variable    anchor_z_max equal 7.0
+variable    bottom equal 7.0   # Å; for thermalize.lmp zbottom formula
+variable    lat_a equal 1.4142136           # sqrt(2) → zbottom = ceil(bottom) Å

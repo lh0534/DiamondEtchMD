@@ -17,7 +17,7 @@ def test_make_sim_creates_expected_files(tmp_path):
         surface="1x1",
         species="O",
         energy=0.5,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=3,
         name="smoke_test",
@@ -41,7 +41,7 @@ def test_make_sim_config_matches_spec(tmp_path):
         surface="1x1",
         species="O",
         energy=1.5,
-        temperature=600.0,
+        surface_temperature=600.0,
         ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=3,
         name="config_check",
@@ -61,7 +61,7 @@ def test_make_sim_submit_matches_spec(tmp_path):
         surface="1x1",
         species="O",
         energy=0.5,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=81,
         wall_hours=48,
         name="submit_check",
@@ -80,7 +80,7 @@ def test_make_sim_111_pandey(tmp_path):
         surface="2x1_pandey",
         species="O",
         energy=1.0,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("111", 5, 9),
         box_x=5, box_y=9, box_depth=3,
         name="111_pandey",
@@ -97,7 +97,7 @@ def test_make_sim_111_pandey_O(tmp_path):
         surface="2x1_pandey_O",
         species="O",
         energy=1.0,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("111", 5, 9),
         box_x=5, box_y=9, box_depth=3,
         name="111_pandey_O",
@@ -113,7 +113,7 @@ def test_make_sim_Ar(tmp_path):
         surface="1x1",
         species="Ar",
         energy=100.0,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=3,
         name="Ar_test",
@@ -138,7 +138,7 @@ def test_make_sim_O2(tmp_path):
         surface="1x1",
         species="O2",
         energy=100.0,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=3,
         name="O2_test",
@@ -162,7 +162,7 @@ def test_make_sim_110(tmp_path):
         surface="O",
         species="O",
         energy=0.5,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("110", 4, 6),
         box_x=4, box_y=6, box_depth=5,
         name="110_O",
@@ -181,7 +181,7 @@ def test_make_sim_113(tmp_path):
         surface="",
         species="O",
         energy=0.5,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("113", 9, 3),
         box_x=9, box_y=3, box_depth=3,
         name="113_bare",
@@ -198,7 +198,7 @@ def test_make_sim_113_O(tmp_path):
         surface="O",
         species="O",
         energy=0.5,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("113", 9, 3),
         box_x=9, box_y=3, box_depth=3,
         name="113_O",
@@ -216,7 +216,7 @@ def test_make_sim_rie_etch_creates_expected_files(tmp_path):
         surface="1x1",
         species="O",
         energy=20.0,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=5,
         flux_ratio=5,
@@ -251,7 +251,7 @@ def test_make_sim_rie_etch_config(tmp_path):
         surface="1x1",
         species="O",
         energy=20.0,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=5,
         flux_ratio=5,
@@ -270,7 +270,7 @@ def test_make_sim_rie_etch_head(tmp_path):
         surface="1x1",
         species="O",
         energy=20.0,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=5,
         flux_ratio=5,
@@ -290,7 +290,7 @@ def test_make_sim_rie_etch_submit(tmp_path):
         surface="1x1",
         species="O",
         energy=20.0,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 9, 9),
         flux_ratio=5,
         name="rie_submit",
@@ -307,7 +307,7 @@ def test_make_ale_2phase_succeeds(tmp_path):
     spec = SimSpec(
         orientation="100",
         surface="O_ether",
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 8, 8),
         box_x=8, box_y=8, box_depth=5,
         phases=[
@@ -321,6 +321,20 @@ def test_make_ale_2phase_succeeds(tmp_path):
     make_ale(spec, outdir)
     assert (outdir / "head.lmp").exists()
     assert (outdir / "config.lmp").exists()
+
+
+def test_single_impact_sweep_symlinks_to_single_impact_variant(tmp_path):
+    """sweep.lmp in a single-impact dir must point to sweep_single_impact.lmp."""
+    spec = SimSpec(
+        orientation="100", surface="1x1", species="Ar",
+        energy=50.0, ml=81, box_x=9, box_y=9, box_depth=3,
+        single_impact=True, n_trials=5, name="si_sweep_test",
+    )
+    outdir = tmp_path / "si"
+    make_sim(spec, outdir)
+    sweep = outdir / "sweep.lmp"
+    assert sweep.is_symlink(), "sweep.lmp should be a symlink"
+    assert sweep.resolve().name == "sweep_single_impact.lmp"
 
 
 def test_make_ale_no_phases_fails(tmp_path):

@@ -129,16 +129,16 @@ def test_simspec_defaults():
     s = SimSpec()
     assert s.orientation == "100"
     assert s.surface == "1x1"
-    assert s.temperature == 300.0
+    assert s.surface_temperature == 300.0
     assert s.species == "O"
     assert s.energy == 0.5
-    assert s.angle == 0.0
+    assert s.ion_angle == 0.0
     assert s.fluence == 50
     assert s.ml == 0
     assert s.box_x == 9
     assert s.box_y == 9
     assert s.box_depth == 3
-    assert s.impact_time == 2000.0
+    assert s.impact_time == 1000.0
     assert s.thermalization_time == 500.0
     assert s.wall_hours == 24
     assert s.name == ""
@@ -205,10 +205,10 @@ def test_simspec_custom_fields():
     s = SimSpec(
         orientation="113",
         surface="O",
-        temperature=500.0,
+        surface_temperature=500.0,
         species="O",
         energy=2.0,
-        angle=15.0,
+        ion_angle=15.0,
         fluence=100,
         ml=108,
         box_x=9,

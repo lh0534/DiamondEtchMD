@@ -30,7 +30,7 @@ def sim_dir(tmp_path):
         surface="1x1",
         species="O",
         energy=0.5,
-        temperature=300.0,
+        surface_temperature=300.0,
         ml=compute_ml("100", 9, 9),
         box_x=9, box_y=9, box_depth=3,
         fluence=1,

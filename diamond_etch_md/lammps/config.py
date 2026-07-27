@@ -305,6 +305,94 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
     )
 
 
+def get_config_lmp_single_impact(spec: SimSpec) -> str:
+    """Generate config.lmp for single-impact statistics mode.
+
+    Works for both the crystal-builder path (initial_config_file is None) and the
+    carbon-etch path.  n_trials replaces end_fluence as the loop termination counter.
+    """
+    is_carbon = spec.initial_config_file is not None
+    species   = SPECIES[spec.species]
+    energy_per_atom = spec.energy / species["energy_divisor"]
+
+    common = (
+        f"# DiamondEtchMD generated config (single-impact statistics mode)\n"
+        f"# species={spec.species}  energy={spec.energy}eV"
+        f"  ion_angle={spec.ion_angle}deg  T={spec.surface_temperature}K\n"
+        f"# n_trials={spec.n_trials}"
+        f"  randomize_velocities={spec.randomize_velocities}\n"
+        f"\n"
+        f"variable    n_trials equal {spec.n_trials}\n"
+        f"\n"
+        f"variable    energ equal {energy_per_atom}     # incident energy per atom (eV)\n"
+        f"variable    ion_angl equal {spec.ion_angle}   # ion beam angle (deg from normal)\n"
+        f"variable    T equal {spec.surface_temperature}    # substrate temperature (K)\n"
+        f"variable    pot string REAX\n"
+        f"\n"
+        f"variable    impact_time equal {spec.impact_time}\n"
+        f"variable    thermalization_time equal {spec.thermalization_time}\n"
+        f"\n"
+        f"variable    M_C equal 12.011\n"
+        f"variable    M_H equal 1.00784\n"
+        f"variable    M_O equal 16.0\n"
+        f"variable    M_Ar equal 39.948\n"
+        f"variable    M_incident equal ${{{species['mass_var']}}}\n"
+        f"variable    incident_type_index equal {species['type_index']}  # {spec.species}\n"
+        f"variable    i_above equal {species['i_above']}    # Å above surface to inject ion\n"
+        f"\n"
+        f"variable    seed_adjust equal {spec.seed_adjust}\n"
+        f"variable    simdepo equal 1\n"
+    )
+
+    if is_carbon:
+        _sqrt2 = math.sqrt(2)
+        geom = (
+            f"\n"
+            f"variable    anchor_z_max equal {spec.anchor_z_max}\n"
+            f"variable    bottom equal {spec.anchor_z_max}   # Å; for thermalize.lmp zbottom formula\n"
+            f"variable    lat_a equal {_sqrt2:.7f}           # sqrt(2) → zbottom = ceil(bottom) Å\n"
+        )
+    else:
+        surf      = ORIENT[spec.orientation]["surfaces"][spec.surface]
+        recon_flag = "true" if surf["reconstruct"] else "false"
+        o_flag     = "true" if surf["O_terminate"] else "false"
+        o_eth_flag = "true" if surf["O_ether"]     else "false"
+        geom = (
+            f"\n"
+            f'if "${{pot}} == REAX" then &\n'
+            f'"variable    lat_a file lat_a.txt"\n'
+            f"\n"
+            f"variable    x equal {spec.box_x}\n"
+            f"variable    y equal {spec.box_y}\n"
+            f"variable    lat_top equal {spec.box_depth}\n"
+            f"variable    z equal ${{lat_top}}+5\n"
+            f"\n"
+            f"variable    reconstruct equal {recon_flag}\n"
+            f"variable    O_terminate equal {o_flag}\n"
+            f"variable    O_ether_terminate equal {o_eth_flag}\n"
+        )
+
+    cfg = common + geom
+
+    if spec.flux_ratio > 0:
+        cfg += (
+            f"\n"
+            f"# RIE pre-exposure: {spec.flux_ratio} O• radicals per trial\n"
+            + _radical_config_block(
+                flux_ratio=spec.flux_ratio,
+                radical_energy=spec.radical_energy,
+                radical_temperature=spec.radical_temperature,
+                radical_angle=spec.radical_angle,
+                radical_angle_distribution=spec.radical_angle_distribution,
+                max_inter_neutral_time=spec.max_inter_neutral_time,
+                radical_i_above=spec.radical_i_above,
+                inter_neutral_time=spec.inter_neutral_time,
+            )
+        )
+
+    return cfg
+
+
 def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
     """Generate config.lmp for carbon-etch mode (any sub-mode).
 

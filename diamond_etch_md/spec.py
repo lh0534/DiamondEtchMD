@@ -116,6 +116,10 @@ class SimSpec:
     anchor_z_max:           Optional[float] = None   # Å; top of frozen anchor region (required for carbon-etch)
     initial_thermalization: bool            = False  # run NVT equilibration before impacts (carbon-etch)
     initial_thermalization_steps: int       = 10000  # NVT steps for initial thermalization
+    # ── Single-impact statistics mode ─────────────────────────────────────────
+    single_impact:          bool  = False   # repeat single impact from fresh surface N times
+    n_trials:               int   = 100     # number of independent single-impact trials
+    randomize_velocities:   bool  = False   # re-assign thermal velocities from Boltzmann each trial
 
     @classmethod
     def from_dict(cls, data: dict) -> "SimSpec":

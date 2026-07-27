@@ -363,6 +363,153 @@ def get_submit_script_carbon_etch(spec: "SimSpec") -> str:
     )
 
 
+def get_submit_script_single_impact(spec: SimSpec) -> str:
+    """Generate the SLURM submit script for single-impact statistics mode.
+
+    Key differences from get_submit_script:
+    - n_complete is read from ntrials_done.txt (written by LAMMPS after each trial)
+    - end_c = n_trials from config.lmp; no ML/end_fluence arithmetic
+    - data_file is always the initial surface (never the latest impact snapshot)
+    - Crystal path: builds impact_snaps/0.data with make_surf.lmp first if needed
+    - Carbon path: always uses initial_config.data
+    - No cn_start / neut_complete; each trial resets radicals from scratch
+    - n_events always passed as 0 (per-trial dumps tracked by keep_dump in head.lmp)
+    """
+    is_carbon = spec.initial_config_file is not None
+
+    mail_lines = (
+        f"#SBATCH --mail-type=END,FAIL\n"
+        f"#SBATCH --mail-user={spec.email}\n"
+    ) if spec.email else ""
+
+    plot_loop  = _plot_loop_block(spec.plot_interval_hours)
+    cna_loop   = _cna_loop_block(spec.plot_interval_hours)
+    dump_loop  = _dump_loop_block(spec.plot_interval_hours)
+    plot_kill  = _plot_kill_block()
+
+    if is_carbon:
+        make_surf_block = (
+            f"if [ ! -f thermalized.data ]; then\n"
+            f"    srun lmp -log log_thermalize.lammps -k on g 1 -sf kk \\\n"
+            f"        -var data_file initial_config.data \\\n"
+            f"        -screen none -nocite \\\n"
+            f"        -in thermalize_surface.lmp\n"
+            f"    if [ $? -ne 0 ]; then\n"
+            f"        echo \"$(date '+%Y-%m-%d %H:%M:%S')  Thermalization failed\""
+            f" >> LAMMPS_FAILED\n"
+            f"        exit 1\n"
+            f"    fi\n"
+            f"fi\n"
+            f"\n"
+        )
+        data_file_block = "data_file=initial_config.data\n"
+        n_lat_0_var     = ""
+    else:
+        make_surf_block = (
+            f"if [ ! -f impact_snaps/0.data ]; then\n"
+            f"    srun lmp -log log_make_surf.lammps -k on g 1 -sf kk -in make_surf.lmp\n"
+            f"fi\n"
+            f"\n"
+        )
+        data_file_block = "data_file=impact_snaps/0.data\n"
+        n_lat_0_var     = (
+            f"n_lat_0=$(grep ' atoms' impact_snaps/0.data | awk '{{print $1}}')\n"
+        )
+
+    n_lat_0_lmp_arg = "    -var n_lat_0 $n_lat_0 \\\n" if not is_carbon else ""
+
+    return (
+        f"#!/bin/bash\n"
+        f"#SBATCH --job-name={spec.name}\n"
+        f"#SBATCH --nodes=1\n"
+        f"#SBATCH --mem=16G\n"
+        f"#SBATCH --ntasks=1\n"
+        f"#SBATCH --cpus-per-task=1\n"
+        f"#SBATCH --gres=gpu:1\n"
+        f"#SBATCH --time={spec.wall_hours}:00:00\n"
+        f"#SBATCH --dependency=singleton\n"
+        f"#SBATCH --signal=B:USR1@120\n"
+        f"#SBATCH --nice={spec.nice}\n"
+        f"#SBATCH --account={spec.account}\n"
+        f"{mail_lines}"
+        f"\n"
+        f"module purge\n"
+        f"module load {spec.lammps_module}\n"
+        f"\n"
+        f"mkdir -p etch_event_trajs impact_snaps\n"
+        f"\n"
+        f"export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK\n"
+        f"export OMP_PROC_BIND=spread\n"
+        f"export OMP_PLACES=threads\n"
+        f"\n"
+        f"# Resubmit on SLURM time-limit signal\n"
+        f"_resubmitted=0\n"
+        f"_resubmit() {{\n"
+        f"    local nc nt\n"
+        f"    nc=$(cat ntrials_done.txt 2>/dev/null); nc=${{nc:-0}}\n"
+        f"    nt=$(grep 'n_trials equal' config.lmp | awk '{{print $4}}')\n"
+        f"    if [ \"$nc\" -lt \"$nt\" ]; then\n"
+        f"        echo \"Wall-time signal: $nc / $nt trials done — re-submitting.\"\n"
+        f"        {plot_kill}"
+        f"        sbatch \"$0\"\n"
+        f"        _resubmitted=1\n"
+        f"    fi\n"
+        f"}}\n"
+        f"trap '_resubmit' USR1\n"
+        f"\n"
+        f"{make_surf_block}"
+        f"n_complete=$(cat ntrials_done.txt 2>/dev/null); n_complete=${{n_complete:-0}}\n"
+        f"{n_lat_0_var}"
+        f"{data_file_block}"
+        f"log_file=log$(echo \"$(ls | grep -c .lammps)+1\" | bc).lammps\n"
+        f"\n"
+        f"n_trials=$(grep 'n_trials equal' config.lmp | awk '{{print $4}}')\n"
+        f"if [ \"$n_complete\" -ge \"$n_trials\" ]; then\n"
+        f"    echo \"All $n_trials trials complete.\"\n"
+        f"    exit 0\n"
+        f"fi\n"
+        f"\n"
+        f"[ -f LAMMPS_FAILED ] && mv LAMMPS_FAILED \"LAMMPS_FAILED.$(date '+%Y%m%d_%H%M%S')\"\n"
+        f"\n"
+        f"srun lmp -k on g 1 -sf kk \\\n"
+        f"    -var data_file $data_file \\\n"
+        f"    -var n_complete $n_complete \\\n"
+        f"    -var log_file $log_file \\\n"
+        f"    -var n_events 0 \\\n"
+        f"{n_lat_0_lmp_arg}"
+        f"    -log $log_file \\\n"
+        f"    -screen none \\\n"
+        f"    -nocite \\\n"
+        f"    -in head.lmp &\n"
+        f"SRUN_PID=$!\n"
+        f"{plot_loop}"
+        f"{cna_loop}"
+        f"{dump_loop}"
+        f"wait $SRUN_PID\n"
+        f"lmp_exit=$?\n"
+        f"{plot_kill}"
+        f"\n"
+        f"[ $_resubmitted -eq 1 ] && exit 0\n"
+        f"\n"
+        f"if [ $lmp_exit -ne 0 ]; then\n"
+        f"    echo \"LAMMPS exited with code $lmp_exit — not re-submitting.\"\n"
+        f"    err=$(grep '^ERROR:' \"$log_file\" 2>/dev/null | tail -1)\n"
+        f"    [ -z \"$err\" ] && err=\"LAMMPS exited with code $lmp_exit (no ERROR line in $log_file)\"\n"
+        f"    n_at_fail=$(cat ntrials_done.txt 2>/dev/null); n_at_fail=${{n_at_fail:-0}}\n"
+        f"    echo \"$(date '+%Y-%m-%d %H:%M:%S')  trial=$n_at_fail  $err\" >> LAMMPS_FAILED\n"
+        f"    exit $lmp_exit\n"
+        f"fi\n"
+        f"\n"
+        f"n_complete=$(cat ntrials_done.txt 2>/dev/null); n_complete=${{n_complete:-0}}\n"
+        f"if [ \"$n_complete\" -lt \"$n_trials\" ]; then\n"
+        f"    echo \"Progress: $n_complete / $n_trials trials. Re-submitting...\"\n"
+        f"    sbatch \"$0\"\n"
+        f"else\n"
+        f"    echo \"All $n_trials single-impact trials complete.\"\n"
+        f"fi\n"
+    )
+
+
 def get_submit_script_cycle_etch(spec: SimSpec) -> str:
     """Generate the SLURM submit script for a cycle-etch SimSpec.
 

@@ -1,0 +1,117 @@
+#!/bin/bash
+#SBATCH --job-name=balls_Ar_50eV_single
+#SBATCH --nodes=1
+#SBATCH --mem=16G
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:1
+#SBATCH --time=1:00:00
+#SBATCH --dependency=singleton
+#SBATCH --signal=B:USR1@120
+#SBATCH --nice=2
+#SBATCH --account=dgraves
+
+module purge
+module load lammps/kokkos/gpu_della9_2022
+
+mkdir -p etch_event_trajs impact_snaps
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OMP_PROC_BIND=spread
+export OMP_PLACES=threads
+
+# Resubmit on SLURM time-limit signal
+_resubmitted=0
+_resubmit() {
+    local nc nt
+    nc=$(cat ntrials_done.txt 2>/dev/null); nc=${nc:-0}
+    nt=$(grep 'n_trials equal' config.lmp | awk '{print $4}')
+    if [ "$nc" -lt "$nt" ]; then
+        echo "Wall-time signal: $nc / $nt trials done — re-submitting."
+        [ -n "$_PLOT_PID" ] && kill "$_PLOT_PID" 2>/dev/null; wait "$_PLOT_PID" 2>/dev/null || true
+[ -n "$_CNA_PID" ]  && kill "$_CNA_PID"  2>/dev/null; wait "$_CNA_PID"  2>/dev/null || true
+[ -n "$_DUMP_PID" ] && kill "$_DUMP_PID" 2>/dev/null; wait "$_DUMP_PID" 2>/dev/null || true
+        sbatch "$0"
+        _resubmitted=1
+    fi
+}
+trap '_resubmit' USR1
+
+if [ ! -f thermalized.data ]; then
+    srun lmp -log log_thermalize.lammps -k on g 1 -sf kk \
+        -var data_file initial_config.data \
+        -screen none -nocite \
+        -in thermalize_surface.lmp
+    if [ $? -ne 0 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S')  Thermalization failed" >> LAMMPS_FAILED
+        exit 1
+    fi
+fi
+
+n_complete=$(cat ntrials_done.txt 2>/dev/null); n_complete=${n_complete:-0}
+data_file=initial_config.data
+log_file=log$(echo "$(ls | grep -c .lammps)+1" | bc).lammps
+
+n_trials=$(grep 'n_trials equal' config.lmp | awk '{print $4}')
+if [ "$n_complete" -ge "$n_trials" ]; then
+    echo "All $n_trials trials complete."
+    exit 0
+fi
+
+[ -f LAMMPS_FAILED ] && mv LAMMPS_FAILED "LAMMPS_FAILED.$(date '+%Y%m%d_%H%M%S')"
+
+srun lmp -k on g 1 -sf kk \
+    -var data_file $data_file \
+    -var n_complete $n_complete \
+    -var log_file $log_file \
+    -var n_events 0 \
+    -log $log_file \
+    -screen none \
+    -nocite \
+    -in head.lmp &
+SRUN_PID=$!
+# Auto-plot every 12 h (--no-cna for speed during live run)
+_PLOT_PID=""
+( while true; do
+      sleep 43200
+      python3 auto-plot.py --no-cna 2>>plot.log || true
+  done ) &
+_PLOT_PID=$!
+# CNA analysis every 12 h (cna_stride from spec.json)
+_CNA_PID=""
+( while true; do
+      sleep 43200
+      python3 auto-plot.py --cna-run 2>>plot.log || true
+  done ) &
+_CNA_PID=$!
+# Rebuild all_impacts.dump every 12 h
+_DUMP_PID=""
+( while true; do
+      sleep 43200
+      python3 make_impact_dump.py . 2>>plot.log || true
+  done ) &
+_DUMP_PID=$!
+wait $SRUN_PID
+lmp_exit=$?
+[ -n "$_PLOT_PID" ] && kill "$_PLOT_PID" 2>/dev/null; wait "$_PLOT_PID" 2>/dev/null || true
+[ -n "$_CNA_PID" ]  && kill "$_CNA_PID"  2>/dev/null; wait "$_CNA_PID"  2>/dev/null || true
+[ -n "$_DUMP_PID" ] && kill "$_DUMP_PID" 2>/dev/null; wait "$_DUMP_PID" 2>/dev/null || true
+
+[ $_resubmitted -eq 1 ] && exit 0
+
+if [ $lmp_exit -ne 0 ]; then
+    echo "LAMMPS exited with code $lmp_exit — not re-submitting."
+    err=$(grep '^ERROR:' "$log_file" 2>/dev/null | tail -1)
+    [ -z "$err" ] && err="LAMMPS exited with code $lmp_exit (no ERROR line in $log_file)"
+    n_at_fail=$(cat ntrials_done.txt 2>/dev/null); n_at_fail=${n_at_fail:-0}
+    echo "$(date '+%Y-%m-%d %H:%M:%S')  trial=$n_at_fail  $err" >> LAMMPS_FAILED
+    exit $lmp_exit
+fi
+
+n_complete=$(cat ntrials_done.txt 2>/dev/null); n_complete=${n_complete:-0}
+if [ "$n_complete" -lt "$n_trials" ]; then
+    echo "Progress: $n_complete / $n_trials trials. Re-submitting..."
+    sbatch "$0"
+else
+    echo "All $n_trials single-impact trials complete."
+fi

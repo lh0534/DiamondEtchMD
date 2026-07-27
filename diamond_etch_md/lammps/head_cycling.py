@@ -51,11 +51,12 @@ def _potential_switch_block() -> str:
     current_needs_zbl differs, the switch commands are executed.
     """
     return (
-        f"# Switch qeq group when moving between Ar and non-Ar phases\n"
-        f"# (pair_style stays as hybrid reaxff+ZBL throughout — switching pair_style\n"
-        f"#  mid-cycle causes 'pair coeffs not set' errors after cold restarts)\n"
+        f"# Switch pair potential and qeq group at Ar↔non-Ar phase boundaries.\n"
+        f"# ZBL→plain: drop hybrid pair_style; type-4 (Ar, now absent) maps to C.\n"
         f'if "${{prev_needs_zbl}} == 1 && ${{current_needs_zbl}} == 0" then &\n'
         f'"unfix reax_qeq" &\n'
+        f'"pair_style reaxff NULL" &\n'
+        f'"pair_coeff * * ffield.reax C H O C" &\n'
         f'"fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         f'if "${{prev_needs_zbl}} == 0 && ${{current_needs_zbl}} == 1" then &\n'
         f'"unfix reax_qeq" &\n'

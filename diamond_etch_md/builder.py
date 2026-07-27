@@ -29,13 +29,17 @@ from .orientations import ORIENT
 from .species import SPECIES
 from .spec import SimSpec, etch_mode, parse_data_file_box, compute_ml_langmuir
 from .lammps.config import (get_config_lmp, get_config_lmp_cycle_etch,
-                             get_config_lmp_multi_ion, get_config_lmp_carbon_etch)
+                             get_config_lmp_multi_ion, get_config_lmp_carbon_etch,
+                             get_config_lmp_single_impact)
 from .lammps.head import (get_head_lmp, get_head_lmp_multi_ion,
                            get_head_lmp_carbon_etch, get_head_lmp_carbon_etch_multi_ion,
                            get_init_thermalization_lmp)
 from .lammps.head_cycling import get_head_lmp_cycle_etch, get_head_lmp_carbon_etch_cycle
+from .lammps.head_single_impact import (get_head_lmp_single_impact,
+                                         get_thermalize_surface_lmp)
 from .lammps.submit import (get_submit_script, get_submit_script_cycle_etch,
-                             get_submit_script_carbon_etch)
+                             get_submit_script_carbon_etch,
+                             get_submit_script_single_impact)
 
 _TEMPLATES = Path(__file__).parent / "lammps" / "templates"
 
@@ -183,7 +187,9 @@ def make_sim(spec: SimSpec, outdir: Path) -> None:
     mode = etch_mode(spec)
     is_carbon = spec.initial_config_file is not None
 
-    if is_carbon:
+    if spec.single_impact:
+        _make_sim_single_impact(spec, outdir, is_carbon)
+    elif is_carbon:
         _make_sim_carbon_etch(spec, outdir, mode)
     else:
         _make_sim_diamond_etch(spec, outdir, mode)
@@ -422,6 +428,75 @@ def _make_sim_diamond_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
         print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units,  ML={spec.ml}")
         print(f"  fluence:     {spec.fluence} ML  ({spec.fluence * spec.ml} total impacts)")
         print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
+
+
+def _make_sim_single_impact(spec: SimSpec, outdir: Path, is_carbon: bool) -> None:
+    """Build a single-impact statistics simulation directory."""
+    if is_carbon:
+        lx, ly = parse_data_file_box(spec.initial_config_file)
+        if spec.ml == 0:
+            spec = dataclasses.replace(spec, ml=compute_ml_langmuir(lx, ly))
+        dst_data = outdir / "initial_config.data"
+        _patch_data_file_for_carbon_etch(spec.initial_config_file, dst_data)
+    else:
+        lx = ly = None
+        shutil.copy(get_make_surf_source(spec), outdir / "make_surf.lmp")
+
+    if is_carbon:
+        # Carbon path: standalone thermalize_surface.lmp called from submit before head.lmp
+        (outdir / "thermalize_surface.lmp").write_text(get_thermalize_surface_lmp(spec))
+    elif spec.initial_thermalization:
+        # Crystal path: thermalization embedded in head.lmp via init_thermalization.lmp
+        (outdir / "init_thermalization.lmp").write_text(
+            get_init_thermalization_lmp(spec.initial_thermalization_steps)
+        )
+
+    # Shared symlinks (sweep.lmp → sweep_single_impact.lmp for correct ejection ordering)
+    sweep_dst = outdir / "sweep.lmp"
+    if not sweep_dst.exists():
+        sweep_dst.symlink_to(_TEMPLATES / "sweep_single_impact.lmp")
+    common_links = ["thermalize.lmp", "addfix.lmp",
+                    "notify_channeled.lmp",
+                    "ffield.reax", "lmp_env.sh", "auto-plot.py",
+                    "make_impact_dump.py"]
+    if not is_carbon:
+        common_links.append("lat_a.txt")
+    for fname in common_links:
+        dst = outdir / fname
+        if not dst.exists():
+            dst.symlink_to(_TEMPLATES / fname)
+
+    # Molecule file (O2) if needed
+    species_cfg = SPECIES[spec.species]
+    if species_cfg["molecule_file"]:
+        mol_dst = outdir / species_cfg["molecule_file"]
+        if not mol_dst.exists():
+            mol_dst.symlink_to(_TEMPLATES / species_cfg["molecule_file"])
+
+    (outdir / "head.lmp").write_text(get_head_lmp_single_impact(spec))
+    (outdir / "config.lmp").write_text(get_config_lmp_single_impact(spec))
+    submit = outdir / "submit"
+    submit.write_text(get_submit_script_single_impact(spec))
+    submit.chmod(0o755)
+
+    rie_str = (
+        f"  flux_ratio:  {spec.flux_ratio} O• radicals/trial  "
+        f"(radical_energy={spec.radical_energy} eV)\n"
+    ) if spec.flux_ratio > 0 else ""
+
+    print(f"Simulation created at: {outdir}  [single-impact]")
+    if is_carbon:
+        print(f"  config:      {spec.initial_config_file}")
+        print(f"  anchor_z_max:{spec.anchor_z_max} Å")
+        print(f"  box:         {lx:.2f}×{ly:.2f} Å")
+    else:
+        print(f"  surface:     {spec.orientation}  {spec.surface or '(unterminated)'}")
+        print(f"  box:         {spec.box_x}×{spec.box_y}×{spec.box_depth} lattice units")
+    print(f"  bombardment: {spec.species} at {spec.energy} eV, angle={spec.ion_angle}°, T={spec.surface_temperature} K")
+    if rie_str:
+        print(rie_str, end="")
+    print(f"  n_trials:    {spec.n_trials}  (randomize_velocities={spec.randomize_velocities})")
+    print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
 
 
 def make_ale(spec: SimSpec, outdir: Path) -> None:

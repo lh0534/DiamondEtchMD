@@ -9,10 +9,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from diamond_etch_md.spec import SimSpec, IonComponent, CyclePhase
-from diamond_etch_md.lammps.config import get_config_lmp, get_config_lmp_multi_ion
+from diamond_etch_md.lammps.config import (get_config_lmp, get_config_lmp_multi_ion,
+                                            get_config_lmp_single_impact)
 from diamond_etch_md.lammps.head import get_head_lmp, get_head_lmp_multi_ion
 from diamond_etch_md.lammps.head_cycling import get_head_lmp_cycle_etch
-from diamond_etch_md.lammps.submit import get_submit_script
+from diamond_etch_md.lammps.head_single_impact import (get_head_lmp_single_impact,
+                                                        get_thermalize_surface_lmp)
+from diamond_etch_md.lammps.submit import get_submit_script, get_submit_script_single_impact
 from diamond_etch_md.orientations import ORIENT
 
 
@@ -34,7 +37,7 @@ def make_spec(orientation="100", energy=0.5, temperature=300.0, ml=81,
     return SimSpec(
         orientation=orientation,
         energy=energy,
-        temperature=temperature,
+        surface_temperature=temperature,
         ml=ml,
         box_x=box_x,
         box_y=box_y,
@@ -663,3 +666,270 @@ def test_cycle_head_has_potential_switch_block():
     head = get_head_lmp_cycle_etch(_make_3phase_spec())
     assert "prev_needs_zbl" in head
     assert "current_needs_zbl" in head
+
+
+# ─── cycle-etch head: nonargon group ordering ─────────────────────────────────
+
+def test_cycle_head_nonargon_group_before_qeq():
+    # Regression: "group nonargon type 1 2 3" must appear before
+    # "fix reax_qeq nonargon" so the group exists when the fix is created.
+    head = get_head_lmp_cycle_etch(_make_3phase_spec())
+    group_pos = head.index("group nonargon")
+    qeq_pos   = head.index("fix reax_qeq nonargon")
+    assert group_pos < qeq_pos, (
+        "group nonargon must be defined before fix reax_qeq nonargon"
+    )
+
+
+# ─── cycle-etch head: radical energy only when radicals exist ─────────────────
+
+def test_cycle_head_no_radical_energy_var_when_all_ion_etch():
+    # All flux_ratio=0 → no radicals → current_radical_energy must not appear.
+    spec = SimSpec(
+        ml=64,
+        box_x=8, box_y=8,
+        phases=[
+            CyclePhase(species="Ar", energy=50.0, fluence_ml=5),
+            CyclePhase(species="O",  energy=20.0, fluence_ml=5, flux_ratio=0),
+        ],
+        cycles=2,
+    )
+    head = get_head_lmp_cycle_etch(spec)
+    assert "current_radical_energy" not in head, (
+        "current_radical_energy must not be emitted when no phase has radicals"
+    )
+
+
+def test_cycle_head_radical_energy_var_present_when_any_rie():
+    # At least one flux_ratio>0 → current_radical_energy must appear.
+    spec = SimSpec(
+        ml=64,
+        box_x=8, box_y=8,
+        phases=[
+            CyclePhase(species="Ar", energy=50.0, fluence_ml=5),
+            CyclePhase(species="O",  energy=20.0, fluence_ml=5, flux_ratio=3,
+                       radical_energy=0.2),
+        ],
+        cycles=2,
+    )
+    head = get_head_lmp_cycle_etch(spec)
+    assert "current_radical_energy" in head
+
+
+# ─── single-impact head.lmp ───────────────────────────────────────────────────
+
+def _make_si_spec(**kw):
+    defaults = dict(
+        species="O", energy=100.0, surface_temperature=300.0,
+        single_impact=True, n_trials=200,
+        orientation="100", surface="1x1", ml=81, box_x=9, box_y=9,
+    )
+    defaults.update(kw)
+    return SimSpec(**defaults)
+
+
+def test_single_impact_head_reads_thermalized_data():
+    head = get_head_lmp_single_impact(_make_si_spec())
+    # Old LAMMPS 2022 syntax: delete_atoms first, then read_data add 0
+    assert "delete_atoms group all" in head
+    assert "read_data   thermalized.data add 0" in head
+
+
+def test_single_impact_head_regroups_after_read_data():
+    # Groups must be re-declared after read_data to restore per-atom memberships.
+    head = get_head_lmp_single_impact(_make_si_spec())
+    # anchor must appear both in initial setup AND inside the trial loop
+    occurrences = head.count("group       anchor region anchor")
+    assert occurrences >= 2, "anchor group must be declared in setup and in each trial"
+
+
+def test_single_impact_head_surf_z_immediate_eval():
+    # surf_z_before must use $(…) immediate evaluation so it captures pre-impact z.
+    head = get_head_lmp_single_impact(_make_si_spec())
+    assert "variable    surf_z_before equal $(bound(carbon,zmax))" in head
+
+
+def test_single_impact_head_cn_start_reset_per_trial():
+    # cn_start must be reset to 0 in every trial (radical loop restart counter).
+    head = get_head_lmp_single_impact(_make_si_spec())
+    assert "variable    cn_start equal 0" in head
+
+
+def test_single_impact_head_writes_ntrials_done():
+    head = get_head_lmp_single_impact(_make_si_spec())
+    assert "shell       echo ${trial} > ntrials_done.txt" in head
+
+
+def test_single_impact_head_nonargon_before_qeq_for_ar():
+    # For Ar ions (ZBL), the nonargon group must be declared before fix reax_qeq nonargon.
+    head = get_head_lmp_single_impact(_make_si_spec(species="Ar", energy=50.0))
+    # Find the in-loop declarations (the loop_reset section comes after label trial_start)
+    trial_start = head.index("label\t\ttrial_start")
+    loop_part   = head[trial_start:]
+    group_pos   = loop_part.index("group       nonargon type 1 2 3")
+    qeq_pos     = loop_part.index("fix         reax_qeq nonargon")
+    assert group_pos < qeq_pos
+
+
+def test_single_impact_head_no_nonargon_for_o():
+    head = get_head_lmp_single_impact(_make_si_spec(species="O", energy=50.0))
+    trial_start = head.index("label\t\ttrial_start")
+    loop_part   = head[trial_start:]
+    assert "group       nonargon" not in loop_part
+    assert "fix         reax_qeq all" in loop_part
+
+
+def test_single_impact_head_randomize_velocities_on():
+    head = get_head_lmp_single_impact(_make_si_spec(randomize_velocities=True))
+    assert "velocity    all create" in head
+
+
+def test_single_impact_head_randomize_velocities_off():
+    head = get_head_lmp_single_impact(_make_si_spec(randomize_velocities=False))
+    assert "velocity    all create" not in head
+
+
+# ─── single-impact config.lmp ────────────────────────────────────────────────
+
+def test_single_impact_config_n_trials():
+    cfg = get_config_lmp_single_impact(_make_si_spec(n_trials=777))
+    assert "n_trials equal 777" in cfg
+
+
+def test_single_impact_config_crystal_path_has_lat_a():
+    cfg = get_config_lmp_single_impact(_make_si_spec())
+    assert "lat_a file lat_a.txt" in cfg
+
+
+def test_single_impact_config_carbon_path_has_sqrt2_lat_a():
+    cfg = get_config_lmp_single_impact(SimSpec(
+        species="O", energy=50.0, surface_temperature=300.0,
+        single_impact=True, n_trials=100,
+        initial_config_file="/fake/path.data", anchor_z_max=8.0,
+    ))
+    assert "lat_a equal 1.414" in cfg
+    assert "anchor_z_max equal 8.0" in cfg
+
+
+def test_single_impact_config_rie_adds_radical_block():
+    cfg = get_config_lmp_single_impact(_make_si_spec(
+        flux_ratio=5, radical_energy=0.3,
+    ))
+    assert "flux_ratio equal 5" in cfg
+    assert "radical_energy equal 0.3" in cfg
+
+
+# ─── single-impact submit script ─────────────────────────────────────────────
+
+def test_single_impact_submit_reads_ntrials_done():
+    sub = get_submit_script_single_impact(_make_si_spec(name="si_test"))
+    assert "ntrials_done.txt" in sub
+    assert "-var n_complete $n_complete" in sub
+
+
+def test_single_impact_submit_crystal_uses_impact_snaps_0():
+    sub = get_submit_script_single_impact(_make_si_spec())
+    assert "data_file=impact_snaps/0.data" in sub
+    assert "make_surf.lmp" in sub
+
+
+def test_single_impact_submit_carbon_uses_initial_config():
+    sub = get_submit_script_single_impact(SimSpec(
+        species="O", energy=50.0, surface_temperature=300.0,
+        single_impact=True, n_trials=100,
+        initial_config_file="/fake/path.data", anchor_z_max=8.0,
+        name="si_carbon",
+    ))
+    assert "data_file=initial_config.data" in sub
+    assert "make_surf.lmp" not in sub
+
+
+def test_single_impact_submit_n_trials_not_in_lmp_args():
+    # n_trials is defined in config.lmp (equal style); passing it via -var would
+    # conflict (LAMMPS can't redefine equal→index).  Submit reads it via grep only.
+    sub = get_submit_script_single_impact(_make_si_spec(n_trials=500))
+    assert "-var n_trials" not in sub
+    assert "n_trials equal' config.lmp" in sub or "n_trials equal" in sub
+    assert "n_events 0" in sub   # always 0; no mid-run carry-over
+
+
+# ── thermalize_surface.lmp (carbon path) ─────────────────────────────────────
+
+def _make_si_carbon_spec(**kw):
+    defaults = dict(
+        species="Ar", energy=50.0, surface_temperature=300.0,
+        single_impact=True, n_trials=100,
+        initial_config_file="/fake/graphullerene.data", anchor_z_max=7.0,
+        initial_thermalization=True, initial_thermalization_steps=10_000_000,
+        randomize_velocities=True,
+    )
+    defaults.update(kw)
+    return SimSpec(**defaults)
+
+
+def test_thermalize_surface_standalone_header():
+    lmp = get_thermalize_surface_lmp(_make_si_carbon_spec())
+    assert "package kokkos" in lmp
+    assert "include     config.lmp" in lmp
+    assert "read_data   ${data_file}" in lmp
+
+
+def test_thermalize_surface_writes_thermalized_data():
+    lmp = get_thermalize_surface_lmp(_make_si_carbon_spec())
+    assert "write_data  thermalized.data nofix nocoeff" in lmp
+
+
+def test_thermalize_surface_writes_impact_stats_header():
+    lmp = get_thermalize_surface_lmp(_make_si_carbon_spec())
+    assert "impact_stats.txt" in lmp
+    assert "trial surf_z_before" in lmp
+
+
+def test_thermalize_surface_nvt_steps():
+    lmp = get_thermalize_surface_lmp(_make_si_carbon_spec(initial_thermalization_steps=5_000_000))
+    assert "run         5000000" in lmp
+
+
+def test_thermalize_surface_no_nvt_when_disabled():
+    lmp = get_thermalize_surface_lmp(_make_si_carbon_spec(initial_thermalization=False))
+    assert "run         0" in lmp
+
+
+def test_thermalize_surface_no_stopclust():
+    lmp = get_thermalize_surface_lmp(_make_si_carbon_spec())
+    cmd_lines = [l for l in lmp.splitlines() if not l.strip().startswith("#")]
+    assert not any("stopclust" in l for l in cmd_lines)
+    assert not any("fix halt" in l for l in cmd_lines)
+
+
+def test_thermalize_surface_has_minimize():
+    lmp = get_thermalize_surface_lmp(_make_si_carbon_spec())
+    assert "minimize" in lmp
+    assert "minimfreeze" in lmp
+
+
+def test_single_impact_head_carbon_no_therm_guard():
+    # Carbon path: thermalization is external (thermalize_surface.lmp); head.lmp
+    # must NOT contain the if-n_complete==0 guard.
+    spec = _make_si_carbon_spec()
+    head = get_head_lmp_single_impact(spec)
+    assert "init_thermalization.lmp" not in head
+    assert 'if "${n_complete} == 0" then "write_data thermalized.data' not in head
+
+
+def test_single_impact_head_crystal_keeps_therm_guard():
+    # Crystal path still handles thermalization inside head.lmp.
+    head = get_head_lmp_single_impact(_make_si_spec(initial_thermalization=True))
+    assert "init_thermalization.lmp" in head
+    assert "write_data thermalized.data" in head
+
+
+def test_single_impact_submit_carbon_calls_thermalize_surface():
+    sub = get_submit_script_single_impact(_make_si_carbon_spec())
+    assert "thermalize_surface.lmp" in sub
+    assert "thermalized.data" in sub   # guards the call
+
+
+def test_single_impact_submit_crystal_no_thermalize_surface():
+    sub = get_submit_script_single_impact(_make_si_spec())
+    assert "thermalize_surface.lmp" not in sub

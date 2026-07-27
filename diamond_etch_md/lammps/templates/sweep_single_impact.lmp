@@ -1,8 +1,11 @@
-# Identify and remove ejected clusters.
-# A cluster is an etch product only if its CoM z is above all confirmed-surface
-# atoms (anchor cluster + prior non-leaving clusters) and it has a positive z velocity.
-# Using the `checked` group rather than `all - candidate` avoids a deadlock where
-# two simultaneously ejected clusters each prevent the other from being swept.
+# Identify and remove ejected clusters — single-impact variant.
+# Key difference from sweep.lmp: top_rest is computed from (all - candidate)
+# rather than the accumulated `checked` group.  This enforces the true invariant
+# (candidate must be above ALL other atoms) and prevents the deposited ion from
+# being falsely ejected because it has the highest cluster ID and gets processed
+# before non-ejected clusters are accumulated into `checked`.
+# Trade-off: simultaneous multi-cluster ejection is not handled (not needed for
+# single-impact mode where at most one etch event occurs per trial).
 group       unchecked union all all
 compute     surf_clust_num anchor reduce min c_clusts
 compute     max_unchecked_clust_num unchecked reduce max c_clusts
@@ -13,9 +16,8 @@ run 0 post no
 variable    in_surf_clust atom "c_clusts == c_surf_clust_num"
 variable    in_small_clust atom "c_clusts == c_max_unchecked_clust_num"
 group       surf variable in_surf_clust
-group       checked intersect all surf
 group       unchecked clear
-group       unchecked subtract all checked
+group       unchecked subtract all surf
 
 thermo_style custom c_max_unchecked_clust_num
 label       resweep
@@ -23,10 +25,10 @@ run 0 post no
 
 group       small_clust variable in_small_clust
 
-# max z of confirmed-surface atoms (surface cluster + prior non-leaving clusters).
-# Using `checked` rather than `all - small_clust` prevents simultaneously ejected
-# clusters from raising each other's ejection threshold and deadlocking.
-compute     top_rest checked reduce max z
+# top_rest = max z of ALL atoms except the candidate.
+# This is the strict "above everything else" invariant.
+group       non_candidate subtract all small_clust
+compute     top_rest non_candidate reduce max z
 thermo_style custom c_max_unchecked_clust_num c_top_rest
 run 0 post no
 
@@ -48,16 +50,15 @@ if "$(xcm(small_clust,z) > c_top_rest) && $(vcm(small_clust,z) > 0.01) && $(coun
 "change_box      all z final $(zlo) $(zhi) units box" &
 "region          bbox delete" &
 "region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE" &
-else "group checked union checked small_clust"
+else "group unchecked subtract unchecked small_clust"
 
 uncompute top_rest
+group non_candidate delete
 group small_clust clear
 group clust_carbon clear
 group clust_hydrogen clear
 group clust_oxygen clear
 group clust_argon clear
-group unchecked clear
-group unchecked subtract all checked
 # reset thermo_style before next iteration so c_top_rest (now uncomputed) is not referenced
 thermo_style custom c_max_unchecked_clust_num
 if "$(count(unchecked)) > 0" then "jump SELF resweep"
@@ -66,7 +67,6 @@ uncompute surf_clust_num
 uncompute max_unchecked_clust_num
 group surf delete
 group unchecked delete
-group checked delete
 group small_clust delete
 group clust_carbon delete
 group clust_hydrogen delete

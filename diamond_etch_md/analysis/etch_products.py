@@ -52,8 +52,8 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                 })
             continue
         parts = line.split()
-        if len(parts) >= 6:
-            # New format: impact cn n_C n_H n_O n_Ar
+        if len(parts) >= 7:
+            # 7-column format: impact cn n_C n_H n_O n_Ar vcm_z
             records.append({
                 "impact": int(parts[0]),
                 "cn":     int(parts[1]),
@@ -61,6 +61,18 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                 "n_H":    int(parts[3]),
                 "n_O":    int(parts[4]),
                 "n_Ar":   int(parts[5]),
+                "vcm_z":  float(parts[6]),
+            })
+        elif len(parts) >= 6:
+            # 6-column format: impact cn n_C n_H n_O n_Ar
+            records.append({
+                "impact": int(parts[0]),
+                "cn":     int(parts[1]),
+                "n_C":    int(parts[2]),
+                "n_H":    int(parts[3]),
+                "n_O":    int(parts[4]),
+                "n_Ar":   int(parts[5]),
+                "vcm_z":  None,
             })
         elif len(parts) >= 5:
             records.append({
@@ -70,6 +82,7 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                 "n_H":    int(parts[2]),
                 "n_O":    int(parts[3]),
                 "n_Ar":   int(parts[4]),
+                "vcm_z":  None,
             })
         elif len(parts) >= 4:
             records.append({
@@ -79,6 +92,7 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                 "n_H":    int(parts[2]),
                 "n_O":    int(parts[3]),
                 "n_Ar":   0,
+                "vcm_z":  None,
             })
     return records
 
