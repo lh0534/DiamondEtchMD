@@ -13,6 +13,28 @@ import math
 
 _kB = 8.617333262e-5  # eV/K
 
+# LAMMPS 23 Jun 2022 Kokkos GPU: fix deposit with "region ... near X" (single-atom)
+# applies ~12.713x too much kinetic energy to deposited atoms.  The "mol" (molecular)
+# insertion path is unaffected.  Burst-mode O• radicals use the region/near path, so
+# radical_energy is divided by this factor as a workaround.
+#
+# IMPORTANT: verify this bug is still present in your LAMMPS build before running
+# burst simulations.  In a short test run, check c_ike (compute ike insert ke) at the
+# first radical deposit step in the log.  You should see:
+#   c_ike ≈ radical_energy_target × 23.06 kcal/mol   (bug absent — remove correction)
+#   c_ike ≈ radical_energy_target × 23.06 × 12.713   (bug present — keep correction)
+_DEPOSIT_REGION_BUG_FACTOR = 12.713
+
+
+def _zbl_mass_vars(species_iter) -> str:
+    """Return 'variable M_X equal ...' lines for each unique ZBL species."""
+    seen, out = set(), ""
+    for sp in species_iter:
+        if sp["needs_zbl"] and sp["mass_var"] not in seen:
+            out += f"variable    {sp['mass_var']} equal {sp['mass']}\n"
+            seen.add(sp["mass_var"])
+    return out
+
 
 def _radical_config_block(
     flux_ratio: int,
@@ -24,6 +46,7 @@ def _radical_config_block(
     radical_i_above: float,
     inter_neutral_time: float,
     prefix: str = "",            # e.g. "phase_0_" for cycling per-phase vars
+    burst_correction: bool = False,  # divide radical_energy by _DEPOSIT_REGION_BUG_FACTOR
 ) -> str:
     """Return config.lmp lines for radical-related variables.
 
@@ -42,6 +65,15 @@ def _radical_config_block(
         lines += (
             f"variable    {prefix}kT_rad equal {kT:.8f}        "
             f"# eV = kB * {radical_temperature} K\n"
+        )
+    elif burst_correction:
+        corrected = radical_energy / _DEPOSIT_REGION_BUG_FACTOR
+        lines += (
+            f"# LAMMPS 23Jun2022 Kokkos GPU bug: fix deposit (region/near) gives {_DEPOSIT_REGION_BUG_FACTOR}x too much KE.\n"
+            f"# radical_energy set to target/{_DEPOSIT_REGION_BUG_FACTOR} = {radical_energy}/{_DEPOSIT_REGION_BUG_FACTOR} eV.\n"
+            f"# VERIFY: check c_ike at first radical deposit; should be {radical_energy * 23.06:.4f} kcal/mol.\n"
+            f"# If c_ike = {corrected * 23.06:.4f} kcal/mol instead, the bug is fixed — remove correction.\n"
+            f"variable    {prefix}radical_energy equal {corrected:.10g}  # target: {radical_energy} eV\n"
         )
     else:
         lines += f"variable    {prefix}radical_energy equal {radical_energy}\n"
@@ -113,8 +145,8 @@ def get_config_lmp(spec: SimSpec) -> str:
         f"variable    M_C equal 12.011\n"
         f"variable    M_H equal 1.00784\n"
         f"variable    M_O equal 16.0\n"
-        f"variable    M_Ar equal 39.948\n"
-        f"variable    M_incident equal ${{{species['mass_var']}}}\n"
+        + _zbl_mass_vars([species])
+        + f"variable    M_incident equal ${{{species['mass_var']}}}\n"
         f"variable    incident_type_index equal {species['type_index']}  # {spec.species}\n"
         f"\n"
         f"variable    seed_adjust equal {spec.seed_adjust}\n"
@@ -134,6 +166,7 @@ def get_config_lmp(spec: SimSpec) -> str:
                 max_inter_neutral_time=spec.max_inter_neutral_time,
                 radical_i_above=spec.radical_i_above,
                 inter_neutral_time=spec.inter_neutral_time,
+                burst_correction=spec.radical_burst,
             )
         )
 
@@ -193,8 +226,9 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
         f"variable    M_C equal 12.011\n"
         f"variable    M_H equal 1.00784\n"
         f"variable    M_O equal 16.0\n"
-        f"variable    M_Ar equal 39.948\n"
-        f"\n"
+        + _zbl_mass_vars(SPECIES[c.species] for c in mix)
+        + ("variable    M_Ar equal 39.948\n" if not any(SPECIES[c.species]["needs_zbl"] for c in mix) else "")
+        + f"\n"
         f"variable    seed_adjust equal {spec.seed_adjust}\n"
         f"variable    simdepo equal 1\n"
     )
@@ -212,6 +246,7 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
                 max_inter_neutral_time=spec.max_inter_neutral_time,
                 radical_i_above=spec.radical_i_above,
                 inter_neutral_time=spec.inter_neutral_time,
+                burst_correction=spec.radical_burst,
             )
         )
 
@@ -296,8 +331,8 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"variable    M_C equal 12.011\n"
         f"variable    M_H equal 1.00784\n"
         f"variable    M_O equal 16.0\n"
-        f"variable    M_Ar equal 39.948\n"
-        f"\n"
+        + _zbl_mass_vars(SPECIES[p.species] for p in spec.phases)
+        + f"\n"
         f"variable    seed_adjust equal {spec.seed_adjust}\n"
         f"\n"
         f"# Per-phase parameters\n"
@@ -335,8 +370,8 @@ def get_config_lmp_single_impact(spec: SimSpec) -> str:
         f"variable    M_C equal 12.011\n"
         f"variable    M_H equal 1.00784\n"
         f"variable    M_O equal 16.0\n"
-        f"variable    M_Ar equal 39.948\n"
-        f"variable    M_incident equal ${{{species['mass_var']}}}\n"
+        + _zbl_mass_vars([species])
+        + f"variable    M_incident equal ${{{species['mass_var']}}}\n"
         f"variable    incident_type_index equal {species['type_index']}  # {spec.species}\n"
         f"variable    i_above equal {species['i_above']}    # Å above surface to inject ion\n"
         f"\n"
@@ -387,6 +422,7 @@ def get_config_lmp_single_impact(spec: SimSpec) -> str:
                 max_inter_neutral_time=spec.max_inter_neutral_time,
                 radical_i_above=spec.radical_i_above,
                 inter_neutral_time=spec.inter_neutral_time,
+                burst_correction=spec.radical_burst,
             )
         )
 
@@ -401,6 +437,14 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
     lat_a is set to sqrt(2) so thermalize.lmp's zbottom formula gives anchor_z_max Å directly.
     """
     _sqrt2 = math.sqrt(2)
+
+    # Determine ZBL species in use for this config before building common block
+    if spec.phases is not None:
+        _zbl_sp_list = [SPECIES[p.species] for p in spec.phases]
+    elif spec.ion_mix is not None:
+        _zbl_sp_list = [SPECIES[c.species] for c in spec.ion_mix]
+    else:
+        _zbl_sp_list = [SPECIES[spec.species]]
 
     common = (
         f"# DiamondEtchMD generated config (carbon-etch)\n"
@@ -422,8 +466,8 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
         f"variable    M_C equal 12.011\n"
         f"variable    M_H equal 1.00784\n"
         f"variable    M_O equal 16.0\n"
-        f"variable    M_Ar equal 39.948\n"
-        f"\n"
+        + _zbl_mass_vars(_zbl_sp_list)
+        + f"\n"
         f"variable    seed_adjust equal {spec.seed_adjust}\n"
         f"variable    simdepo equal 1\n"
     )
@@ -502,6 +546,7 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     max_inter_neutral_time=spec.max_inter_neutral_time,
                     radical_i_above=spec.radical_i_above,
                     inter_neutral_time=spec.inter_neutral_time,
+                    burst_correction=spec.radical_burst,
                 )
             )
         return cfg
@@ -532,6 +577,7 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     max_inter_neutral_time=spec.max_inter_neutral_time,
                     radical_i_above=spec.radical_i_above,
                     inter_neutral_time=spec.inter_neutral_time,
+                    burst_correction=spec.radical_burst,
                 )
             )
         return cfg

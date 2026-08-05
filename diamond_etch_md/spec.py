@@ -92,7 +92,7 @@ class SimSpec:
     plot_interval_hours:    int   = 12     # hours between auto-plot runs (0 = disabled)
     cna_stride:             int   = 0      # CNA stride for --cna mode (0 = 1 per ML)
     nice:                   int   = 2      # SLURM --nice priority offset (≥ 1)
-    remove_ar:              bool  = True   # delete Ar atoms after each impact; set False to retain
+    remove_ar:              bool  = False  # delete Ar/ZBL ion after each impact; False keeps ion in impact_snaps
     seed_adjust:            int   = 0      # random seed offset; increment for independent replicas
     # ── RIE-etch mode (single-species with radical pre-exposure) ──────────────
     flux_ratio:             int   = 0      # O• radicals per ion impact (0 = ion-etch; >0 = RIE-etch)

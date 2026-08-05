@@ -39,15 +39,16 @@ from ..spec import SimSpec, IonComponent
 def _potential_block(species: dict) -> str:
     """Return the pair_style / pair_coeff / QEQ block for the given species."""
     if species["needs_zbl"]:
-        # Ar: hybrid ReaxFF + ZBL for short-range nuclear repulsion
+        # Inert ion (Ar, Er, ...): hybrid ReaxFF + ZBL for short-range nuclear repulsion
+        Z = species["atomic_number"]
         return (
             f'if "${{pot}} == REAX" then &\n'
             f'"pair_style  hybrid reaxff NULL zbl 5.0 6.0" &\n'
             f'"pair_coeff * * reaxff ffield.reax C H O NULL" &\n'
-            f'"pair_coeff 1 4 zbl 6.0 18.0" &\n'
-            f'"pair_coeff 2 4 zbl 1.0 18.0" &\n'
-            f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
-            f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
+            f'"pair_coeff 1 4 zbl 6.0 {Z}" &\n'
+            f'"pair_coeff 2 4 zbl 1.0 {Z}" &\n'
+            f'"pair_coeff 3 4 zbl 8.0 {Z}" &\n'
+            f'"pair_coeff 4 4 zbl {Z} {Z}" &\n'
             f'"group nonargon type 1 2 3" &\n'
             f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
@@ -455,10 +456,15 @@ def _radical_burst_block(spec: SimSpec) -> str:
 
         # ── All atoms in chunk: narrow z-region at bound(all,zmax)+radical_i_above ──
         # z_ins{ci} is captured once per chunk; all csize atoms land at the same z.
-        # No 'global' needed — the region sits inside the existing vacuum above the
-        # surface, so the box never grows during deposition.
+        # Unlike 'global', 'region' placement requires the region to already be inside
+        # the simulation box.  With p p m shrink-wrap, zhi ≈ zmax + skin, so bzone
+        # (at zmax + radical_i_above) can sit above zhi.  Expand the box first if needed.
         blk += (
             f"# --- Burst chunk {ci+1}/{len(chunks)}: {csize} atoms (deposit phase) ---\n"
+            f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
+            f"\"change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box\" "
+            f"\"region bbox delete\" "
+            f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\"\n"
             f"variable    z_ins{ci} equal bound(all,zmax)+${{radical_i_above}}\n"
             f"region      bzone{ci} block EDGE EDGE EDGE EDGE "
             f"$(v_z_ins{ci} - 0.1) $(v_z_ins{ci} + 0.1) units box\n"
@@ -783,11 +789,11 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"group \tmobile subtract all anchor\n"
         f"group   carbon type 1\n"
         f"\n"
-        f"# Particle masses (4 types: C, H, O, Ar)\n"
+        f"# Particle masses (4 types: C, H, O, {spec.species})\n"
         f"mass        1 ${{M_C}}\n"
         f"mass        2 ${{M_H}}\n"
         f"mass        3 ${{M_O}}\n"
-        f"mass        4 ${{M_Ar}}\n"
+        f"mass        4 ${{{species['mass_var']}}}\n"
         f"\n"
         f"# Potential\n"
         f"{_potential_block(species)}"
@@ -893,10 +899,10 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"unfix       3\n"
         f"\n"
         + (
-        f"# Remove any implanted Ar (does not bond; would accumulate across impacts)\n"
-        f"group       argon type 4\n"
-        f"delete_atoms group argon\n"
-        f"group       argon delete\n"
+        f"# Remove implanted {spec.species} (does not bond; would accumulate across impacts)\n"
+        f"group       incident_ion type 4\n"
+        f"delete_atoms group incident_ion\n"
+        f"group       incident_ion delete\n"
         f"\n"
         if species["needs_zbl"] else ""
         ) +
@@ -1031,8 +1037,10 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
     is_rie       = spec.flux_ratio > 0 and not spec.radical_burst
     has_radicals = spec.flux_ratio > 0
 
-    # Potential block — Ar mix needs hybrid ZBL; O/O2 mix uses plain ReaxFF
-    potential = _potential_block(SPECIES["Ar"] if has_zbl else SPECIES["O"])
+    # Potential block — ZBL mix needs hybrid; O/O2 mix uses plain ReaxFF
+    zbl_sp    = next((SPECIES[c.species] for c in mix if SPECIES[c.species]["needs_zbl"]), None)
+    potential = _potential_block(zbl_sp if has_zbl else SPECIES["O"])
+    mass4_var = zbl_sp["mass_var"] if has_zbl else "M_Ar"
 
     molecule_decl   = "molecule O2 O2.molecule\n" if has_molecule else ""
     nonargon_regroup = "group nonargon type 1 2 3\n" if has_zbl else ""
@@ -1110,7 +1118,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"mass        1 ${{M_C}}\n"
         f"mass        2 ${{M_H}}\n"
         f"mass        3 ${{M_O}}\n"
-        f"mass        4 ${{M_Ar}}\n"
+        f"mass        4 ${{{mass4_var}}}\n"
         f"\n"
         f"{potential}"
         f"\n"
@@ -1202,10 +1210,10 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"unfix       3\n"
         f"\n"
         + (
-        f"# Remove any implanted Ar (does not bond; would accumulate across impacts)\n"
-        f"group       argon type 4\n"
-        f"delete_atoms group argon\n"
-        f"group       argon delete\n"
+        f"# Remove implanted ZBL ion (does not bond; would accumulate across impacts)\n"
+        f"group       incident_ion type 4\n"
+        f"delete_atoms group incident_ion\n"
+        f"group       incident_ion delete\n"
         f"\n"
         if has_zbl else ""
         ) +
@@ -1400,7 +1408,7 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         f"mass        1 ${{M_C}}\n"
         f"mass        2 ${{M_H}}\n"
         f"mass        3 ${{M_O}}\n"
-        f"mass        4 ${{M_Ar}}\n"
+        f"mass        4 ${{{species['mass_var']}}}\n"
         f"\n"
         f"# Potential\n"
         f"{_potential_block(species)}"
@@ -1497,10 +1505,10 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         f"unfix       3\n"
         f"\n"
         + (
-        f"# Remove any implanted Ar\n"
-        f"group       argon type 4\n"
-        f"delete_atoms group argon\n"
-        f"group       argon delete\n"
+        f"# Remove implanted {spec.species} ion\n"
+        f"group       incident_ion type 4\n"
+        f"delete_atoms group incident_ion\n"
+        f"group       incident_ion delete\n"
         f"\n"
         if species["needs_zbl"] and spec.remove_ar else ""
         ) +
@@ -1536,7 +1544,9 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
     is_rie       = spec.flux_ratio > 0 and not spec.radical_burst
     has_radicals = spec.flux_ratio > 0
 
-    potential        = _potential_block(SPECIES["Ar"] if has_zbl else SPECIES["O"])
+    zbl_sp           = next((SPECIES[c.species] for c in mix if SPECIES[c.species]["needs_zbl"]), None)
+    potential        = _potential_block(zbl_sp if has_zbl else SPECIES["O"])
+    mass4_var        = zbl_sp["mass_var"] if has_zbl else "M_Ar"
     molecule_decl    = "molecule O2 O2.molecule\n" if has_molecule else ""
     nonargon_regroup = "group nonargon type 1 2 3\n" if has_zbl else ""
 
@@ -1697,10 +1707,10 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         f"unfix       3\n"
         f"\n"
         + (
-        f"# Remove any implanted Ar\n"
-        f"group       argon type 4\n"
-        f"delete_atoms group argon\n"
-        f"group       argon delete\n"
+        f"# Remove implanted ZBL ion\n"
+        f"group       incident_ion type 4\n"
+        f"delete_atoms group incident_ion\n"
+        f"group       incident_ion delete\n"
         f"\n"
         if has_zbl and spec.remove_ar else ""
         ) +

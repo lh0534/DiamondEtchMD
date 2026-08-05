@@ -218,9 +218,13 @@ def _make_sim_carbon_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
     if spec.initial_thermalization:
         (outdir / "init_thermalization.lmp").write_text(get_init_thermalization_lmp(spec.initial_thermalization_steps))
 
-    # Symlink shared LAMMPS scripts (no make_surf.lmp, no lat_a.txt needed)
-    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp",
-                  "notify_channeled.lmp",
+    # Copy simulation-control scripts (not symlinked so template edits don't affect running jobs)
+    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp"):
+        dst = outdir / fname
+        if not dst.exists():
+            shutil.copy(_TEMPLATES / fname, dst)
+    # Symlink read-only / shared assets
+    for fname in ("notify_channeled.lmp",
                   "ffield.reax", "lmp_env.sh", "auto-plot.py",
                   "make_impact_dump.py"):
         dst = outdir / fname
@@ -327,9 +331,13 @@ def _make_sim_diamond_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
     # make_surf.lmp — copied from the package template for this surface
     shutil.copy(get_make_surf_source(spec), outdir / "make_surf.lmp")
 
-    # symlink shared LAMMPS scripts and data files from package templates
-    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp",
-                  "notify_channeled.lmp",
+    # Copy simulation-control scripts (not symlinked so template edits don't affect running jobs)
+    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp"):
+        dst = outdir / fname
+        if not dst.exists():
+            shutil.copy(_TEMPLATES / fname, dst)
+    # Symlink read-only / shared assets
+    for fname in ("notify_channeled.lmp",
                   "ffield.reax", "lat_a.txt", "lmp_env.sh", "auto-plot.py",
                   "make_impact_dump.py"):
         dst = outdir / fname
@@ -451,13 +459,18 @@ def _make_sim_single_impact(spec: SimSpec, outdir: Path, is_carbon: bool) -> Non
             get_init_thermalization_lmp(spec.initial_thermalization_steps)
         )
 
-    # Shared symlinks (sweep.lmp → sweep_single_impact.lmp for correct ejection ordering)
+    # Copy simulation-control scripts (not symlinked so template edits don't affect running jobs)
     sweep_dst = outdir / "sweep.lmp"
     if not sweep_dst.exists():
-        sweep_dst.symlink_to(_TEMPLATES / "sweep_single_impact.lmp")
-    common_links = ["thermalize.lmp", "addfix.lmp",
-                    "notify_channeled.lmp",
+        shutil.copy(_TEMPLATES / "sweep_single_impact.lmp", sweep_dst)
+    for fname in ("thermalize.lmp", "addfix.lmp"):
+        dst = outdir / fname
+        if not dst.exists():
+            shutil.copy(_TEMPLATES / fname, dst)
+    # Symlink read-only / shared assets
+    common_links = ["notify_channeled.lmp",
                     "ffield.reax", "lmp_env.sh", "auto-plot.py",
+                    "analyze_penetration_depth.py",
                     "make_impact_dump.py"]
     if not is_carbon:
         common_links.append("lat_a.txt")

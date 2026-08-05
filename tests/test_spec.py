@@ -39,7 +39,7 @@ def test_validate_bad_orientation():
 
 
 def test_validate_bad_species():
-    spec = SimSpec(orientation="100", surface="1x1", species="Xe", ml=81)
+    spec = SimSpec(orientation="100", surface="1x1", species="Unobtainium", ml=81)
     with pytest.raises(SystemExit):
         validate(spec)
 

@@ -132,6 +132,31 @@ def test_make_sim_Ar(tmp_path):
     assert not (outdir / "O2.molecule").exists()
 
 
+def test_make_sim_Er(tmp_path):
+    spec = SimSpec(
+        orientation="100",
+        surface="1x1",
+        species="Er",
+        energy=100.0,
+        surface_temperature=300.0,
+        ml=compute_ml("100", 9, 9),
+        box_x=9, box_y=9, box_depth=3,
+        name="Er_test",
+    )
+    outdir = tmp_path / "sim"
+    make_sim(spec, outdir)
+
+    head = (outdir / "head.lmp").read_text()
+    assert "hybrid reaxff" in head
+    assert "pair_coeff 1 4 zbl 6.0 68" in head
+    assert "pair_coeff 4 4 zbl 68 68" in head
+    assert "mass        4 ${M_Er}" in head
+
+    cfg = (outdir / "config.lmp").read_text()
+    assert "incident_type_index equal 4" in cfg
+    assert "M_Er equal 167.259" in cfg
+
+
 def test_make_sim_O2(tmp_path):
     spec = SimSpec(
         orientation="100",

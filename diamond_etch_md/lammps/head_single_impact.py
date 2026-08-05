@@ -71,7 +71,7 @@ def get_thermalize_surface_lmp(spec: SimSpec) -> str:
         f"mass        1 ${{M_C}}\n"
         f"mass        2 ${{M_H}}\n"
         f"mass        3 ${{M_O}}\n"
-        f"mass        4 ${{M_Ar}}\n"
+        f"mass        4 ${{{species['mass_var']}}}\n"
         f"\n"
         f"{_potential_block(species)}"
         f"\n"
@@ -163,13 +163,13 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
     remove_ar_block = ""
     if has_ar and spec.remove_ar:
         remove_ar_block = (
-            f"group       argon type 4\n"
-            f"delete_atoms group argon\n"
-            f"group       argon delete\n"
+            f"group       incident_ion type 4\n"
+            f"delete_atoms group incident_ion\n"
+            f"group       incident_ion delete\n"
             f"\n"
         )
 
-    # ── nonargon group line: needed after every read_data for Ar ions ─────────
+    # ── nonargon group line: needed after every read_data for ZBL ions ────────
     nonargon_redef = "group       nonargon type 1 2 3\n" if has_ar else ""
 
     # ── Initial structure loading (crystal vs carbon path) ────────────────────
@@ -290,7 +290,7 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
         f"mass        1 ${{M_C}}\n"
         f"mass        2 ${{M_H}}\n"
         f"mass        3 ${{M_O}}\n"
-        f"mass        4 ${{M_Ar}}\n"
+        f"mass        4 ${{{species['mass_var']}}}\n"
         f"\n"
         f"{_potential_block(species)}"
         f"\n"
@@ -387,6 +387,10 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
         f"unfix       2\n"
         f"unfix       3\n"
         f"\n"
+        f"{stats_log}"
+        f"\n"
+        f"{write_data}"
+        f"\n"
         f"{remove_ar_block}"
         f"group       carbon type 1\n"
         f"group       hydrogen type 2\n"
@@ -395,11 +399,7 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
         f"variable    nhydrogen equal count(hydrogen)\n"
         f"variable    noxygen equal count(oxygen)\n"
         f"\n"
-        f"{stats_log}"
-        f"\n"
         f"{ncarbon_print}"
-        f"\n"
-        f"{write_data}"
         f"\n"
         f"{ion_dump_close}"
         f"# Update restart counter after each completed trial\n"

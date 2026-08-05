@@ -140,8 +140,16 @@ def test_config_species_O_energy_no_halving():
 
 
 def test_config_contains_M_Ar():
-    cfg = get_config_lmp(make_spec(ml=81))
+    # M_Ar is only emitted when species=Ar (ZBL species emit their own mass var)
+    cfg = get_config_lmp(make_spec(species="Ar", ml=81))
     assert "M_Ar equal 39.948" in cfg
+
+
+def test_config_no_unused_mass_vars():
+    # Non-ZBL species (O) should not emit M_Ar or M_Er
+    cfg = get_config_lmp(make_spec(species="O", ml=81))
+    assert "M_Ar" not in cfg
+    assert "M_Er" not in cfg
 
 
 def test_config_orientation_comment():
@@ -221,14 +229,32 @@ def test_head_Ar_hybrid_pair_style():
 
 def test_head_Ar_zbl_pair_coeffs():
     head = get_head_lmp(make_spec(species="Ar", ml=81))
-    assert "pair_coeff 1 4 zbl 6.0 18.0" in head
-    assert "pair_coeff 4 4 zbl 18.0 18.0" in head
+    assert "pair_coeff 1 4 zbl 6.0 18" in head
+    assert "pair_coeff 4 4 zbl 18 18" in head
 
 
 def test_head_Ar_qeq_nonargon():
     head = get_head_lmp(make_spec(species="Ar", ml=81))
     assert "fix reax_qeq nonargon" in head
     assert "fix reax_qeq all" not in head
+
+
+def test_head_Er_zbl_pair_coeffs():
+    head = get_head_lmp(make_spec(species="Er", ml=81))
+    assert "pair_coeff 1 4 zbl 6.0 68" in head
+    assert "pair_coeff 4 4 zbl 68 68" in head
+
+
+def test_head_Er_uses_M_Er_mass():
+    head = get_head_lmp(make_spec(species="Er", ml=81))
+    assert "mass        4 ${M_Er}" in head
+    assert "mass        4 ${M_Ar}" not in head
+
+
+def test_head_Er_incident_ion_remove():
+    head = get_head_lmp(make_spec(species="Er", ml=81))
+    assert "group       incident_ion type 4" in head
+    assert "group       argon type 4" not in head
 
 
 def test_head_Ar_no_explicit_removal():
@@ -506,9 +532,11 @@ def test_multi_ion_config_has_i_above():
 
 
 def test_multi_ion_config_has_mass_vars():
+    # O+O2 mix: only C/H/O mass vars needed; no ZBL species so no M_Ar
     cfg = get_config_lmp_multi_ion(make_multi_ion_spec())
-    for var in ("M_C", "M_H", "M_O", "M_Ar"):
+    for var in ("M_C", "M_H", "M_O"):
         assert var in cfg
+    assert "M_Ar" not in cfg
 
 
 def test_multi_ion_config_rie_vars_present():
@@ -933,3 +961,15 @@ def test_single_impact_submit_carbon_calls_thermalize_surface():
 def test_single_impact_submit_crystal_no_thermalize_surface():
     sub = get_submit_script_single_impact(_make_si_spec())
     assert "thermalize_surface.lmp" not in sub
+
+
+def test_single_impact_stats_logged_before_remove_ar():
+    # ion_in_box / ion_z_after must be recorded BEFORE remove_ar deletes the ion.
+    spec = _make_si_carbon_spec(remove_ar=True)
+    head = get_head_lmp_single_impact(spec)
+    stats_pos   = head.index("ion_in_box equal count(insert)")
+    remove_pos  = head.index("delete_atoms group incident_ion")
+    assert stats_pos < remove_pos, (
+        "stats_log must appear before remove_ar_block; "
+        "otherwise count(insert) is always 0"
+    )
