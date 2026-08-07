@@ -24,7 +24,7 @@ import dataclasses
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 from .orientations import ORIENT
 from .species import SPECIES
@@ -105,6 +105,7 @@ class SimSpec:
     skip_radical_thermalization: bool = False  # omit thermalize.lmp between successive radicals
     radical_burst:          bool  = False  # inject flux_ratio O• as a burst instead of one-by-one; mono-energetic fixed-angle only
     radical_burst_chunk:    int   = 0      # max atoms deposited before running dynamics; 0 = auto (0.5 ML)
+    radical_burst_attempt:  int   = 200    # placement attempts per atom in burst deposit; increase if packing failures occur
     dump_mode:              str   = "all"  # "all" | "etch_only" | "none"
     # ── Cycling mode ──────────────────────────────────────────────────────────
     phases:                 Optional[List[CyclePhase]]    = None  # None = single-species mode
@@ -120,6 +121,14 @@ class SimSpec:
     single_impact:          bool  = False   # repeat single impact from fresh surface N times
     n_trials:               int   = 100     # number of independent single-impact trials
     randomize_velocities:   bool  = False   # re-assign thermal velocities from Boltzmann each trial
+    # ── Deposition mask ───────────────────────────────────────────────────────
+    mask_type:   Optional[str]                      = None  # "xymask" | "xmask" | "ymask"
+    mask_width:  Union[float, Tuple[float, float]]  = 0.1   # fraction of box; (x_frac, y_frac) for xymask
+
+    def __post_init__(self):
+        # Normalize xymask single-float shorthand to a (wx, wy) tuple.
+        if self.mask_type == "xymask" and isinstance(self.mask_width, (int, float)):
+            self.mask_width = (float(self.mask_width), float(self.mask_width))
 
     @classmethod
     def from_dict(cls, data: dict) -> "SimSpec":
@@ -320,6 +329,26 @@ def validate(spec: "SimSpec") -> None:
                     f"radical_energy must be > 0 when flux_ratio > 0, "
                     f"got {spec.radical_energy}."
                 )
+
+
+    if spec.mask_type is not None:
+        valid_mask_types = ("xymask", "xmask", "ymask")
+        if spec.mask_type not in valid_mask_types:
+            sys.exit(f"mask_type must be one of {valid_mask_types} or None; got '{spec.mask_type}'.")
+        if spec.phases is not None:
+            sys.exit("mask_type is not yet supported for cycle-etch mode.")
+        if spec.mask_type == "xymask":
+            if not (isinstance(spec.mask_width, tuple) and len(spec.mask_width) == 2):
+                sys.exit("xymask requires mask_width as a (x_frac, y_frac) tuple or a single float.")
+            wx, wy = spec.mask_width
+        else:
+            if not isinstance(spec.mask_width, (int, float)):
+                sys.exit(f"{spec.mask_type} requires mask_width as a single float; got {type(spec.mask_width).__name__}.")
+            wx = wy = float(spec.mask_width)
+        if spec.mask_type in ("xymask", "xmask") and not (0.0 < wx < 0.5):
+            sys.exit(f"mask_width x-fraction must be in (0, 0.5); got {wx}.")
+        if spec.mask_type in ("xymask", "ymask") and not (0.0 < wy < 0.5):
+            sys.exit(f"mask_width y-fraction must be in (0, 0.5); got {wy}.")
 
 
 def normalize_ion_mix(mix: List[IonComponent]) -> List[IonComponent]:

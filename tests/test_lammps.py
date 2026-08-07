@@ -10,8 +10,10 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from diamond_etch_md.spec import SimSpec, IonComponent, CyclePhase
 from diamond_etch_md.lammps.config import (get_config_lmp, get_config_lmp_multi_ion,
-                                            get_config_lmp_single_impact)
-from diamond_etch_md.lammps.head import get_head_lmp, get_head_lmp_multi_ion
+                                            get_config_lmp_single_impact,
+                                            get_config_lmp_carbon_etch)
+from diamond_etch_md.lammps.head import (get_head_lmp, get_head_lmp_multi_ion,
+                                          get_head_lmp_carbon_etch)
 from diamond_etch_md.lammps.head_cycling import get_head_lmp_cycle_etch
 from diamond_etch_md.lammps.head_single_impact import (get_head_lmp_single_impact,
                                                         get_thermalize_surface_lmp)
@@ -532,11 +534,13 @@ def test_multi_ion_config_has_i_above():
 
 
 def test_multi_ion_config_has_mass_vars():
-    # O+O2 mix: only C/H/O mass vars needed; no ZBL species so no M_Ar
+    # O+O2 mix: C/H/O mass vars needed. M_Ar is ALSO required even with no ZBL
+    # species in the mix — head.lmp always allocates 4 atom types and falls
+    # back to `mass 4 ${M_Ar}` as a placeholder for the unused 4th slot.
     cfg = get_config_lmp_multi_ion(make_multi_ion_spec())
-    for var in ("M_C", "M_H", "M_O"):
+    for var in ("M_C", "M_H", "M_O", "M_Ar"):
         assert var in cfg
-    assert "M_Ar" not in cfg
+    assert cfg.count("M_Ar equal") == 1  # defined exactly once, not duplicated
 
 
 def test_multi_ion_config_rie_vars_present():
@@ -973,3 +977,156 @@ def test_single_impact_stats_logged_before_remove_ar():
         "stats_log must appear before remove_ar_block; "
         "otherwise count(insert) is always 0"
     )
+
+
+# ─── Deposition mask ───────────────────────────────────────────────────────────
+# mask_type / mask_width restrict ion/radical deposit + bzone bookkeeping to a
+# sub-window (expose_zone) of the box. Not yet committed to git; no prior tests.
+
+def _make_carbon_spec(**kw):
+    defaults = dict(
+        species="O", energy=20.0, surface_temperature=300.0, ml=64, fluence=50,
+        initial_config_file="/fake/path.data", anchor_z_max=7.0,
+    )
+    defaults.update(kw)
+    return SimSpec(**defaults)
+
+
+# -- config.lmp: mask variable block, all four config generators --
+
+@pytest.mark.parametrize("get_cfg,spec_kwargs", [
+    (get_config_lmp,               dict()),
+    (get_config_lmp_multi_ion,     dict(ion_mix=[
+        IonComponent(species="O",  fraction=0.5, energy=50.0),
+        IonComponent(species="O2", fraction=0.5, energy=100.0),
+    ])),
+    (get_config_lmp_single_impact, dict(single_impact=True, n_trials=50)),
+])
+def test_config_no_mask_by_default(get_cfg, spec_kwargs):
+    spec = make_spec(**spec_kwargs)
+    cfg = get_cfg(spec)
+    assert "mask_width_x" not in cfg
+    assert "mask_width_y" not in cfg
+
+
+def test_config_carbon_etch_no_mask_by_default():
+    cfg = get_config_lmp_carbon_etch(_make_carbon_spec())
+    assert "mask_width_x" not in cfg
+    assert "mask_width_y" not in cfg
+
+
+@pytest.mark.parametrize("get_cfg,spec_kwargs", [
+    (get_config_lmp,               dict()),
+    (get_config_lmp_multi_ion,     dict(ion_mix=[
+        IonComponent(species="O",  fraction=0.5, energy=50.0),
+        IonComponent(species="O2", fraction=0.5, energy=100.0),
+    ])),
+    (get_config_lmp_single_impact, dict(single_impact=True, n_trials=50)),
+])
+def test_config_xymask_defines_both_axes(get_cfg, spec_kwargs):
+    spec = make_spec(mask_type="xymask", mask_width=0.3, **spec_kwargs)
+    cfg = get_cfg(spec)
+    assert "variable    mask_width_x equal 0.3" in cfg
+    assert "variable    mask_width_y equal 0.3" in cfg
+    assert "mask_lo_x    equal xlo+(xhi-xlo)*v_mask_width_x" in cfg
+    assert "mask_hi_x    equal xhi-(xhi-xlo)*v_mask_width_x" in cfg
+    assert "mask_lo_y    equal ylo+(yhi-ylo)*v_mask_width_y" in cfg
+    assert "mask_hi_y    equal yhi-(yhi-ylo)*v_mask_width_y" in cfg
+
+
+@pytest.mark.parametrize("get_cfg,spec_kwargs", [
+    (get_config_lmp,               dict()),
+    (get_config_lmp_single_impact, dict(single_impact=True, n_trials=50)),
+])
+def test_config_xmask_defines_only_x(get_cfg, spec_kwargs):
+    spec = make_spec(mask_type="xmask", mask_width=0.2, **spec_kwargs)
+    cfg = get_cfg(spec)
+    assert "mask_width_x equal 0.2" in cfg
+    assert "mask_width_y" not in cfg
+
+
+@pytest.mark.parametrize("get_cfg,spec_kwargs", [
+    (get_config_lmp,               dict()),
+    (get_config_lmp_single_impact, dict(single_impact=True, n_trials=50)),
+])
+def test_config_ymask_defines_only_y(get_cfg, spec_kwargs):
+    spec = make_spec(mask_type="ymask", mask_width=0.25, **spec_kwargs)
+    cfg = get_cfg(spec)
+    assert "mask_width_y equal 0.25" in cfg
+    assert "mask_width_x" not in cfg
+
+
+def test_config_carbon_etch_xymask():
+    cfg = get_config_lmp_carbon_etch(_make_carbon_spec(mask_type="xymask", mask_width=0.4))
+    assert "mask_width_x equal 0.4" in cfg
+    assert "mask_width_y equal 0.4" in cfg
+
+
+# -- head.lmp: expose_zone region + deposit uses it instead of bbox --
+
+def test_head_no_mask_deposit_uses_bbox():
+    head = get_head_lmp(make_spec())
+    assert "region expose_zone" not in head
+    assert "region bbox units box" in head
+
+
+def test_head_xymask_deposit_uses_expose_zone():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.3))
+    assert "region      expose_zone block $(v_mask_lo_x) $(v_mask_hi_x) $(v_mask_lo_y) $(v_mask_hi_y) EDGE EDGE units box" in head
+    assert "region expose_zone units box" in head
+    assert "region bbox units box" not in head
+
+
+def test_head_xmask_expose_zone_full_y_extent():
+    head = get_head_lmp(make_spec(mask_type="xmask", mask_width=0.2))
+    assert "region      expose_zone block $(v_mask_lo_x) $(v_mask_hi_x) EDGE EDGE EDGE EDGE units box" in head
+
+
+def test_head_ymask_expose_zone_full_x_extent():
+    head = get_head_lmp(make_spec(mask_type="ymask", mask_width=0.2))
+    assert "region      expose_zone block EDGE EDGE $(v_mask_lo_y) $(v_mask_hi_y) EDGE EDGE units box" in head
+
+
+def test_head_rie_radical_deposit_also_uses_expose_zone():
+    # Radical pre-exposure deposit (not just the ion deposit) must respect the mask.
+    spec = make_rie_spec(mask_type="xymask", mask_width=0.3)
+    head = get_head_lmp(spec)
+    assert "region expose_zone units box" in head
+    # two deposit fixes should reference the mask: one for radicals, one for the ion
+    assert head.count("region expose_zone units box") >= 2
+
+
+def test_head_multi_ion_mask_uses_expose_zone():
+    spec = make_multi_ion_spec(mask_type="xymask", mask_width=0.3)
+    head = get_head_lmp_multi_ion(spec)
+    assert "region expose_zone units box" in head
+
+
+def test_head_carbon_etch_no_mask_uses_bbox():
+    head = get_head_lmp_carbon_etch(_make_carbon_spec())
+    assert "region expose_zone" not in head
+
+
+def test_head_carbon_etch_mask_uses_expose_zone():
+    head = get_head_lmp_carbon_etch(_make_carbon_spec(mask_type="xymask", mask_width=0.3))
+    assert "region expose_zone" in head
+
+
+def test_head_single_impact_no_mask_uses_bbox():
+    head = get_head_lmp_single_impact(_make_si_spec())
+    assert "region expose_zone" not in head
+    assert "region bbox units box" in head
+
+
+def test_head_single_impact_mask_uses_expose_zone():
+    head = get_head_lmp_single_impact(_make_si_spec(mask_type="xymask", mask_width=0.3))
+    assert "region expose_zone units box" in head
+
+
+def test_head_single_impact_mask_redefines_expose_zone_each_trial():
+    # bbox is deleted/redefined at the top of every trial; expose_zone must be too,
+    # otherwise it would still reference the previous trial's (deleted) bbox.
+    head = get_head_lmp_single_impact(_make_si_spec(mask_type="xymask", mask_width=0.3))
+    trial_start = head.index("label\t\ttrial_start")
+    loop_part = head[trial_start:]
+    assert "expose_zone delete" in loop_part

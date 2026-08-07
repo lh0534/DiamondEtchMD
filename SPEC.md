@@ -16,6 +16,21 @@ along with valid values, defaults, simulation modes, and output file formats.
 | `cycle-etch` | `phases` set | Multi-phase cycling (sequential species/fluence blocks) |
 | `ALE-etch` | `phases` with exactly 2 entries | Atomic layer etching (validated via `make_ale()`) |
 
+`etch_mode(spec)` prefixes the mode string with `carbon-` when `initial_config_file`
+is set (see [Carbon-etch mode](#carbon-etch-mode-arbitrary-initial-structure) below)
+— e.g. `carbon-rie-etch`. This prefix composes with any of the six modes above.
+
+**Single-impact statistics mode** (`single_impact=True`) is a separate execution mode
+that overrides the normal fluence loop — see
+[Single-impact statistics mode](#single-impact-statistics-mode) below. It can be combined
+with either the crystal-builder or carbon-etch initial structure, and with `flux_ratio`
+(including burst mode) for radical pre-exposure before each trial's impact.
+
+**Deposition mask** (`mask_type` set) restricts where ions/radicals are permitted to land,
+independent of etch mode — see [Deposition mask](#deposition-mask) below.
+⚠️ **Not yet committed / experimental** — implemented but not covered by tests, and not
+yet validated against `cycle-etch` (explicitly rejected by `validate()`).
+
 ---
 
 ## `SimSpec` fields
@@ -77,7 +92,8 @@ along with valid values, defaults, simulation modes, and output file formats.
 | `radical_angle` | `float` | `0.0` | Degrees from surface normal for radicals in fixed-angle mode |
 | `radical_angle_distribution` | `bool` | `False` | Lambert cosine (3-D) angle distribution for O• radicals |
 | `max_inter_neutral_time` | `float` | `5000.0` | fs; cap on per-radical halt time in stochastic mode |
-| `radical_i_above` | `float` | `12.0` | Å above surface to inject O• radical |
+| `radical_i_above` | `float` | `6.0` | Å above surface to inject O• radical |
+| `skip_radical_thermalization` | `bool` | `False` | Omit `thermalize.lmp` between successive radicals in the one-at-a-time loop |
 | `dump_mode` | `str` | `"all"` | Trajectory dump mode: `"all"` \| `"etch_only"` \| `"none"` |
 
 **Stochastic radical sampling notes:**
@@ -87,6 +103,16 @@ along with valid values, defaults, simulation modes, and output file formats.
 - Both flags are independent and can be combined. Fixed-angle + Boltzmann speed is also valid (e.g. normal incidence with a thermal speed distribution).
 - In stochastic mode, `max_inter_neutral_time` is used as the MD window for every radical.
 - Sampled velocities are logged per-radical to `radical_log.txt` (columns: `impact cn energy_eV polar_deg azimuthal_deg`) and visualised in `radical_distribution.png`.
+
+**Burst radical injection** (`radical_burst=True`): deposits all `flux_ratio` radicals at once instead of one at a time. Mono-energetic fixed-angle only (no `radical_temperature`, no `radical_angle_distribution`); requires `ml > 0`.
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `radical_burst` | `bool` | `False` | Enable burst mode |
+| `radical_burst_chunk` | `int` | `0` | Atoms deposited per chunk before running dynamics; `0` = auto (0.5 ML) |
+| `radical_burst_attempt` | `int` | `200` | Placement attempts per atom in burst deposit; increase if packing failures occur |
+
+All atoms in a chunk land at the same z height (`bound(all,zmax) + radical_i_above`, evaluated once per chunk) via a narrow LAMMPS region, so the box never grows during a chunk's deposition.
 
 ### Timing parameters
 
@@ -144,6 +170,87 @@ All fractions must sum to 1.0 (use `normalize_ion_mix()` to auto-normalize).
 | `cycles` | `int` | `1` | Number of times the full phase list repeats |
 
 `flux_ratio` and `radical_energy` on `SimSpec` are **ignored** in cycling mode; use per-phase values instead.
+
+### Carbon-etch mode (arbitrary initial structure)
+
+Runs any of the six modes above on an arbitrary LAMMPS data file instead of a
+generated diamond surface — e.g. graphullerene balls. Triggered by setting
+`initial_config_file`. Monolayer size is computed via Langmuir ML from the box's
+XY area (`ml=0` → auto), and there is no carbon replenishment (the anchor region
+is frozen, but nothing extends the box downward as material is removed).
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `initial_config_file` | `str\|None` | `None` | Absolute path to a LAMMPS data file; setting this triggers carbon-etch |
+| `anchor_z_max` | `float\|None` | `None` | Å; top of the frozen anchor region. **Required** for carbon-etch (validated) |
+| `initial_thermalization` | `bool` | `False` | Run NVT equilibration before impacts |
+| `initial_thermalization_steps` | `int` | `10000` | NVT steps for initial thermalization (only used if `initial_thermalization=True`) |
+
+### Single-impact statistics mode
+
+Repeats one impact event `n_trials` times, each starting from the same
+thermalized surface, to build up impact statistics (e.g. penetration depth
+distributions) rather than a cumulative etch simulation. Works with either the
+crystal-builder path (`initial_config_file=None`) or the carbon-etch path.
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `single_impact` | `bool` | `False` | Enable single-impact statistics mode (overrides the normal fluence loop) |
+| `n_trials` | `int` | `100` | Number of independent single-impact trials |
+| `randomize_velocities` | `bool` | `False` | Re-assign thermal velocities (`velocity create`, Gaussian) from `surface_temperature` before each trial |
+
+**Trial mechanics:**
+
+1. The surface is built/loaded and thermalized **once**, writing `thermalized.data`
+   (crystal path: inside `head.lmp`, first run only; carbon path: via a standalone
+   `thermalize_surface.lmp` run before `head.lmp`, since carbon surfaces may have
+   multiple disconnected clusters and can't safely use the normal `stopclust`
+   machinery during thermalization).
+2. Each trial: delete all atoms, `read_data thermalized.data add 0` to reset to
+   the clean surface, re-establish groups (`read_data` clears per-atom group
+   membership), optionally re-randomize velocities, run one impact event
+   (optionally with `flux_ratio` radical pre-exposure / burst beforehand), sweep
+   etch products, log per-trial stats.
+3. `flux_ratio` / radical pre-exposure work the same as in RIE-etch — each trial
+   gets a fresh radical exposure before its single ion impact, not a persistent
+   radical history across trials.
+4. **Restart**: the submit script reads `ntrials_done.txt` (written by LAMMPS
+   after each completed trial) and passes it as `n_complete` — the trial loop
+   runs from `n_complete+1` to `n_trials`. `data_file` is always the initial
+   surface (crystal: `impact_snaps/0.data`; carbon: `initial_config.data`),
+   never the latest impact snapshot, since every trial restarts from
+   `thermalized.data`.
+
+Output is written to `impact_stats.txt` (see
+[Output file formats](#output-file-formats)) and analyzed with
+`python -m diamond_etch_md.analysis.single_impact [sim_dir]`, which also reads
+per-trial trajectory dumps for the trajectory-based maximum penetration depth
+and writes `penetration_analysis.png` / `penetration_analysis.txt`.
+
+### Deposition mask
+
+⚠️ **Not yet committed to git; no test coverage yet.** Restricts ion/radical
+deposition (and the corresponding `bzone` region used for cluster-ejection
+bookkeeping) to a sub-window of the box — `expose_zone` — leaving a masked
+border around the edges untouched by incoming species, similar to a physical
+etch mask. Not currently supported in `cycle-etch` mode (rejected by `validate()`).
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `mask_type` | `str\|None` | `None` | `"xymask"` \| `"xmask"` \| `"ymask"` \| `None` (no mask) |
+| `mask_width` | `float\|Tuple[float,float]` | `0.1` | Fraction of box masked on each face. Single float for `xmask`/`ymask`; `(x_frac, y_frac)` tuple for `xymask` (a bare float is auto-normalized to `(w, w)`) |
+
+**Mask types:**
+
+| `mask_type` | Masked region |
+|-------------|----------------|
+| `xymask` | Both x- and y-faces masked; exposure window is a centered rectangle |
+| `xmask` | Only x-faces masked; exposure window spans the full y extent |
+| `ymask` | Only y-faces masked; exposure window spans the full x extent |
+
+Each active fraction must satisfy `0.0 < frac < 0.5` (validated). E.g.
+`mask_type="xymask", mask_width=0.3` leaves a centered window covering the
+middle 40% of both x and y (30% masked on each side).
 
 ---
 
@@ -239,6 +346,41 @@ Written in RIE-etch mode (one row per O• radical deposited). Space-separated, 
 
 Used by `plot_radical_distribution()` to verify Boltzmann and cosine sampling.
 
+### `impact_stats.txt` (single-impact mode)
+
+Written once per trial in single-impact mode. Space-separated, single-line header
+(`#`-prefixed).
+
+| Column | Name | Description |
+|--------|------|-------------|
+| 0 | `trial` | Trial number (1-indexed) |
+| 1 | `surf_z_before_A` | Carbon surface z (Å) immediately before this trial's impact |
+| 2 | `ion_z_after_A` | z (Å) of the embedded ion after impact; `9999.0` if the ion was not embedded (sputtered/reflected) |
+| 3 | `ion_in_box` | `1` if the ion is still in the `insert` group after the impact, `0` otherwise |
+| 4 | `pen_depth_A` | `surf_z_before_A - ion_z_after_A` (Å); the "final resting position" depth, as opposed to the trajectory-based maximum depth |
+
+Parsed by `parse_impact_stats()` / `analyze_single_impact()` in
+`diamond_etch_md.analysis.single_impact`.
+
+### `thermalized.data` / `ntrials_done.txt` (single-impact mode)
+
+- `thermalized.data` — the equilibrated surface state (positions + velocities,
+  `nofix nocoeff`) that every trial resets to via `read_data ... add 0`. Written
+  once, on the first run (crystal path) or by `thermalize_surface.lmp` before
+  `head.lmp` ever runs (carbon path).
+- `ntrials_done.txt` — plain integer, the number of completed trials. Written
+  after every trial (`shell echo ${trial} > ntrials_done.txt`); read by the
+  submit script as the restart counter (`n_complete`).
+
+### `penetration_analysis.png` / `penetration_analysis.txt` (single-impact mode)
+
+Written by `diamond_etch_md.analysis.single_impact` (`python -m
+diamond_etch_md.analysis.single_impact [sim_dir]`). Combines `impact_stats.txt`
+(final resting-position depth) with per-trial trajectory dumps in
+`etch_event_trajs/` (maximum depth reached along the trajectory, the physically
+meaningful quantity for comparison with SRIM/TRIM range predictions) into a
+4-panel figure and a text summary.
+
 ### `ATOM_CHANNELED`
 
 Presence-only flag file written when a channeled atom is detected. Checked by analysis tools to identify channeling events; does not persist between jobs (cleared at job start).
@@ -283,4 +425,25 @@ Key flags:
 --seed-adjust 1            # increment for independent replicas
 --remove-ar / --no-remove-ar
 --nice 2
+
+# Carbon-etch mode (arbitrary initial structure)
+--initial-config-file /path/to/structure.data
+--anchor-z-max 7.0         # Å; required when --initial-config-file is set
+--initial-thermalization
+--initial-thermalization-steps 300000
+
+# Single-impact statistics mode
+--single-impact
+--n-trials 100
+--randomize-velocities
+
+# Deposition mask (experimental, uncommitted)
+--mask-type xymask         # "xymask" | "xmask" | "ymask"
+--mask-width 0.3           # fraction of box masked on each active face
+
+# Burst radical injection
+--radical-burst
+--radical-burst-chunk 5
+--radical-burst-attempt 200
+--skip-radical-thermalization
 ```

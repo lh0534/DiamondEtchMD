@@ -25,6 +25,8 @@ from .head import (
     _build_ion_dump_blocks,
     _radical_loop_block,
     _radical_burst_block,
+    _expose_zone_def,
+    _expose_zone_redef,
 )
 
 
@@ -179,7 +181,8 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
             f"\n"
             f"# Anchor: frozen slab below anchor_z_max (Å)\n"
             f"region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-            f"region          anchor block INF INF INF INF INF ${{anchor_z_max}} units box\n"
+            + _expose_zone_def(spec)
+            + f"region          anchor block INF INF INF INF INF ${{anchor_z_max}} units box\n"
             f"variable        channeling_z equal bound(anchor,zmin)-2.0\n"
         )
         anchor_group = (
@@ -207,7 +210,8 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
             f"\n"
             f"{lattice_cmd}\n"
             f"region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-            f"variable        sublat equal ${{bottom}}+1/2\n"
+            + _expose_zone_def(spec)
+            + f"variable        sublat equal ${{bottom}}+1/2\n"
             f"region          anchor block INF INF INF INF ${{bottom}} ${{sublat}} units lattice\n"
         )
         anchor_group = (
@@ -247,7 +251,8 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
         f"# Snapshot surface z BEFORE impact using immediate $() evaluation\n"
         f"region      bbox delete\n"
         f"region      bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"run         0 post no\n"
+        + _expose_zone_redef(spec)
+        + f"run         0 post no\n"
         f"variable    surf_z_before equal $(bound(carbon,zmax))\n"
     )
 
@@ -349,7 +354,7 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
         f"{radical_loop}"
         f"{ion_dump_open}"
         f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{trial}}))\n"
-        f"{_deposit_line(species)}"
+        f"{_deposit_line(species, spec)}"
         f"\n"
         f"fix     2 mobile nve\n"
         f"fix     3 insert nve\n"

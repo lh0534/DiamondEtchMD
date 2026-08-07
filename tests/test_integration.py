@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_sim, make_ale, etch_mode
+from diamond_etch_md import SimSpec, CyclePhase, compute_ml, make_sim, make_ale, etch_mode, validate
 
 
 def test_make_sim_creates_expected_files(tmp_path):
@@ -358,8 +358,11 @@ def test_single_impact_sweep_symlinks_to_single_impact_variant(tmp_path):
     outdir = tmp_path / "si"
     make_sim(spec, outdir)
     sweep = outdir / "sweep.lmp"
-    assert sweep.is_symlink(), "sweep.lmp should be a symlink"
-    assert sweep.resolve().name == "sweep_single_impact.lmp"
+    # sweep.lmp is copied (not symlinked) so template edits don't affect running
+    # jobs (see builder.py); content should still match the single-impact variant.
+    assert sweep.exists() and not sweep.is_symlink()
+    template = Path(__file__).parents[1] / "diamond_etch_md" / "lammps" / "templates" / "sweep_single_impact.lmp"
+    assert sweep.read_text() == template.read_text()
 
 
 def test_make_ale_no_phases_fails(tmp_path):
@@ -380,3 +383,40 @@ def test_make_ale_3phase_fails(tmp_path):
     )
     with pytest.raises(SystemExit):
         make_ale(spec, tmp_path / "ale_bad")
+
+
+def test_make_sim_mask_creates_expose_zone_in_head(tmp_path):
+    """End-to-end: a masked spec should validate, build, and emit expose_zone."""
+    spec = SimSpec(
+        orientation="100", surface="2x1", species="O",
+        energy=20.0, ml=64, box_x=8, box_y=8, box_depth=5,
+        mask_type="xymask", mask_width=0.3,
+        name="mask_smoke_test",
+    )
+    validate(spec)  # should not raise
+
+    outdir = tmp_path / "mask_sim"
+    make_sim(spec, outdir)
+
+    cfg = (outdir / "config.lmp").read_text()
+    head = (outdir / "head.lmp").read_text()
+
+    assert "mask_width_x equal 0.3" in cfg
+    assert "mask_width_y equal 0.3" in cfg
+    assert "region      expose_zone block" in head
+    assert "region expose_zone units box" in head
+    assert "region bbox units box" not in head
+
+
+def test_make_sim_mask_rejected_for_cycle_etch(tmp_path):
+    spec = SimSpec(
+        orientation="100", surface="1x1", ml=81,
+        mask_type="xymask", mask_width=0.3,
+        phases=[
+            CyclePhase(species="Ar", energy=20.0, fluence_ml=1),
+            CyclePhase(species="O2", energy=5.0,  fluence_ml=1),
+        ],
+        name="mask_cycle_bad",
+    )
+    with pytest.raises(SystemExit):
+        validate(spec)

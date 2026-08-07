@@ -62,21 +62,104 @@ def _potential_block(species: dict) -> str:
         )
 
 
-def _deposit_line(species: dict) -> str:
+def _expose_zone_def(spec: SimSpec) -> str:
+    """Return LAMMPS commands that define region expose_zone at the current box bounds.
+
+    expose_zone is a sub-region of bbox restricted to the unmasked xy area.
+    When spec.mask_type is None, returns "" (deposit uses bbox directly).
+    Must be called every time bbox is redefined since EDGE captures box state.
+    """
+    if spec.mask_type is None:
+        return ""
+    mt = spec.mask_type
+    if mt == "xymask":
+        return (
+            f"region      expose_zone block "
+            f"$(v_mask_lo_x) $(v_mask_hi_x) "
+            f"$(v_mask_lo_y) $(v_mask_hi_y) "
+            f"EDGE EDGE units box\n"
+        )
+    elif mt == "xmask":
+        return (
+            f"region      expose_zone block "
+            f"$(v_mask_lo_x) $(v_mask_hi_x) "
+            f"EDGE EDGE EDGE EDGE units box\n"
+        )
+    else:  # ymask
+        return (
+            f"region      expose_zone block "
+            f"EDGE EDGE "
+            f"$(v_mask_lo_y) $(v_mask_hi_y) "
+            f"EDGE EDGE units box\n"
+        )
+
+
+def _expose_zone_redef(spec: SimSpec) -> str:
+    """Return LAMMPS commands to delete and redefine expose_zone.
+
+    Use this wherever bbox is deleted and recreated mid-run.
+    Returns "" when no mask is active.
+    """
+    if spec.mask_type is None:
+        return ""
+    return f"region      expose_zone delete\n" + _expose_zone_def(spec)
+
+
+def _deposit_region(spec: SimSpec) -> str:
+    """Return the LAMMPS region name to use for ion/radical deposit commands."""
+    return "expose_zone" if spec.mask_type is not None else "bbox"
+
+
+def _bzone_xy_bounds(spec: SimSpec) -> str:
+    """Return the x y lo/hi part of a bzone region block, masked or full-box."""
+    mt = spec.mask_type if spec is not None else None
+    if mt == "xymask":
+        return "$(v_mask_lo_x) $(v_mask_hi_x) $(v_mask_lo_y) $(v_mask_hi_y)"
+    elif mt == "xmask":
+        return "$(v_mask_lo_x) $(v_mask_hi_x) EDGE EDGE"
+    elif mt == "ymask":
+        return "EDGE EDGE $(v_mask_lo_y) $(v_mask_hi_y)"
+    else:
+        return "EDGE EDGE EDGE EDGE"
+
+
+def _expose_zone_redef_if_cmds(spec: SimSpec) -> str:
+    """Return space-separated quoted LAMMPS commands for expose_zone delete+redef.
+
+    Used inside burst-mode 'if ... then "cmd1" "cmd2" ...' strings where
+    _expose_zone_redef() (multi-line) cannot be used.  Returns "" if no mask.
+    """
+    if spec.mask_type is None:
+        return ""
+    mt = spec.mask_type
+    if mt == "xymask":
+        block = "$(v_mask_lo_x) $(v_mask_hi_x) $(v_mask_lo_y) $(v_mask_hi_y) EDGE EDGE units box"
+    elif mt == "xmask":
+        block = "$(v_mask_lo_x) $(v_mask_hi_x) EDGE EDGE EDGE EDGE units box"
+    else:  # ymask
+        block = "EDGE EDGE $(v_mask_lo_y) $(v_mask_hi_y) EDGE EDGE units box"
+    return (
+        f'"region expose_zone delete" '
+        f'"region expose_zone block {block}" '
+    )
+
+
+def _deposit_line(species: dict, spec: SimSpec = None) -> str:
     """Return the fix deposit command for the given species."""
+    region = _deposit_region(spec) if spec is not None else "bbox"
     if species["is_molecule"]:
         # O2: inject as molecule; type 0 means types come from molecule file
         return (
             f"fix     depo insert deposit 1 0 10000000000 ${{deposeed}} global "
             f"${{i_above}} ${{i_above}} vx 0.0 0.0 vy ${{vely}} ${{vely}} "
-            f"vz -${{velz}} -${{velz}} region bbox units box mol O2\n"
+            f"vz -${{velz}} -${{velz}} region {region} units box mol O2\n"
         )
     else:
         # single atom: inject by type index
         return (
             f"fix     depo insert deposit 1 ${{incident_type_index}} 10000000000 ${{deposeed}} global "
             f"${{i_above}} ${{i_above}} vx 0.0 0.0 vy ${{vely}} ${{vely}} "
-            f"vz -${{velz}} -${{velz}} region bbox units box\n"
+            f"vz -${{velz}} -${{velz}} region {region} units box\n"
         )
 
 
@@ -123,7 +206,8 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"# Refresh bbox: each radical can shrink zhi; must update before next deposit\n"
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"variable    cn equal ${{cn}}+1\n"
+        + _expose_zone_redef(spec)
+        + f"variable    cn equal ${{cn}}+1\n"
         f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{cn}}))\n"
         f"group       insert clear\n"
         f"group       mobile subtract all anchor\n"
@@ -233,13 +317,14 @@ def _radical_loop_block(spec: SimSpec) -> str:
     )
 
     # ── Fix deposit ───────────────────────────────────────────────────────────
+    _rad_region = _deposit_region(spec)
     blk += (
         f"\n"
         f"# Deposit O• radical (type 3) with sampled velocity\n"
         f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
         f"${{radical_i_above}} ${{radical_i_above}} "
         f"vx ${{vx_rad}} ${{vx_rad}} vy ${{vy_rad}} ${{vy_rad}} vz ${{vz_rad}} ${{vz_rad}} "
-        f"region bbox units box\n"
+        f"region {_rad_region} units box\n"
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
     )
@@ -366,7 +451,8 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"# Refresh bbox: thermalize (boundary p p m) may shrink zhi\n"
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"\n"
+        + _expose_zone_redef(spec)
+        + f"\n"
     )
 
     return blk
@@ -416,6 +502,11 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"variable    vz_burst equal -v_vel_chem_burst*cos(${{rad_angl}}*PI/180)\n"
         f"timestep    1e-10\n"
         f"\n"
+        f"# Record pre-burst O count to detect incomplete placement\n"
+        f"group       oxygen_pre_burst type 3\n"
+        f"variable    n_oxy_pre equal $(count(oxygen_pre_burst))\n"
+        f"group       oxygen_pre_burst delete\n"
+        f"\n"
     )
 
     for ci, csize in enumerate(chunks):
@@ -464,16 +555,18 @@ def _radical_burst_block(spec: SimSpec) -> str:
             f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
             f"\"change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box\" "
             f"\"region bbox delete\" "
-            f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\"\n"
+            f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\" "
+            + _expose_zone_redef_if_cmds(spec)
+            + f"\n"
             f"variable    z_ins{ci} equal bound(all,zmax)+${{radical_i_above}}\n"
-            f"region      bzone{ci} block EDGE EDGE EDGE EDGE "
+            f"region      bzone{ci} block {_bzone_xy_bounds(spec)} "
             f"$(v_z_ins{ci} - 0.1) $(v_z_ins{ci} + 0.1) units box\n"
             f"group       insert clear\n"
             f"group       mobile subtract all anchor\n"
             f"variable    burst_seed{ci}_1 equal "
             f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+{ci+1}))\n"
             f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{ci}_1}} "
-            f"attempt 50 "
+            f"attempt {spec.radical_burst_attempt} "
             f"vx ${{vx_burst}} ${{vx_burst}} "
             f"vy ${{vy_burst}} ${{vy_burst}} "
             f"vz ${{vz_burst}} ${{vz_burst}} "
@@ -553,6 +646,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
             f"\n"
         )
 
+    # ── Post-chunk: shortfall check + optional top-up ────────────────────────
     blk += (
         f"\n"
         f"group       carbon type 1\n"
@@ -562,6 +656,85 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"variable    nhydrogen equal count(hydrogen)\n"
         f"variable    noxygen equal count(oxygen)\n"
         f"\n"
+        f"# Shortfall check: how many O atoms were actually placed?\n"
+        f"variable    n_placed_burst equal count(oxygen)-v_n_oxy_pre\n"
+        f"variable    shortfall_burst equal {total}-v_n_placed_burst\n"
+        f'if "${{shortfall_burst}} == 0" then "jump SELF burst_topup_done"\n'
+        f"\n"
+        f"# Record incomplete burst (atom count, not halting)\n"
+        f'print       "c=${{c}} placed=$(v_n_placed_burst) expected={total} shortfall=$(v_shortfall_burst)" '
+        f"append BURST_INCOMPLETE\n"
+        f"\n"
+        f"# Top-up: deposit missing atoms with higher attempt count\n"
+        f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
+        f"\"change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box\" "
+        f"\"region bbox delete\" "
+        f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\" "
+        + _expose_zone_redef_if_cmds(spec)
+        + f"\n"
+        f"variable    z_topup equal bound(all,zmax)+${{radical_i_above}}\n"
+        f"region      bzone_topup block {_bzone_xy_bounds(spec)} "
+        f"$(v_z_topup - 0.1) $(v_z_topup + 0.1) units box\n"
+        f"variable    topup_lp loop $(v_shortfall_burst)\n"
+        f"label       burst_topup_loop\n"
+        f"group       insert clear\n"
+        f"group       mobile subtract all anchor\n"
+        f"variable    topup_seed equal "
+        f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+99999+v_topup_lp))\n"
+        f"fix         burst_depo insert deposit 1 3 1 ${{topup_seed}} "
+        f"attempt 1000 "
+        f"vx ${{vx_burst}} ${{vx_burst}} "
+        f"vy ${{vy_burst}} ${{vy_burst}} "
+        f"vz ${{vz_burst}} ${{vz_burst}} "
+        f"region bzone_topup near 2.0\n"
+        f"fix         2 mobile nve\n"
+        f"fix         3 insert nve\n"
+        f"run         1 post no\n"
+        f"run         0\n"
+        f"{nonargon_refresh}"
+        f"unfix       burst_depo\n"
+        f"unfix       2\n"
+        f"unfix       3\n"
+        f"next        topup_lp\n"
+        f"jump        SELF burst_topup_loop\n"
+        f"region      bzone_topup delete\n"
+        f"variable    z_topup delete\n"
+        f"\n"
+        f"# Top-up dynamics: run deposited atoms until inter_neutral_time\n"
+        f"group       insert clear\n"
+        f"group       mobile subtract all anchor\n"
+        f"fix         2 mobile nve\n"
+        f"fix         3 insert nve\n"
+        f"fix         ats_topup all dt/reset 1 NULL 1.00 0.01 units box\n"
+        f"variable    t0_topup equal $(time)\n"
+        f"variable    topup_elapsed equal time-${{t0_topup}}\n"
+        f"variable    burst_nclusts0 equal $(c_nclusts)\n"
+        f"fix         topup_thalt all halt 1 v_topup_elapsed > ${{inter_neutral_time}} "
+        f"error continue message yes\n"
+        f"run         0\n"
+        f"label       burst_topup_inner\n"
+        f"run         500 pre no post no\n"
+        f"run         0\n"
+        f'if "$(c_nclusts) > ${{burst_nclusts0}}" then &\n'
+        f'"variable event_count equal ${{event_count}}+1" &\n'
+        f'"variable burst_nclusts0 equal $(c_nclusts)"\n'
+        f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
+        f'if "$(time-v_t0_topup) < ${{inter_neutral_time}}" then "jump SELF burst_topup_inner"\n'
+        f"unfix       topup_thalt\n"
+        f"unfix       ats_topup\n"
+    )
+    if not spec.skip_radical_thermalization:
+        blk += f"include     thermalize.lmp\n"
+    blk += (
+        f"unfix       2\n"
+        f"unfix       3\n"
+        f"timestep    1e-10\n"
+        f"\n"
+        f"label       burst_topup_done\n"
+        f"\n"
+    )
+
+    blk += (
         f'print       "Burst complete"\n'
         f'print       "C_COUNT_burst: ${{ncarbon}}"\n'
         f'print       "${{c}} 1 ${{ncarbon}} ${{nhydrogen}} ${{noxygen}}" append ncarbon.txt\n'
@@ -578,7 +751,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"# Refresh bbox: thermalize (boundary p p m) may shrink zhi\n"
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"\n"
+        + _expose_zone_redef(spec)
+        + f"\n"
     )
 
     return blk
@@ -780,7 +954,8 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"# Regions — lattice must match make_surf.lmp for this orientation\n"
         f"{lattice_cmd}\n"
         f"region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"variable        sublat equal ${{bottom}}+1/2\n"
+        + _expose_zone_def(spec)
+        + f"variable        sublat equal ${{bottom}}+1/2\n"
         f"region          anchor block INF INF INF INF ${{bottom}} ${{sublat}} units lattice\n"
         f"\n"
         f"# Groups\n"
@@ -847,7 +1022,8 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"# Refresh bbox after thermalize shrinks the box (prevents stale-region errors)\n"
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"{rie_loop_top}"
+        + _expose_zone_redef(spec)
+        + f"{rie_loop_top}"
         f"\n"
         f"group       insert clear\n"
         f"group \t    mobile subtract all anchor\n"
@@ -857,7 +1033,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"{loop_counter_line}"
         f"{ion_dump_open}"
         f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{c}}))\n"
-        f"{_deposit_line(species)}"
+        f"{_deposit_line(species, spec)}"
         f"\n"
         f"fix     2 mobile nve\n"
         f"fix     3 insert nve\n"
@@ -999,17 +1175,18 @@ def _multi_ion_select_block(spec: SimSpec) -> str:
     return "".join(lines)
 
 
-def _multi_ion_deposit_line() -> str:
+def _multi_ion_deposit_line(spec: SimSpec = None) -> str:
     """Return a conditional fix deposit that handles both atom and molecule ions."""
+    region = _deposit_region(spec) if spec is not None else "bbox"
     return (
         f'if "${{cur_ion_is_mol}} == 1" then &\n'
         f'"fix     depo insert deposit 1 0 10000000000 ${{deposeed}} global '
         f'${{i_above}} ${{i_above}} vx 0.0 0.0 vy ${{vely}} ${{vely}} '
-        f'vz -${{velz}} -${{velz}} region bbox units box mol O2" &\n'
+        f'vz -${{velz}} -${{velz}} region {region} units box mol O2" &\n'
         f"else &\n"
         f'"fix     depo insert deposit 1 ${{incident_type_index}} 10000000000 ${{deposeed}} global '
         f'${{i_above}} ${{i_above}} vx 0.0 0.0 vy ${{vely}} ${{vely}} '
-        f'vz -${{velz}} -${{velz}} region bbox units box"\n'
+        f'vz -${{velz}} -${{velz}} region {region} units box"\n'
     )
 
 
@@ -1107,7 +1284,8 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"\n"
         f"{lattice_cmd}\n"
         f"region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"variable        sublat equal ${{bottom}}+1/2\n"
+        + _expose_zone_def(spec)
+        + f"variable        sublat equal ${{bottom}}+1/2\n"
         f"region          anchor block INF INF INF INF ${{bottom}} ${{sublat}} units lattice\n"
         f"\n"
         f"group \tanchor region anchor\n"
@@ -1160,7 +1338,8 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"# Refresh bbox after thermalize shrinks the box (prevents stale-region errors)\n"
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"{rie_loop_top}"
+        + _expose_zone_redef(spec)
+        + f"{rie_loop_top}"
         f"\n"
         f"group       insert clear\n"
         f"group \t    mobile subtract all anchor\n"
@@ -1171,7 +1350,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"{ion_dump_open}"
         f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{c}}))\n"
         f"{_multi_ion_select_block(spec)}"
-        f"{_multi_ion_deposit_line()}"
+        f"{_multi_ion_deposit_line(spec)}"
         f"\n"
         f"fix     2 mobile nve\n"
         f"fix     3 insert nve\n"
@@ -1392,7 +1571,8 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         f"\n"
         f"# Regions\n"
         f"{_carbon_etch_anchor_block()}"
-        f"\n"
+        + _expose_zone_def(spec)
+        + f"\n"
         f"# Groups\n"
         f"group \tanchor region anchor\n"
         f"group\tinsert empty\n"
@@ -1455,7 +1635,8 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         f"label\t\tloop\n"
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"{_carbon_etch_slab_check()}"
+        + _expose_zone_redef(spec)
+        + f"{_carbon_etch_slab_check()}"
         f"{rie_loop_top}"
         f"\n"
         f"group       insert clear\n"
@@ -1466,7 +1647,7 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         f"{loop_counter_line}"
         f"{ion_dump_open}"
         f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{c}}))\n"
-        f"{_deposit_line(species)}"
+        f"{_deposit_line(species, spec)}"
         f"\n"
         f"fix     2 mobile nve\n"
         f"fix     3 insert nve\n"
@@ -1604,7 +1785,8 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         f"variable    a loop ${{lp}}\n"
         f"\n"
         f"{_carbon_etch_anchor_block()}"
-        f"\n"
+        + _expose_zone_def(spec)
+        + f"\n"
         f"group \tanchor region anchor\n"
         f"group\tinsert empty\n"
         f"group \tmobile subtract all anchor\n"
@@ -1656,7 +1838,8 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         f"label\t\tloop\n"
         f"region bbox delete\n"
         f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
-        f"{_carbon_etch_slab_check()}"
+        + _expose_zone_redef(spec)
+        + f"{_carbon_etch_slab_check()}"
         f"{rie_loop_top}"
         f"\n"
         f"group       insert clear\n"
@@ -1668,7 +1851,7 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         f"{ion_dump_open}"
         f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{c}}))\n"
         f"{_multi_ion_select_block(spec)}"
-        f"{_multi_ion_deposit_line()}"
+        f"{_multi_ion_deposit_line(spec)}"
         f"\n"
         f"fix     2 mobile nve\n"
         f"fix     3 insert nve\n"

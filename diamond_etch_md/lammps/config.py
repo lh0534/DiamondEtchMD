@@ -93,6 +93,28 @@ def _radical_config_block(
     return lines
 
 
+def _mask_config_block(spec: SimSpec) -> str:
+    """Return config.lmp variable lines for the deposition mask, or '' if no mask."""
+    if spec.mask_type is None:
+        return ""
+    lines = "\n# Deposition mask: restrict ion/radical landing to the exposed window\n"
+    if spec.mask_type in ("xymask", "xmask"):
+        wx = spec.mask_width[0] if isinstance(spec.mask_width, tuple) else float(spec.mask_width)
+        lines += (
+            f"variable    mask_width_x equal {wx}   # fraction of Lx masked on each x-face\n"
+            f"variable    mask_lo_x    equal xlo+(xhi-xlo)*v_mask_width_x\n"
+            f"variable    mask_hi_x    equal xhi-(xhi-xlo)*v_mask_width_x\n"
+        )
+    if spec.mask_type in ("xymask", "ymask"):
+        wy = spec.mask_width[1] if isinstance(spec.mask_width, tuple) else float(spec.mask_width)
+        lines += (
+            f"variable    mask_width_y equal {wy}   # fraction of Ly masked on each y-face\n"
+            f"variable    mask_lo_y    equal ylo+(yhi-ylo)*v_mask_width_y\n"
+            f"variable    mask_hi_y    equal yhi-(yhi-ylo)*v_mask_width_y\n"
+        )
+    return lines
+
+
 def get_config_lmp(spec: SimSpec) -> str:
     """Generate the contents of config.lmp for the given SimSpec.
 
@@ -170,7 +192,7 @@ def get_config_lmp(spec: SimSpec) -> str:
             )
         )
 
-    return cfg
+    return cfg + _mask_config_block(spec)
 
 
 def get_config_lmp_multi_ion(spec: SimSpec) -> str:
@@ -250,7 +272,7 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
             )
         )
 
-    return cfg
+    return cfg + _mask_config_block(spec)
 
 
 def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
@@ -337,7 +359,7 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"\n"
         f"# Per-phase parameters\n"
         f"{phase_vars}"
-    )
+    ) + _mask_config_block(spec)
 
 
 def get_config_lmp_single_impact(spec: SimSpec) -> str:
@@ -426,7 +448,7 @@ def get_config_lmp_single_impact(spec: SimSpec) -> str:
             )
         )
 
-    return cfg
+    return cfg + _mask_config_block(spec)
 
 
 def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
@@ -519,7 +541,7 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
             + f"\n"
             + f"# Per-phase parameters\n"
             + phase_vars
-        )
+        ) + _mask_config_block(spec)
 
     elif spec.ion_mix is not None:
         # ── Multi-ion sub-mode ────────────────────────────────────────────────
@@ -549,7 +571,7 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     burst_correction=spec.radical_burst,
                 )
             )
-        return cfg
+        return cfg + _mask_config_block(spec)
 
     else:
         # ── Single-species sub-mode ───────────────────────────────────────────
@@ -580,4 +602,4 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     burst_correction=spec.radical_burst,
                 )
             )
-        return cfg
+        return cfg + _mask_config_block(spec)

@@ -201,6 +201,114 @@ def test_validate_rie_etch_valid():
     validate(spec)  # should not raise
 
 
+# ─── Deposition mask ──────────────────────────────────────────────────────────
+
+def _make_mask_spec(mask_type, mask_width=0.3, **kw):
+    defaults = dict(orientation="100", surface="1x1", species="O", ml=81)
+    defaults.update(kw)
+    return SimSpec(mask_type=mask_type, mask_width=mask_width, **defaults)
+
+
+def test_validate_no_mask_by_default():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81)
+    assert spec.mask_type is None
+    validate(spec)  # should not raise
+
+
+@pytest.mark.parametrize("mask_type", ["xymask", "xmask", "ymask"])
+def test_validate_mask_type_valid(mask_type):
+    validate(_make_mask_spec(mask_type))  # should not raise
+
+
+def test_validate_mask_type_invalid_string():
+    spec = _make_mask_spec("zmask")
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_validate_mask_rejected_for_cycle_etch():
+    spec = SimSpec(
+        orientation="100", surface="1x1", ml=81,
+        mask_type="xymask", mask_width=0.3,
+        phases=[
+            CyclePhase(species="Ar", energy=20.0, fluence_ml=1),
+            CyclePhase(species="O2", energy=5.0, fluence_ml=1),
+        ],
+    )
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_mask_width_xymask_float_normalized_to_tuple():
+    # __post_init__ should upgrade a bare float to (w, w) for xymask.
+    spec = _make_mask_spec("xymask", mask_width=0.25)
+    assert spec.mask_width == (0.25, 0.25)
+    validate(spec)  # should not raise post-normalization
+
+
+def test_mask_width_xymask_explicit_tuple_preserved():
+    spec = _make_mask_spec("xymask", mask_width=(0.2, 0.4))
+    assert spec.mask_width == (0.2, 0.4)
+    validate(spec)  # should not raise
+
+
+@pytest.mark.parametrize("mask_type", ["xmask", "ymask"])
+def test_mask_width_single_mask_stays_float(mask_type):
+    # __post_init__ only normalizes xymask; x/ymask keep a bare float.
+    spec = _make_mask_spec(mask_type, mask_width=0.2)
+    assert spec.mask_width == 0.2
+    validate(spec)  # should not raise
+
+
+@pytest.mark.parametrize("mask_type", ["xymask", "xmask", "ymask"])
+@pytest.mark.parametrize("bad_width", [0.0, 0.5, 0.6, -0.1])
+def test_validate_mask_width_out_of_range(mask_type, bad_width):
+    spec = _make_mask_spec(mask_type, mask_width=bad_width)
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_validate_mask_width_xymask_one_side_out_of_range():
+    # (x_frac, y_frac) — even if only one side is out of range, should fail.
+    spec = _make_mask_spec("xymask", mask_width=(0.3, 0.6))
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_validate_mask_width_xymask_wrong_length_tuple():
+    spec = _make_mask_spec("xymask", mask_width=(0.1, 0.2, 0.3))
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+@pytest.mark.parametrize("mask_type", ["xmask", "ymask"])
+def test_validate_mask_width_wrong_type_for_single_mask(mask_type):
+    # xmask/ymask require a single float, not a tuple.
+    spec = _make_mask_spec(mask_type, mask_width=(0.2, 0.3))
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_etch_mode_unaffected_by_mask():
+    # mask is an orthogonal deposition modifier, not a mode; etch_mode() should
+    # return the same string whether or not a mask is applied.
+    unmasked = SimSpec(orientation="100", surface="1x1", ml=81, flux_ratio=5,
+                       radical_energy=0.2)
+    masked = _make_mask_spec("xymask", flux_ratio=5, radical_energy=0.2)
+    assert etch_mode(unmasked) == etch_mode(masked) == "rie-etch"
+
+
+def test_validate_mask_with_carbon_etch_still_requires_anchor_z_max():
+    # Carbon-etch validation should still fire even with a mask set.
+    spec = SimSpec(
+        species="O", energy=0.5, ml=64,
+        initial_config_file="/fake/path.data",  # anchor_z_max intentionally omitted
+        mask_type="xymask", mask_width=0.3,
+    )
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
 def test_simspec_custom_fields():
     s = SimSpec(
         orientation="113",

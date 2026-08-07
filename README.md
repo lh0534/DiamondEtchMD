@@ -284,6 +284,12 @@ make_sim(spec, Path("cycling_3phase_Ar_O2_O"))
 
 `etch_mode(spec)` returns the mode string for any `SimSpec`.
 
+These five modes compose with three orthogonal modifiers, documented below:
+**carbon-etch** (run on an arbitrary structure instead of a generated surface —
+adds a `carbon-` prefix to the mode string), **single-impact statistics mode**
+(overrides the fluence loop with repeated single-impact trials), and
+**deposition mask** (restricts where species can land; experimental).
+
 ### Radical velocity sampling (RIE modes)
 
 Radicals can be injected with fixed or stochastic velocities:
@@ -305,10 +311,82 @@ Key parameters:
 |---|---|---|
 | `radical_burst` | `False` | Enable burst mode |
 | `radical_burst_chunk` | `0` (auto = 0.5 ML) | Atoms deposited per chunk |
+| `radical_burst_attempt` | `200` | Placement attempts per atom in burst deposit; increase if packing failures occur |
 | `radical_i_above` | `6.0` | Å above current surface top to inject |
 | `skip_radical_thermalization` | `False` | Skip thermalize.lmp between chunks |
 
 Only valid for mono-energetic fixed-angle mode (no `radical_temperature`, no `radical_angle_distribution`).
+
+### Carbon-etch mode (arbitrary starting structures)
+
+Any of the five modes above can run on an arbitrary LAMMPS data file instead of a
+generated diamond surface — set `initial_config_file` to an absolute path (e.g. a
+graphullerene ball structure). `etch_mode(spec)` reports this with a `carbon-` prefix
+(`carbon-rie-etch`, etc).
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `initial_config_file` | `None` | Path to a LAMMPS data file; setting this triggers carbon-etch mode |
+| `anchor_z_max` | `None` | Å; top of the frozen anchor region. **Required** when `initial_config_file` is set |
+| `initial_thermalization` | `False` | Run NVT equilibration before impacts begin |
+| `initial_thermalization_steps` | `10000` | NVT steps for initial thermalization |
+
+Monolayer size (`ml`) is auto-computed via Langmuir ML from the box's XY area when
+`ml=0`. There's no carbon replenishment — the anchor region freezes a fixed slice of
+the structure, but nothing extends the geometry as material is removed, so this mode
+suits finite structures (e.g. clusters/balls) rather than semi-infinite slabs.
+
+Example: [`examples/SINGLE_IMPACT_graphullerene_Ar.py`](examples/SINGLE_IMPACT_graphullerene_Ar.py) loads a graphullerene ball via `initial_config_file`.
+
+### Single-impact statistics mode
+
+Set `single_impact=True` to repeat one impact event `n_trials` times from the same
+thermalized starting surface, instead of accumulating fluence across a continuous
+run. Useful for building up statistics — e.g. penetration-depth distributions — from
+many independent impacts under identical conditions. Works with either the
+crystal-builder or carbon-etch initial structure, and composes with `flux_ratio`
+(including burst mode) for radical pre-exposure before each trial's impact.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `single_impact` | `False` | Enable single-impact statistics mode |
+| `n_trials` | `100` | Number of independent trials |
+| `randomize_velocities` | `False` | Re-draw thermal velocities (Gaussian, from `surface_temperature`) before each trial |
+
+Each trial deletes all atoms and reloads `thermalized.data` (written once, before the
+trial loop starts), re-establishes groups, optionally re-randomizes velocities, runs
+one impact (+ optional radical pre-exposure), sweeps etch products, and logs
+per-trial stats to `impact_stats.txt`. Restart is tracked via `ntrials_done.txt`
+rather than `ncarbon.txt`'s impact counter.
+
+Analyze results with:
+
+```bash
+python -m diamond_etch_md.analysis.single_impact [sim_dir]
+```
+
+which combines `impact_stats.txt` (final resting-position depth) with per-trial
+trajectory dumps (maximum depth reached — the quantity comparable to SRIM/TRIM range
+predictions) into `penetration_analysis.png` / `penetration_analysis.txt`.
+
+Example: [`examples/SINGLE_IMPACT_graphullerene_Ar.py`](examples/SINGLE_IMPACT_graphullerene_Ar.py) — 100 trials of 50 eV Ar⁺ on graphullerene with randomized velocities each trial.
+
+### Deposition mask
+
+⚠️ **Not yet committed to git / no test coverage yet** — implemented but still being
+shaken out; treat as experimental.
+
+Set `mask_type` to restrict ion/radical deposition to a centered sub-window of the
+box (`expose_zone`), leaving a masked border untouched — similar to a physical etch
+mask used to pattern exposure. Not currently supported in `cycle-etch` mode
+(rejected by `validate()`).
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `mask_type` | `None` | `"xymask"` (mask both x/y faces), `"xmask"` (x-faces only), `"ymask"` (y-faces only), or `None` (no mask) |
+| `mask_width` | `0.1` | Fraction of box masked per active face; single float for `xmask`/`ymask`, `(x_frac, y_frac)` tuple for `xymask`. Must satisfy `0.0 < frac < 0.5` |
+
+Example: [`examples/MASK_RIE_O_100.py`](examples/MASK_RIE_O_100.py) — O⁺/O• RIE-etch with `mask_type="xymask", mask_width=0.3`, restricting injection to the center 40%×40% of the surface.
 
 ---
 
@@ -736,22 +814,28 @@ See [`SPEC.md`](SPEC.md) for the exact column layout of `ncarbon.txt`, `etch_pro
 
 ## All examples
 
-[`examples/example_all_options.py`](examples/example_all_options.py) — all three ion species with
-annotations on every field.
-
 | File | Mode | What it demonstrates |
 |---|---|---|
-| [`O_radical_100.py`](examples/O_radical_100.py) | ion-etch | O⁺ on C(100) O-ether surface |
-| [`Ar_sputtering_100.py`](examples/Ar_sputtering_100.py) | ion-etch | Ar⁺ physical sputtering of C(100) 1×1 at 100 eV |
-| [`O2_bombardment_111.py`](examples/O2_bombardment_111.py) | ion-etch | O₂⁺ dimer on C(111) Pandey chain |
-| [`O_terminated_111_pandey.py`](examples/O_terminated_111_pandey.py) | ion-etch | C(111) Pandey chain + O-terminated |
-| [`O_etching_113.py`](examples/O_etching_113.py) | ion-etch | C(113) O-terminated surface |
-| [`O_etching_110.py`](examples/O_etching_110.py) | ion-etch | C(110) bare and O-terminated |
-| [`angled_Ar_100.py`](examples/angled_Ar_100.py) | ion-etch | 45° off-normal Ar⁺ incidence |
-| [`high_energy_O_100.py`](examples/high_energy_O_100.py) | ion-etch | 200 eV O⁺ with deep slab |
-| [`RIE_etching_100.py`](examples/RIE_etching_100.py) | RIE-etch | O⁺ at 20 eV + fixed-energy O• radicals (flux_ratio=5) |
-| [`RIE_O_100_boltzRads.py`](examples/RIE_O_100_boltzRads.py) | RIE-etch | Ar⁺ at 100 eV + Maxwell-Boltzmann O• radicals (500 K, Lambert cosine angles) |
-| [`cycling_Ar_O2_100.py`](examples/cycling_Ar_O2_100.py) | cycle/ALE | Ar⁺→O₂⁺, O⁺→O₂⁺, 3-phase Ar⁺→O⁺→O₂⁺ |
+| [`ION_Ar_100.py`](examples/ION_Ar_100.py) | ion-etch | Ar⁺ physical sputtering of C(100) 2×1 |
+| [`ION_angled_Ar_100.py`](examples/ION_angled_Ar_100.py) | ion-etch | Ar⁺ at 45° off-normal incidence on C(100) 2×1 |
+| [`ION_O_110.py`](examples/ION_O_110.py) | ion-etch | O⁺ etching of the bare C(110) surface |
+| [`ION_O_111_Oterm.py`](examples/ION_O_111_Oterm.py) | ion-etch | O⁺ etching of C(111) O-terminated surface |
+| [`ION_O_113.py`](examples/ION_O_113.py) | ion-etch | O⁺ etching of the C(113) surface |
+| [`ION_O2_111p.py`](examples/ION_O2_111p.py) | ion-etch | O₂⁺ dimer bombardment of C(111) Pandey-chain reconstruction |
+| [`CARBON_graphullerene_Ar.py`](examples/CARBON_graphullerene_Ar.py) | carbon-ion-etch | Ar⁺ sputtering of a graphullerene structure (`initial_config_file`) |
+| [`RIE_O_100.py`](examples/RIE_O_100.py) | RIE-etch | O⁺ ions with O• radical co-exposure on C(100) 2×1 |
+| [`RIE_O_100_boltzRads.py`](examples/RIE_O_100_boltzRads.py) | RIE-etch | Ar⁺ + Maxwell-Boltzmann O• radicals (500 K, Lambert cosine angles) |
+| [`RIE_Ar_100_burst.py`](examples/RIE_Ar_100_burst.py) | RIE-etch (burst) | 200 eV Ar⁺ with `flux_ratio=150` O• radicals injected as chunked bursts |
+| [`MASK_RIE_O_100.py`](examples/MASK_RIE_O_100.py) | RIE-etch + mask ⚠️ | O⁺/O• burst RIE-etch restricted to a centered `xymask` window (`mask_width=0.3`) on C(100) 2×1 |
+| [`MULTI-ION_O_Edist.py`](examples/MULTI-ION_O_Edist.py) | multi-ion-etch | O⁺ trimodal energy distribution (60%/30%/10% at 20/30/50 eV) |
+| [`MULTI-ION_O_O2.py`](examples/MULTI-ION_O_O2.py) | multi-ion-etch | Stochastic 50/50 O⁺/O₂⁺ mixed beam |
+| [`MULTI-RIE_Ar_O2.py`](examples/MULTI-RIE_Ar_O2.py) | multi-RIE-etch | Stochastic Ar⁺/O₂⁺ mixed beam + O• radical co-exposure |
+| [`MULTI-RIE_O_O2.py`](examples/MULTI-RIE_O_O2.py) | multi-RIE-etch | Stochastic O⁺/O₂⁺ mixed beam + O• radical co-exposure |
+| [`CYCLE_O_O2_100.py`](examples/CYCLE_O_O2_100.py) | ALE-etch (2-phase) | O⁺ chemical etching alternating with O₂⁺ etching |
+| [`CYCLE_Ar_O2_100_ALE.py`](examples/CYCLE_Ar_O2_100_ALE.py) | ALE-etch (2-phase) | Ar⁺ sputtering alternating with near-threshold O₂⁺ oxidation |
+| [`CYCLE_Ar_O2_100_IDLE.py`](examples/CYCLE_Ar_O2_100_IDLE.py) | ALE-etch (2-phase, IDLE) | Ar⁺ alternating with sub-threshold (12 eV) O₂⁺ oxidation |
+| [`CYCLE_Ar_O2_O_100.py`](examples/CYCLE_Ar_O2_O_100.py) | cycle-etch (3-phase) | Ar⁺ → O₂⁺ → O⁺ sequential cycling |
+| [`SINGLE_IMPACT_graphullerene_Ar.py`](examples/SINGLE_IMPACT_graphullerene_Ar.py) | carbon-ion-etch + single-impact | 100 trials of 50 eV Ar⁺ on graphullerene, randomized velocities each trial |
 | [`make_all_surfaces.py`](examples/make_all_surfaces.py) | ion-etch | Generate a simulation directory for every supported surface |
 
 ---
