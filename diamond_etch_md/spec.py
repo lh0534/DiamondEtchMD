@@ -124,6 +124,18 @@ class SimSpec:
     # ── Deposition mask ───────────────────────────────────────────────────────
     mask_type:   Optional[str]                      = None  # "xymask" | "xmask" | "ymask"
     mask_width:  Union[float, Tuple[float, float]]  = 0.1   # fraction of box; (x_frac, y_frac) for xymask
+    invert_mask:       bool  = False  # deposit at edges instead of center
+    freeze_mask:       bool  = False  # freeze top-layer atoms in masked region into anchor group
+    freeze_mask_depth: float = 2.0    # Å depth from surface to freeze (≈1-2 diamond layers)
+    # ── Step edge ─────────────────────────────────────────────────────────────
+    step_edge:     bool           = False  # add a monoatomic step edge (works with any surface/termination)
+    step_angle:    float          = 0.0   # deg; step edge runs at this angle from x-axis
+                                           # 0°  → edge ∥ y, lower terrace is −x half
+                                           # 90° → edge ∥ x, lower terrace is −y half
+                                           # C(111): 0° = 0°-step, 90° = 30°-step in crystal coords
+    step_position: float          = 0.5   # step location as fraction of box length (0–1)
+    step_invert:   bool           = False  # True → remove upper terrace from +normal half instead
+    step_depth:    Optional[float] = None  # bilayer thickness to remove, Å; None = orientation default
 
     def __post_init__(self):
         # Normalize xymask single-float shorthand to a (wx, wy) tuple.
@@ -143,6 +155,8 @@ class SimSpec:
             d["radical_angle_distribution"] = d.pop("angle_distribution")
         if "chemical_i_above" in d and "radical_i_above" not in d:
             d["radical_i_above"] = d.pop("chemical_i_above")
+        if "mask_invert" in d and "invert_mask" not in d:
+            d["invert_mask"] = d.pop("mask_invert")
         valid = {f.name for f in dataclasses.fields(cls)}
         # nested dataclasses
         if "phases" in d and d["phases"] is not None:
@@ -349,6 +363,18 @@ def validate(spec: "SimSpec") -> None:
             sys.exit(f"mask_width x-fraction must be in (0, 0.5); got {wx}.")
         if spec.mask_type in ("xymask", "ymask") and not (0.0 < wy < 0.5):
             sys.exit(f"mask_width y-fraction must be in (0, 0.5); got {wy}.")
+    if spec.invert_mask and spec.mask_type is None:
+        sys.exit("invert_mask=True requires mask_type to also be set.")
+    if spec.freeze_mask and spec.mask_type is None:
+        sys.exit("freeze_mask=True requires mask_type to also be set.")
+    if spec.freeze_mask and spec.freeze_mask_depth <= 0.0:
+        sys.exit(f"freeze_mask_depth must be > 0; got {spec.freeze_mask_depth}.")
+
+    if spec.step_edge:
+        if not 0.0 < spec.step_position < 1.0:
+            sys.exit(f"step_position must be in (0, 1); got {spec.step_position}.")
+        if spec.step_depth is not None and spec.step_depth <= 0.0:
+            sys.exit(f"step_depth must be > 0; got {spec.step_depth}.")
 
 
 def normalize_ion_mix(mix: List[IonComponent]) -> List[IonComponent]:

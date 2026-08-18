@@ -68,29 +68,32 @@ def _expose_zone_def(spec: SimSpec) -> str:
     expose_zone is a sub-region of bbox restricted to the unmasked xy area.
     When spec.mask_type is None, returns "" (deposit uses bbox directly).
     Must be called every time bbox is redefined since EDGE captures box state.
+    When spec.invert_mask is True, 'side out' inverts the region so atoms land
+    at the edges/frame instead of the center window.
     """
     if spec.mask_type is None:
         return ""
     mt = spec.mask_type
+    side = " side out" if spec.invert_mask else ""
     if mt == "xymask":
         return (
             f"region      expose_zone block "
             f"$(v_mask_lo_x) $(v_mask_hi_x) "
             f"$(v_mask_lo_y) $(v_mask_hi_y) "
-            f"EDGE EDGE units box\n"
+            f"EDGE EDGE{side} units box\n"
         )
     elif mt == "xmask":
         return (
             f"region      expose_zone block "
             f"$(v_mask_lo_x) $(v_mask_hi_x) "
-            f"EDGE EDGE EDGE EDGE units box\n"
+            f"EDGE EDGE EDGE EDGE{side} units box\n"
         )
     else:  # ymask
         return (
             f"region      expose_zone block "
             f"EDGE EDGE "
             f"$(v_mask_lo_y) $(v_mask_hi_y) "
-            f"EDGE EDGE units box\n"
+            f"EDGE EDGE{side} units box\n"
         )
 
 
@@ -123,6 +126,111 @@ def _bzone_xy_bounds(spec: SimSpec) -> str:
         return "EDGE EDGE EDGE EDGE"
 
 
+def _bzone_inner_xy(spec: SimSpec) -> str:
+    """Return x y bounds of the inner (center) mask block for intersect-based inverted bzone."""
+    mt = spec.mask_type
+    if mt == "xymask":
+        return "$(v_mask_lo_x) $(v_mask_hi_x) $(v_mask_lo_y) $(v_mask_hi_y)"
+    elif mt == "xmask":
+        return "$(v_mask_lo_x) $(v_mask_hi_x) EDGE EDGE"
+    else:  # ymask
+        return "EDGE EDGE $(v_mask_lo_y) $(v_mask_hi_y)"
+
+
+def _bzone_def(spec: SimSpec, name: str, z_lo: str, z_hi: str) -> str:
+    """Return LAMMPS region definition commands for a burst z-slab region.
+
+    Normal: single block region (xy masked or full, z = slab).
+    Inverted mask: frame = intersect(full-xy z-slab, complement-of-center z-slab).
+    The complement is achieved by 'side out' on the center block; 'region subtract' is
+    not a valid LAMMPS style — use 'region intersect' with side out instead.
+    """
+    if not spec.invert_mask or spec.mask_type is None:
+        return (
+            f"region      {name} block {_bzone_xy_bounds(spec)} {z_lo} {z_hi} units box\n"
+        )
+    inner_xy = _bzone_inner_xy(spec)
+    return (
+        f"region      {name}_full block EDGE EDGE EDGE EDGE {z_lo} {z_hi} units box\n"
+        f"region      {name}_center block {inner_xy} {z_lo} {z_hi} side out units box\n"
+        f"region      {name} intersect 2 {name}_full {name}_center\n"
+    )
+
+
+def _bzone_cleanup(spec: SimSpec, name: str) -> str:
+    """Return LAMMPS region delete commands for a bzone region created by _bzone_def."""
+    if not spec.invert_mask or spec.mask_type is None:
+        return f"region      {name} delete\n"
+    return (
+        f"region      {name} delete\n"
+        f"region      {name}_center delete\n"
+        f"region      {name}_full delete\n"
+    )
+
+
+def _freeze_zone_def(spec: SimSpec, name: str, z_lo_expr: str, z_hi_expr: str) -> str:
+    """Return LAMMPS region definition for the masked (non-deposition) zone at a z slab.
+
+    This is the mirror of _bzone_def: bzone covers where atoms land; freeze_zone covers
+    the complementary masked area where atoms are blocked.
+    Normal mask  (invert_mask=False): frame = intersect(full z-slab, complement-of-inner z-slab).
+    Inverted mask (invert_mask=True): masked region is the center → plain inner block.
+    'region subtract' is not a valid LAMMPS style; use intersect + side out instead.
+    """
+    inner_xy = _bzone_inner_xy(spec)
+    if spec.invert_mask or spec.mask_type is None:
+        return (
+            f"region      {name} block {inner_xy} {z_lo_expr} {z_hi_expr} units box\n"
+        )
+    return (
+        f"region      {name}_full block EDGE EDGE EDGE EDGE {z_lo_expr} {z_hi_expr} units box\n"
+        f"region      {name}_inner block {inner_xy} {z_lo_expr} {z_hi_expr} side out units box\n"
+        f"region      {name} intersect 2 {name}_full {name}_inner\n"
+    )
+
+
+def _freeze_zone_cleanup(spec: SimSpec, name: str) -> str:
+    """Return LAMMPS region delete commands for a region created by _freeze_zone_def."""
+    if spec.invert_mask or spec.mask_type is None:
+        return f"region      {name} delete\n"
+    return (
+        f"region      {name} delete\n"
+        f"region      {name}_inner delete\n"
+        f"region      {name}_full delete\n"
+    )
+
+
+def _freeze_mask_block(spec: SimSpec) -> str:
+    """Return LAMMPS commands to freeze the top surface layer in the masked region.
+
+    Must be inserted immediately after 'group anchor region anchor'.
+    The z floor is computed from bound(all,zmax) on the first run (n_complete==0) and
+    written to freeze_mask_z.txt so restarts use the original surface height — not the
+    top of any amorphous carbon that has since deposited on the masked area.
+    """
+    if not spec.freeze_mask or spec.mask_type is None:
+        return ""
+    depth = spec.freeze_mask_depth
+    z_hi  = depth + 0.5
+    z_lo_expr = "$(v_z_freeze_lo)"
+    z_hi_expr = f"$(v_z_freeze_lo+{z_hi})"
+    return (
+        f"# Freeze top-layer atoms in masked region\n"
+        f"# z floor saved on first run (n_complete==0) and reloaded on restart\n"
+        f'if "${{n_complete}} == 0" then &\n'
+        f'"variable z_freeze_lo equal $(bound(all,zmax) - {depth})" &\n'
+        f'"print \'$(v_z_freeze_lo)\' file freeze_mask_z.txt" &\n'
+        f"else &\n"
+        f'"variable z_freeze_lo file freeze_mask_z.txt"\n'
+        + _freeze_zone_def(spec, "freeze_mask_zone", z_lo_expr, z_hi_expr)
+        + f"group       freeze_mask_atoms region freeze_mask_zone\n"
+        f"group       anchor union anchor freeze_mask_atoms\n"
+        f"group       freeze_mask_atoms delete\n"
+        + _freeze_zone_cleanup(spec, "freeze_mask_zone")
+        + f"variable    z_freeze_lo delete\n"
+    )
+
+
 def _expose_zone_redef_if_cmds(spec: SimSpec) -> str:
     """Return space-separated quoted LAMMPS commands for expose_zone delete+redef.
 
@@ -132,12 +240,13 @@ def _expose_zone_redef_if_cmds(spec: SimSpec) -> str:
     if spec.mask_type is None:
         return ""
     mt = spec.mask_type
+    side = " side out" if spec.invert_mask else ""
     if mt == "xymask":
-        block = "$(v_mask_lo_x) $(v_mask_hi_x) $(v_mask_lo_y) $(v_mask_hi_y) EDGE EDGE units box"
+        block = f"$(v_mask_lo_x) $(v_mask_hi_x) $(v_mask_lo_y) $(v_mask_hi_y) EDGE EDGE{side} units box"
     elif mt == "xmask":
-        block = "$(v_mask_lo_x) $(v_mask_hi_x) EDGE EDGE EDGE EDGE units box"
+        block = f"$(v_mask_lo_x) $(v_mask_hi_x) EDGE EDGE EDGE EDGE{side} units box"
     else:  # ymask
-        block = "EDGE EDGE $(v_mask_lo_y) $(v_mask_hi_y) EDGE EDGE units box"
+        block = f"EDGE EDGE $(v_mask_lo_y) $(v_mask_hi_y) EDGE EDGE{side} units box"
     return (
         f'"region expose_zone delete" '
         f'"region expose_zone block {block}" '
@@ -559,9 +668,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
             + _expose_zone_redef_if_cmds(spec)
             + f"\n"
             f"variable    z_ins{ci} equal bound(all,zmax)+${{radical_i_above}}\n"
-            f"region      bzone{ci} block {_bzone_xy_bounds(spec)} "
-            f"$(v_z_ins{ci} - 0.1) $(v_z_ins{ci} + 0.1) units box\n"
-            f"group       insert clear\n"
+            + _bzone_def(spec, f"bzone{ci}", f"$(v_z_ins{ci} - 0.1)", f"$(v_z_ins{ci} + 0.1)")
+            + f"group       insert clear\n"
             f"group       mobile subtract all anchor\n"
             f"variable    burst_seed{ci}_1 equal "
             f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+{ci+1}))\n"
@@ -590,7 +698,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
                 f"variable    burst_seed{ci} equal "
                 f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+v_burst_lp{ci}))\n"
                 f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{ci}}} "
-                f"attempt 50 "
+                f"attempt {spec.radical_burst_attempt} "
                 f"vx ${{vx_burst}} ${{vx_burst}} "
                 f"vy ${{vy_burst}} ${{vy_burst}} "
                 f"vz ${{vz_burst}} ${{vz_burst}} "
@@ -607,8 +715,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
                 f"jump        SELF burst_dep_{ci}\n"
             )
         blk += (
-            f"region      bzone{ci} delete\n"
-            f"variable    z_ins{ci} delete\n"
+            _bzone_cleanup(spec, f"bzone{ci}")
+            + f"variable    z_ins{ci} delete\n"
         )
         # ── Dynamics phase ───────────────────────────────────────────────────────
         blk += (
@@ -673,9 +781,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
         + _expose_zone_redef_if_cmds(spec)
         + f"\n"
         f"variable    z_topup equal bound(all,zmax)+${{radical_i_above}}\n"
-        f"region      bzone_topup block {_bzone_xy_bounds(spec)} "
-        f"$(v_z_topup - 0.1) $(v_z_topup + 0.1) units box\n"
-        f"variable    topup_lp loop $(v_shortfall_burst)\n"
+        + _bzone_def(spec, "bzone_topup", "$(v_z_topup - 0.1)", "$(v_z_topup + 0.1)")
+        + f"variable    topup_lp loop $(v_shortfall_burst)\n"
         f"label       burst_topup_loop\n"
         f"group       insert clear\n"
         f"group       mobile subtract all anchor\n"
@@ -697,8 +804,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"unfix       3\n"
         f"next        topup_lp\n"
         f"jump        SELF burst_topup_loop\n"
-        f"region      bzone_topup delete\n"
-        f"variable    z_topup delete\n"
+        + _bzone_cleanup(spec, "bzone_topup")
+        + f"variable    z_topup delete\n"
         f"\n"
         f"# Top-up dynamics: run deposited atoms until inter_neutral_time\n"
         f"group       insert clear\n"
@@ -960,7 +1067,8 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"\n"
         f"# Groups\n"
         f"group \tanchor region anchor\n"
-        f"group\tinsert empty\n"
+        + _freeze_mask_block(spec)
+        + f"group\tinsert empty\n"
         f"group \tmobile subtract all anchor\n"
         f"group   carbon type 1\n"
         f"\n"
@@ -1289,7 +1397,8 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"region          anchor block INF INF INF INF ${{bottom}} ${{sublat}} units lattice\n"
         f"\n"
         f"group \tanchor region anchor\n"
-        f"group\tinsert empty\n"
+        + _freeze_mask_block(spec)
+        + f"group\tinsert empty\n"
         f"group \tmobile subtract all anchor\n"
         f"group   carbon type 1\n"
         f"\n"
@@ -1575,7 +1684,8 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         + f"\n"
         f"# Groups\n"
         f"group \tanchor region anchor\n"
-        f"group\tinsert empty\n"
+        + _freeze_mask_block(spec)
+        + f"group\tinsert empty\n"
         f"group \tmobile subtract all anchor\n"
         f"group   carbon type 1\n"
         f"\n"
@@ -1788,7 +1898,8 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         + _expose_zone_def(spec)
         + f"\n"
         f"group \tanchor region anchor\n"
-        f"group\tinsert empty\n"
+        + _freeze_mask_block(spec)
+        + f"group\tinsert empty\n"
         f"group \tmobile subtract all anchor\n"
         f"group   carbon type 1\n"
         f"\n"

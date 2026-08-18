@@ -1123,6 +1123,102 @@ def test_head_single_impact_mask_uses_expose_zone():
     assert "region expose_zone units box" in head
 
 
+# ─── invert_mask: side out in expose_zone + subtract in burst bzone ──────────
+
+def test_head_invert_mask_xymask_expose_zone_has_side_out():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2, invert_mask=True))
+    assert "EDGE EDGE side out units box" in head
+
+
+def test_head_normal_mask_expose_zone_no_side_out():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2))
+    assert "side out" not in head
+
+
+def test_head_invert_mask_burst_uses_intersect_frame():
+    spec = make_rie_spec(mask_type="xymask", mask_width=0.2, invert_mask=True,
+                         radical_burst=True, radical_burst_chunk=4)
+    head = get_head_lmp(spec)
+    assert "intersect 2" in head
+    region_lines = [l for l in head.splitlines() if l.strip().startswith("region")]
+    assert all("subtract" not in l for l in region_lines), "region subtract found in output"
+
+
+def test_head_normal_mask_burst_is_plain_block():
+    spec = make_rie_spec(mask_type="xymask", mask_width=0.2,
+                         radical_burst=True, radical_burst_chunk=4)
+    head = get_head_lmp(spec)
+    assert "intersect 2" not in head
+
+
+# ─── freeze_mask: top-layer anchor freeze ─────────────────────────────────────
+
+def test_head_freeze_mask_absent_when_disabled():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2, freeze_mask=False))
+    assert "freeze_mask_zone" not in head
+
+
+def test_head_freeze_mask_normal_uses_intersect_frame():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2, freeze_mask=True))
+    assert "intersect 2 freeze_mask_zone_full freeze_mask_zone_inner" in head
+    region_lines = [l for l in head.splitlines() if l.strip().startswith("region")]
+    assert all("subtract" not in l for l in region_lines), "region subtract found in output"
+
+
+def test_head_freeze_mask_inverted_is_plain_block():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2,
+                                  invert_mask=True, freeze_mask=True))
+    assert "freeze_mask_zone_full" not in head
+    assert "freeze_mask_zone" in head
+
+
+def test_head_freeze_mask_anchor_union_present():
+    head = get_head_lmp(make_spec(mask_type="xmask", mask_width=0.2, freeze_mask=True))
+    assert "anchor union anchor freeze_mask_atoms" in head
+
+
+def test_head_freeze_mask_uses_ncarbon_for_restart_detection():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2, freeze_mask=True))
+    assert '"${n_complete} == 0"' in head or "${n_complete} == 0" in head
+
+
+def test_head_freeze_mask_writes_file():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2, freeze_mask=True))
+    assert "freeze_mask_z.txt" in head
+
+
+def test_head_freeze_mask_depth_in_expression():
+    head = get_head_lmp(make_spec(mask_type="xmask", mask_width=0.2,
+                                  freeze_mask=True, freeze_mask_depth=1.5))
+    assert "zmax) - 1.5" in head
+    assert "v_z_freeze_lo+2.0" in head  # 1.5 + 0.5
+
+
+def test_head_freeze_mask_default_depth():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2, freeze_mask=True))
+    assert "zmax) - 2.0" in head
+    assert "v_z_freeze_lo+2.5" in head  # 2.0 + 0.5
+
+
+def test_head_freeze_mask_before_mobile_group():
+    head = get_head_lmp(make_spec(mask_type="xymask", mask_width=0.2, freeze_mask=True))
+    freeze_pos  = head.index("freeze_mask_zone")
+    mobile_pos  = head.index("group \tmobile subtract all anchor")
+    assert freeze_pos < mobile_pos, "freeze_mask_block must appear before group mobile"
+
+
+def test_head_multi_ion_freeze_mask():
+    spec = make_multi_ion_spec(mask_type="xymask", mask_width=0.2, freeze_mask=True)
+    head = get_head_lmp_multi_ion(spec)
+    assert "anchor union anchor freeze_mask_atoms" in head
+
+
+def test_head_carbon_etch_freeze_mask():
+    head = get_head_lmp_carbon_etch(_make_carbon_spec(mask_type="xmask", mask_width=0.2,
+                                                      freeze_mask=True))
+    assert "anchor union anchor freeze_mask_atoms" in head
+
+
 def test_head_single_impact_mask_redefines_expose_zone_each_trial():
     # bbox is deleted/redefined at the top of every trial; expose_zone must be too,
     # otherwise it would still reference the previous trial's (deleted) bbox.
@@ -1130,3 +1226,83 @@ def test_head_single_impact_mask_redefines_expose_zone_each_trial():
     trial_start = head.index("label\t\ttrial_start")
     loop_part = head[trial_start:]
     assert "expose_zone delete" in loop_part
+
+
+# ─── step_edge config variables ───────────────────────────────────────────────
+
+def test_config_step_edge_disabled_by_default():
+    cfg = get_config_lmp(make_rie_spec())
+    assert "step_edge      equal 0" in cfg
+
+
+def test_config_step_edge_enabled():
+    cfg = get_config_lmp(make_rie_spec(step_edge=True))
+    assert "step_edge      equal 1" in cfg
+    assert "step_angle     equal 0.0" in cfg
+    assert "step_position  equal 0.5" in cfg
+    assert "step_invert    equal 0" in cfg
+
+
+def test_config_step_edge_orientation_default_depth_100():
+    cfg = get_config_lmp(make_rie_spec(orientation="100", step_edge=True))
+    assert "step_depth_ang equal 2.0" in cfg
+
+
+def test_config_step_edge_orientation_default_depth_111():
+    cfg = get_config_lmp(make_rie_spec(orientation="111", surface="1x1", step_edge=True))
+    assert "step_depth_ang equal 2.2" in cfg
+
+
+def test_config_step_edge_custom_depth():
+    cfg = get_config_lmp(make_rie_spec(step_edge=True, step_depth=1.8))
+    assert "step_depth_ang equal 1.8" in cfg
+
+
+def test_config_step_edge_angle_and_invert():
+    cfg = get_config_lmp(make_rie_spec(step_edge=True, step_angle=45.0, step_invert=True))
+    assert "step_angle     equal 45.0" in cfg
+    assert "step_invert    equal 1" in cfg
+
+
+def test_config_step_edge_multi_ion():
+    spec = make_multi_ion_spec()
+    spec = spec.__class__(**{**vars(spec), 'step_edge': True})
+    cfg = get_config_lmp_multi_ion(spec)
+    assert "step_edge      equal 1" in cfg
+
+
+# ─── make_surf templates contain step block ───────────────────────────────────
+
+TEMPLATE_DIR = Path(__file__).parents[1] / "diamond_etch_md" / "lammps" / "templates"
+
+
+@pytest.mark.parametrize("fname", [
+    "make_surf_100.lmp",
+    "make_surf_110.lmp",
+    "make_surf_111_1x1.lmp",
+    "make_surf_111_2x1_pandey.lmp",
+    "make_surf_111_2x1_single.lmp",
+    "make_surf_113.lmp",
+])
+def test_make_surf_contains_step_block(fname):
+    src = (TEMPLATE_DIR / fname).read_text()
+    assert 'if "${step_edge} == 1"' in src
+    assert "variable stp_sel atom" in src
+    assert "group    step_rm  variable stp_sel" in src
+    assert "delete_atoms group step_rm compress no" in src
+
+
+@pytest.mark.parametrize("fname", [
+    "make_surf_100.lmp",
+    "make_surf_110.lmp",
+    "make_surf_111_1x1.lmp",
+    "make_surf_111_2x1_pandey.lmp",
+    "make_surf_111_2x1_single.lmp",
+    "make_surf_113.lmp",
+])
+def test_make_surf_step_block_before_final_minimize(fname):
+    src = (TEMPLATE_DIR / fname).read_text()
+    step_pos = src.index('if "${step_edge} == 1"')
+    # find the last minimize (before write_data)
+    last_min_pos = src.rindex("minimize 1.0e-5")
+    assert step_pos < last_min_pos, "step block must come before the final minimize"

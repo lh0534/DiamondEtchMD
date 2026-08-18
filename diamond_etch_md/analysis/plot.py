@@ -7,6 +7,7 @@ Produces PNGs in sim_dir:
   etch_trajectory.png    — etched C + O uptake vs ion dose; amorphous C layer
   product_grid.png       — bubble chart: n_C vs n_O per ejected cluster
   product_trajectory.png — cumulative yield per product species vs dose, phase-shaded
+  co_emission.png        — CO and CO₂ ejection events per ML-bin vs ion dose
   etch_per_cycle.png     — etch per cycle (cycling only)
   per_phase_yield.png    — per-phase etch yield with error bars (cycling only)
   o_per_cycle.png        — O loading/unloading per cycle (cycling only)
@@ -216,6 +217,18 @@ def _spec_summary_str(spec) -> str:
 
     angle = getattr(spec, 'ion_angle', getattr(spec, 'angle', 0.0))
 
+    # ── Step edge suffix ───────────────────────────────────────────────────────
+    _step_sfx = ""
+    if getattr(spec, 'step_edge', False):
+        _sp = ["Step edge"]
+        if getattr(spec, 'step_angle', 0.0):
+            _sp.append(f"{spec.step_angle:.4g}°")
+        if getattr(spec, 'step_position', 0.5) != 0.5:
+            _sp.append(f"pos={spec.step_position:.2g}")
+        if getattr(spec, 'step_invert', False):
+            _sp.append("inverted")
+        _step_sfx = "\n" + "  ".join(_sp)
+
     # ── Multi-ion ──────────────────────────────────────────────────────────────
     if getattr(spec, 'ion_mix', None) is not None:
         fr = getattr(spec, 'flux_ratio', 0)
@@ -239,7 +252,7 @@ def _spec_summary_str(spec) -> str:
             rie_parts.append(f"{angle:.4g}°")
         if rie_parts:
             lines.append("  ".join(rie_parts))
-        return "\n".join(lines)
+        return "\n".join(lines) + _step_sfx
 
     # ── Cycle ──────────────────────────────────────────────────────────────────
     if spec.phases is not None:
@@ -256,7 +269,7 @@ def _spec_summary_str(spec) -> str:
                     prefix="RIE " if rie else "",
                 )
             )
-        return "\n".join(lines)
+        return "\n".join(lines) + _step_sfx
 
     # ── Single ion ─────────────────────────────────────────────────────────────
     fr = getattr(spec, 'flux_ratio', 0)
@@ -269,7 +282,7 @@ def _spec_summary_str(spec) -> str:
                        radical_temperature=getattr(spec, 'radical_temperature', None),
                        angle=angle,
                        prefix="")
-    return f"{surf} {sim_type} Simulation\n{ion_ln}"
+    return f"{surf} {sim_type} Simulation\n{ion_ln}" + _step_sfx
 
 
 def _parse_lammps_data_box(path):
@@ -832,6 +845,74 @@ def plot_product_trajectory(ep_records, ml, spec=None, ax=None, spec_summary=Non
     return ax
 
 
+def _gaussian_kde(events_ml, x_grid, bw):
+    """Evaluate a Gaussian KDE at x_grid points; returns density in events/ML."""
+    if len(events_ml) == 0:
+        return np.zeros_like(x_grid, dtype=float)
+    diff = (x_grid[:, None] - np.asarray(events_ml)[None, :]) / bw
+    return np.exp(-0.5 * diff ** 2).sum(axis=1) / (bw * np.sqrt(2 * np.pi))
+
+
+def plot_co_emission(ep_records, ml, spec=None, bandwidth_ml=None,
+                     ax=None, spec_summary=None):
+    """CO and CO₂ emission rate (KDE, events/ML) vs ion dose, phase-shaded.
+
+    bandwidth_ml : Gaussian KDE bandwidth in ML. Defaults to Scott's rule
+                   (1.06 * σ * n^-0.2) with a 0.5 ML floor.
+    """
+    _need_mpl()
+    co_impacts  = np.array([r['impact'] for r in ep_records
+                             if r['n_C'] == 1 and r['n_O'] == 1], dtype=float)
+    co2_impacts = np.array([r['impact'] for r in ep_records
+                             if r['n_C'] == 1 and r['n_O'] == 2], dtype=float)
+    if not len(co_impacts) and not len(co2_impacts):
+        return None
+
+    own = ax is None
+    if own:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+    max_impact = max(r['impact'] for r in ep_records)
+    total_ml   = max_impact / ml
+    x_grid     = np.linspace(0, total_ml, 500)
+
+    def _bw(arr):
+        if bandwidth_ml is not None:
+            return bandwidth_ml
+        if len(arr) < 2:
+            return 0.5
+        return min(2.0, 1.06 * np.std(arr / ml) * len(arr) ** -0.2)
+
+    cmap = plt.get_cmap('tab10')
+
+    if len(co_impacts):
+        bw  = _bw(co_impacts)
+        kde = _gaussian_kde(co_impacts / ml, x_grid, bw)
+        ax.fill_between(x_grid, kde, alpha=0.35, color=cmap(1))
+        ax.plot(x_grid, kde, lw=1.5, color=cmap(1), label='CO')
+
+    if len(co2_impacts):
+        bw  = _bw(co2_impacts)
+        kde = _gaussian_kde(co2_impacts / ml, x_grid, bw)
+        ax.fill_between(x_grid, kde, alpha=0.35, color=cmap(2))
+        ax.plot(x_grid, kde, lw=1.5, color=cmap(2), label='CO₂')
+
+    phase_patches = _add_phase_shading(ax, spec)
+    ax.set_xlabel('Ion dose (ML)')
+    ax.set_ylabel('Emission rate (events / ML)')
+    xleft, xright = _cycle_xlim(total_ml, spec)
+    ax.set_xlim(xleft, xright)
+    ax.set_ylim(bottom=0)
+    ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
+    h1, l1 = ax.get_legend_handles_labels()
+    ax.legend(handles=h1 + phase_patches, frameon=False, fontsize=11)
+
+    if own:
+        _apply_suptitle(ax.figure, spec_summary, 'CO / CO₂ Emission')
+        return ax.figure
+    return ax
+
+
 def plot_amorphous(cna_records, ml, ax=None):
     """Amorphous and sp2 C (ML) vs dose (ML)."""
     _need_mpl()
@@ -1229,6 +1310,11 @@ def make_plots(
                                       spec_summary=summary)
         if fig:
             _save(fig, 'product_trajectory')
+
+        fig = plot_co_emission(ep_carbon, ml, spec=plot_spec,
+                               spec_summary=summary)
+        if fig:
+            _save(fig, 'co_emission')
 
     if is_cyc and spec and spec.phases:
         fig = plot_etch_per_cycle(nc, spec, ml, lat_a=lat_a)

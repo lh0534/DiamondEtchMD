@@ -83,6 +83,24 @@ if "${O_terminate} && !${use_starting_data_file}" then &
 "displace_atoms O move 0.3 0.0 0.1 units lattice" &
 "group O delete"
 
+# ── Step edge ─────────────────────────────────────────────────────────────
+variable    stp_px   equal lx*v_step_position
+variable    stp_py   equal ly*v_step_position
+variable    stp_nx   equal cos(v_step_angle*PI/180)*(1-2*v_step_invert)
+variable    stp_ny   equal sin(v_step_angle*PI/180)*(1-2*v_step_invert)
+variable    stp_zcut equal bound(all,zmax)-v_step_depth_ang
+if "${step_edge} == 1" then &
+    "variable stp_sel atom ((x-v_stp_px)*v_stp_nx+(y-v_stp_py)*v_stp_ny)>0&&z>v_stp_zcut" &
+    "group    step_rm  variable stp_sel" &
+    "delete_atoms group step_rm compress no" &
+    "group    step_rm  delete" &
+    "variable stp_sel  delete"
+variable    stp_px   delete
+variable    stp_py   delete
+variable    stp_nx   delete
+variable    stp_ny   delete
+variable    stp_zcut delete
+# ──────────────────────────────────────────────────────────────────────────
 minimize 1.0e-5 1.0e-6 1000 10000
 reset_timestep  0 time 0.0
 write_data      111_2x1P_0K.dat nofix nocoeff

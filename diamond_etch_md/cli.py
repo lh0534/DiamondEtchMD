@@ -551,7 +551,7 @@ def view_main():
     """Entry point for diamond-etch-md-view.
 
     Creates (or refreshes) a viewing/ directory inside each simulation run folder,
-    populating it with symlinks to the most-recent ion-impact and radical dumps
+    populating it with symlinks to the first and last N ion-impact and radical dumps
     from etch_event_trajs/.  Re-running clears old links before creating new ones.
 
     Dump patterns recognised:
@@ -566,19 +566,29 @@ def view_main():
     import re
 
     vp = argparse.ArgumentParser(
-        description="Symlink the latest ion and radical dump files into <run_dir>/viewing/.",
+        description="Symlink the first and last N ion and radical dump files into <run_dir>/viewing/.",
     )
     vp.add_argument(
         "run_dirs", nargs="*", default=["."],
         help="Simulation run directory/directories (default: current directory)",
     )
     vp.add_argument(
-        "-n", "--num", type=int, default=10,
-        help="Number of most-recent dumps to link for each type (default: 10)",
+        "-n", "--num", type=int, default=5,
+        help="Number of first+last dumps to link for each type (default: 5)",
     )
     args = vp.parse_args()
 
     _ion_pat = re.compile(r"^event_dump_\d+\.dump$")
+
+    def _first_and_last(dumps, n):
+        """Return first n + last n, deduplicated, preserving order."""
+        seen = set()
+        out  = []
+        for p in dumps[:n] + dumps[-n:]:
+            if p not in seen:
+                seen.add(p)
+                out.append(p)
+        return out
 
     for raw in args.run_dirs:
         run_dir = Path(raw).resolve()
@@ -600,15 +610,16 @@ def view_main():
         ion_dumps     = [p for p in all_dumps if _ion_pat.match(p.name)]
         radical_dumps = [p for p in all_dumps if not _ion_pat.match(p.name)]
 
-        selected = ion_dumps[-args.num:] + radical_dumps[-args.num:]
+        selected = _first_and_last(ion_dumps, args.num) + _first_and_last(radical_dumps, args.num)
 
         for src in selected:
             (viewing / src.name).symlink_to(src)
 
+        n_ion = len(_first_and_last(ion_dumps, args.num))
+        n_rad = len(_first_and_last(radical_dumps, args.num))
         print(
             f"{run_dir.name}: viewing/ refreshed — "
-            f"{min(len(ion_dumps), args.num)} ion, "
-            f"{min(len(radical_dumps), args.num)} radical dumps"
+            f"{n_ion} ion, {n_rad} radical dumps (first+last {args.num})"
         )
 
 

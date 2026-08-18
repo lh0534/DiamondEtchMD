@@ -289,6 +289,66 @@ def test_validate_mask_width_wrong_type_for_single_mask(mask_type):
         validate(spec)
 
 
+# ─── invert_mask validation ───────────────────────────────────────────────────
+
+def test_validate_invert_mask_requires_mask_type():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81, invert_mask=True)
+    with pytest.raises(SystemExit) as exc:
+        validate(spec)
+    assert "invert_mask" in str(exc.value)
+
+
+def test_validate_invert_mask_with_mask_type_ok():
+    spec = _make_mask_spec("xymask", invert_mask=True)
+    validate(spec)  # should not raise
+
+
+# ─── freeze_mask validation ───────────────────────────────────────────────────
+
+def test_validate_freeze_mask_requires_mask_type():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81, freeze_mask=True)
+    with pytest.raises(SystemExit) as exc:
+        validate(spec)
+    assert "freeze_mask" in str(exc.value)
+
+
+def test_validate_freeze_mask_depth_zero_invalid():
+    spec = _make_mask_spec("xmask", freeze_mask=True, freeze_mask_depth=0.0)
+    with pytest.raises(SystemExit):
+        validate(spec)
+
+
+def test_validate_freeze_mask_with_mask_type_ok():
+    spec = _make_mask_spec("xmask", freeze_mask=True)
+    validate(spec)  # should not raise
+
+
+def test_validate_freeze_mask_custom_depth_ok():
+    spec = _make_mask_spec("ymask", freeze_mask=True, freeze_mask_depth=1.0)
+    validate(spec)  # should not raise
+
+
+def test_freeze_mask_default_values():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81)
+    assert spec.freeze_mask is False
+    assert spec.freeze_mask_depth == 2.0
+
+
+def test_invert_mask_default_false():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81)
+    assert spec.invert_mask is False
+    assert not hasattr(spec, "mask_invert")
+
+
+def test_from_dict_backward_compat_mask_invert():
+    spec = SimSpec.from_dict({
+        "species": "O", "energy": 50.0, "ml": 81,
+        "mask_type": "xmask", "mask_width": 0.2, "mask_invert": True,
+    })
+    assert spec.invert_mask is True
+    assert not hasattr(spec, "mask_invert")
+
+
 def test_etch_mode_unaffected_by_mask():
     # mask is an orthogonal deposition modifier, not a mode; etch_mode() should
     # return the same string whether or not a mask is applied.
@@ -431,3 +491,53 @@ def test_multi_ion_dir_name_three_component():
         flux_ratio=0,
     )
     assert multi_ion_dir_name(s) == "ION_O_10p_20eV_O_20p_10eV_O_70p_5eV"
+
+
+# ─── step_edge validation ─────────────────────────────────────────────────────
+
+def test_step_edge_default_fields():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81)
+    assert spec.step_edge is False
+    assert spec.step_angle == 0.0
+    assert spec.step_position == 0.5
+    assert spec.step_invert is False
+    assert spec.step_depth is None
+
+
+def test_validate_step_edge_defaults_ok():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81, step_edge=True)
+    validate(spec)  # should not raise
+
+
+def test_validate_step_edge_position_zero_invalid():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81, step_edge=True, step_position=0.0)
+    with pytest.raises(SystemExit) as exc:
+        validate(spec)
+    assert "step_position" in str(exc.value)
+
+
+def test_validate_step_edge_position_one_invalid():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81, step_edge=True, step_position=1.0)
+    with pytest.raises(SystemExit) as exc:
+        validate(spec)
+    assert "step_position" in str(exc.value)
+
+
+def test_validate_step_edge_depth_zero_invalid():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81, step_edge=True, step_depth=0.0)
+    with pytest.raises(SystemExit) as exc:
+        validate(spec)
+    assert "step_depth" in str(exc.value)
+
+
+def test_validate_step_edge_depth_negative_invalid():
+    spec = SimSpec(orientation="100", surface="1x1", ml=81, step_edge=True, step_depth=-1.5)
+    with pytest.raises(SystemExit) as exc:
+        validate(spec)
+    assert "step_depth" in str(exc.value)
+
+
+def test_validate_step_edge_custom_depth_ok():
+    spec = SimSpec(orientation="111", surface="1x1", ml=81, step_edge=True,
+                   step_angle=30.0, step_depth=2.2)
+    validate(spec)  # should not raise

@@ -13,7 +13,7 @@ The `surface` key is the single user-facing descriptor for the surface state.
 It encodes both the geometric reconstruction and the chemical termination.
 
 ML factors (analytically derived, empirically verified):
-  100: ml_factor = 1   (verified: 9×9 → 81)
+  100: ml_factor = 1   (verified: 8×8 → 64)
   110: ml_factor = 4   (verified: 4×6 → 96)
   111: ml_factor = 2   (verified: 5×9 → 90)
   113: ml_factor = 4   (verified: 9×3 → 108)
@@ -33,7 +33,7 @@ ORIENT = {
             " spacing $(1/sqrt(2)) $(1/sqrt(2)) 1 origin 0 0 0"
         ),
         "bottom_expr": "$(zlo/(v_lat_a))",
-        "default_box": (9, 9, 3),
+        "default_box": (8, 8, 3),
         "ml_factor":   1,
         "surfaces": {
             "1x1":     {"template": "package:lammps/templates/make_surf_100.lmp",

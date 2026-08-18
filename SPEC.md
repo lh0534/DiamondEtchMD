@@ -28,8 +28,7 @@ with either the crystal-builder or carbon-etch initial structure, and with `flux
 
 **Deposition mask** (`mask_type` set) restricts where ions/radicals are permitted to land,
 independent of etch mode — see [Deposition mask](#deposition-mask) below.
-⚠️ **Not yet committed / experimental** — implemented but not covered by tests, and not
-yet validated against `cycle-etch` (explicitly rejected by `validate()`).
+Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 
 ---
 
@@ -229,16 +228,18 @@ and writes `penetration_analysis.png` / `penetration_analysis.txt`.
 
 ### Deposition mask
 
-⚠️ **Not yet committed to git; no test coverage yet.** Restricts ion/radical
-deposition (and the corresponding `bzone` region used for cluster-ejection
-bookkeeping) to a sub-window of the box — `expose_zone` — leaving a masked
-border around the edges untouched by incoming species, similar to a physical
-etch mask. Not currently supported in `cycle-etch` mode (rejected by `validate()`).
+Restricts ion/radical deposition (and the `bzone` region used for cluster-ejection
+bookkeeping) to a sub-window of the box — `expose_zone` — leaving a masked border
+untouched by incoming species, similar to a physical etch mask. Not supported in
+`cycle-etch` mode (rejected by `validate()`).
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | `mask_type` | `str\|None` | `None` | `"xymask"` \| `"xmask"` \| `"ymask"` \| `None` (no mask) |
 | `mask_width` | `float\|Tuple[float,float]` | `0.1` | Fraction of box masked on each face. Single float for `xmask`/`ymask`; `(x_frac, y_frac)` tuple for `xymask` (a bare float is auto-normalized to `(w, w)`) |
+| `invert_mask` | `bool` | `False` | Invert the mask: deposit at the edges/frame instead of the center window. Requires `mask_type`. |
+| `freeze_mask` | `bool` | `False` | Freeze the topmost surface atoms in the masked region into the anchor group at startup. Requires `mask_type`. |
+| `freeze_mask_depth` | `float` | `2.0` | Å depth from the initial surface to include in the frozen zone (≈1–2 diamond layers). Must be `> 0`. |
 
 **Mask types:**
 
@@ -251,6 +252,45 @@ etch mask. Not currently supported in `cycle-etch` mode (rejected by `validate()
 Each active fraction must satisfy `0.0 < frac < 0.5` (validated). E.g.
 `mask_type="xymask", mask_width=0.3` leaves a centered window covering the
 middle 40% of both x and y (30% masked on each side).
+
+**`freeze_mask` restart safety:** The z floor of the frozen zone is computed from
+`bound(all,zmax)` on the first run (when `n_complete == 0`) and written to
+`freeze_mask_z.txt`. On restarts it is read back unchanged — amorphous carbon that has
+deposited on the masked surface during the simulation is therefore *not* frozen. Do not
+delete `freeze_mask_z.txt` between restarts.
+
+**State file:** `freeze_mask_z.txt` — single float; created automatically on first run.
+
+---
+
+### Step edge
+
+Removes one monoatomic bilayer from one half of the simulation box, producing a
+step-edge surface. The cut is applied after all reconstruction/termination steps and
+before the final energy-minimization, so dangling bonds at the step edge are relaxed.
+Compatible with every orientation and surface variant; `step_edge=True` may be combined
+freely with mask or freeze-mask options.
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `step_edge` | `bool` | `False` | Enable the step-edge cut. |
+| `step_angle` | `float` | `0.0` | Angle (degrees) of the step edge measured from the x-axis. `0°` → edge runs parallel to y; lower terrace is the `−x` half. `90°` → edge runs parallel to x; lower terrace is the `−y` half. For C(111), `0°` gives a (0°) step and `90°` gives a (30°) step in crystal coordinates. |
+| `step_position` | `float` | `0.5` | Fractional position of the step edge along the box (0–1, exclusive). `0.5` places the edge at the centre of the box. |
+| `step_invert` | `bool` | `False` | Flip which half is removed. Default (`False`) removes the half the normal vector points toward; `True` removes the opposite half. |
+| `step_depth` | `float\|None` | `None` | Thickness (Å) of the bilayer to remove. `None` uses the orientation-specific default: 2.0 Å for C(100) and C(113), 2.5 Å for C(110), 2.2 Å for C(111). Must be `> 0` if set. |
+
+**Implementation:** a LAMMPS `region plane` half-space is intersected with a `block`
+z-slab covering the top `step_depth_ang` Å of the surface. All atoms inside the
+intersection are deleted with `delete_atoms … compress no` (atom IDs are preserved for
+restart-file compatibility). Region names `step_half`, `step_zslab`, and `step_zone` are
+deleted immediately after use.
+
+**`step_position` geometry:** the plane passes through the point
+`(lx × step_position, ly × step_position, 0)` with normal vector
+`(cos θ, sin θ, 0)` where `θ = step_angle`. At `step_angle = 0°` the x-coordinate
+of the plane is `lx × step_position` and the y-coordinate is irrelevant; at
+`step_angle = 90°` the y-coordinate is `ly × step_position`. At intermediate angles
+the plane passes through both coordinates simultaneously.
 
 ---
 
@@ -437,9 +477,12 @@ Key flags:
 --n-trials 100
 --randomize-velocities
 
-# Deposition mask (experimental, uncommitted)
+# Deposition mask
 --mask-type xymask         # "xymask" | "xmask" | "ymask"
 --mask-width 0.3           # fraction of box masked on each active face
+--invert-mask              # deposit at frame/edges instead of center
+--freeze-mask              # freeze top-surface atoms in the masked zone
+--freeze-mask-depth 2.0    # Å depth from initial surface to freeze
 
 # Burst radical injection
 --radical-burst

@@ -288,7 +288,7 @@ These five modes compose with three orthogonal modifiers, documented below:
 **carbon-etch** (run on an arbitrary structure instead of a generated surface —
 adds a `carbon-` prefix to the mode string), **single-impact statistics mode**
 (overrides the fluence loop with repeated single-impact trials), and
-**deposition mask** (restricts where species can land; experimental).
+**deposition mask** (restricts where species can land).
 
 ### Radical velocity sampling (RIE modes)
 
@@ -373,18 +373,17 @@ Example: [`examples/SINGLE_IMPACT_graphullerene_Ar.py`](examples/SINGLE_IMPACT_g
 
 ### Deposition mask
 
-⚠️ **Not yet committed to git / no test coverage yet** — implemented but still being
-shaken out; treat as experimental.
-
-Set `mask_type` to restrict ion/radical deposition to a centered sub-window of the
-box (`expose_zone`), leaving a masked border untouched — similar to a physical etch
-mask used to pattern exposure. Not currently supported in `cycle-etch` mode
-(rejected by `validate()`).
+Set `mask_type` to restrict ion/radical deposition to a sub-window of the box
+(`expose_zone`), leaving a masked border untouched — similar to a physical etch mask.
+Not supported in `cycle-etch` mode (rejected by `validate()`).
 
 | Parameter | Default | Meaning |
 |---|---|---|
 | `mask_type` | `None` | `"xymask"` (mask both x/y faces), `"xmask"` (x-faces only), `"ymask"` (y-faces only), or `None` (no mask) |
 | `mask_width` | `0.1` | Fraction of box masked per active face; single float for `xmask`/`ymask`, `(x_frac, y_frac)` tuple for `xymask`. Must satisfy `0.0 < frac < 0.5` |
+| `invert_mask` | `False` | Swap the mask polarity: deposit at the frame/edges instead of the center window. Requires `mask_type`. |
+| `freeze_mask` | `False` | Freeze the top-surface atoms in the masked (non-deposition) region into the anchor group. Requires `mask_type`. |
+| `freeze_mask_depth` | `2.0` | Å depth from the initial surface to freeze (≈1–2 C layers). The z threshold is saved to `freeze_mask_z.txt` on the first run so restarts use the original surface height, not the top of any amorphous carbon deposited on the masked surface. |
 
 Example: [`examples/MASK_RIE_O_100.py`](examples/MASK_RIE_O_100.py) — O⁺/O• RIE-etch with `mask_type="xymask", mask_width=0.3`, restricting injection to the center 40%×40% of the surface.
 

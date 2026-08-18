@@ -25,6 +25,15 @@ _kB = 8.617333262e-5  # eV/K
 #   c_ike ≈ radical_energy_target × 23.06 × 12.713   (bug present — keep correction)
 _DEPOSIT_REGION_BUG_FACTOR = 12.713
 
+# Default bilayer removal depth per orientation (Å). Covers the two atom planes
+# of one bilayer with a small margin.  Tune by inspection if the step cuts wrong.
+_STEP_DEPTH_DEFAULT = {
+    "100": 2.0,   # diamond(100): bilayer ≈ a/2 = 1.78 Å
+    "110": 2.5,   # diamond(110) bilayer
+    "111": 2.2,   # diamond(111): two planes ≈ 0.52 + 1.03 Å apart
+    "113": 2.0,   # diamond(113) bilayer
+}
+
 
 def _zbl_mass_vars(species_iter) -> str:
     """Return 'variable M_X equal ...' lines for each unique ZBL species."""
@@ -91,6 +100,20 @@ def _radical_config_block(
         lines += f"variable    {prefix}rad_angl equal {radical_angle}\n"
 
     return lines
+
+
+def _step_config_block(spec: SimSpec) -> str:
+    """Return config.lmp variable lines for the step-edge modifier, or '' if disabled."""
+    depth = (spec.step_depth if spec.step_depth is not None
+             else _STEP_DEPTH_DEFAULT.get(spec.orientation, 2.0))
+    return (
+        f"\n# Step edge\n"
+        f"variable    step_edge      equal {'1' if spec.step_edge else '0'}\n"
+        f"variable    step_angle     equal {spec.step_angle}\n"
+        f"variable    step_position  equal {spec.step_position}\n"
+        f"variable    step_invert    equal {'1' if spec.step_invert else '0'}\n"
+        f"variable    step_depth_ang equal {depth}\n"
+    )
 
 
 def _mask_config_block(spec: SimSpec) -> str:
@@ -192,7 +215,7 @@ def get_config_lmp(spec: SimSpec) -> str:
             )
         )
 
-    return cfg + _mask_config_block(spec)
+    return cfg + _step_config_block(spec) + _mask_config_block(spec)
 
 
 def get_config_lmp_multi_ion(spec: SimSpec) -> str:
@@ -272,7 +295,7 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
             )
         )
 
-    return cfg + _mask_config_block(spec)
+    return cfg + _step_config_block(spec) + _mask_config_block(spec)
 
 
 def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
@@ -359,7 +382,7 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"\n"
         f"# Per-phase parameters\n"
         f"{phase_vars}"
-    ) + _mask_config_block(spec)
+    ) + _step_config_block(spec) + _mask_config_block(spec)
 
 
 def get_config_lmp_single_impact(spec: SimSpec) -> str:
@@ -448,7 +471,7 @@ def get_config_lmp_single_impact(spec: SimSpec) -> str:
             )
         )
 
-    return cfg + _mask_config_block(spec)
+    return cfg + _step_config_block(spec) + _mask_config_block(spec)
 
 
 def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
@@ -541,7 +564,7 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
             + f"\n"
             + f"# Per-phase parameters\n"
             + phase_vars
-        ) + _mask_config_block(spec)
+        ) + _step_config_block(spec) + _mask_config_block(spec)
 
     elif spec.ion_mix is not None:
         # ── Multi-ion sub-mode ────────────────────────────────────────────────
@@ -571,7 +594,7 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     burst_correction=spec.radical_burst,
                 )
             )
-        return cfg + _mask_config_block(spec)
+        return cfg + _step_config_block(spec) + _mask_config_block(spec)
 
     else:
         # ── Single-species sub-mode ───────────────────────────────────────────
@@ -602,4 +625,4 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     burst_correction=spec.radical_burst,
                 )
             )
-        return cfg + _mask_config_block(spec)
+        return cfg + _step_config_block(spec) + _mask_config_block(spec)
