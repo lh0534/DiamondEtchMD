@@ -23,6 +23,7 @@ carbon-etch prefix — any of the above modes run on an arbitrary LAMMPS data fi
 import dataclasses
 import os
 import sys
+import warnings
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Union
 
@@ -43,6 +44,21 @@ class IonComponent:
     energy:   float  # eV (total dimer energy for O2)
 
 
+def _norm_angle(v) -> Tuple[float, float]:
+    """Normalize an angle spec to a (polar_deg, azimuth_deg) tuple.
+
+    Accepts float → (v, 90.0), tuple/list of 2 → (theta, phi).
+    Azimuth default 90° maintains backward-compat YZ-plane tilt (velx=0).
+    """
+    if isinstance(v, (int, float)):
+        return (float(v), 90.0)
+    if isinstance(v, (tuple, list)) and len(v) == 2:
+        return (float(v[0]), float(v[1]))
+    raise ValueError(
+        f"angle must be a float (polar) or [polar, azimuth] pair; got {v!r}"
+    )
+
+
 @dataclass
 class CyclePhase:
     """One phase of a cycling simulation.
@@ -57,10 +73,13 @@ class CyclePhase:
     flux_ratio:             int   = 0      # O• radicals deposited per ion impact (0 = none)
     radical_energy:         float = 0.2    # eV per O• radical (ignored when radical_temperature set)
     radical_temperature:    Optional[float] = None  # K; enables Maxwell-Boltzmann radical sampling
-    radical_angle:          float = 0.0    # deg from normal for fixed-angle radicals
+    radical_angle:          Union[float, Tuple[float, float]] = 0.0  # deg from normal; or (polar, azimuth)
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
     radical_i_above:       float = 6.0    # Å above surface to inject O• radical
+
+    def __post_init__(self):
+        self.radical_angle = _norm_angle(self.radical_angle)
 
 
 @dataclass
@@ -75,7 +94,7 @@ class SimSpec:
     surface_temperature:    float = 300.0    # K  (substrate thermostat temperature)
     species:                str   = "O"      # single-species mode only
     energy:                 float = 0.5      # eV  (single-species mode only)
-    ion_angle:              float = 0.0      # degrees from surface normal (ion beam)
+    ion_angle:              Union[float, Tuple[float, float]] = 0.0  # deg from normal; or (polar, azimuth)
     fluence:                int   = 50       # monolayers (single-species mode only)
     ml:                     int   = 0        # atoms per monolayer; 0 = compute from ml_factor*x*y
     box_x:                  int   = 9        # lattice units
@@ -98,7 +117,7 @@ class SimSpec:
     flux_ratio:             int   = 0      # O• radicals per ion impact (0 = ion-etch; >0 = RIE-etch)
     radical_energy:         float = 0.2    # eV per O• (used when radical_temperature is None)
     radical_temperature:    Optional[float] = None  # K; enables Maxwell-Boltzmann speed sampling
-    radical_angle:          float = 0.0    # deg from normal for radicals in fixed-angle mode
+    radical_angle:          Union[float, Tuple[float, float]] = 0.0  # deg from normal; or (polar, azimuth)
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
     radical_i_above:        float = 6.0    # Å above surface to inject O• radical
@@ -107,6 +126,8 @@ class SimSpec:
     radical_burst_chunk:    int   = 0      # max atoms deposited before running dynamics; 0 = auto (0.5 ML)
     radical_burst_attempt:  int   = 200    # placement attempts per atom in burst deposit; increase if packing failures occur
     dump_mode:              str   = "all"  # "all" | "etch_only" | "none"
+    sweep_z_check:          bool  = True   # require ejected cluster CoM above surface before counting
+    dump_first_impact:      bool  = True   # in etch_only mode, always keep dump for 1st ion + 1st radical
     # ── Cycling mode ──────────────────────────────────────────────────────────
     phases:                 Optional[List[CyclePhase]]    = None  # None = single-species mode
     cycles:                 int   = 1      # how many times the phase list repeats
@@ -138,6 +159,9 @@ class SimSpec:
     step_depth:    Optional[float] = None  # bilayer thickness to remove, Å; None = orientation default
 
     def __post_init__(self):
+        # Normalize angle specs to (polar, azimuth) tuples.
+        self.ion_angle = _norm_angle(self.ion_angle)
+        self.radical_angle = _norm_angle(self.radical_angle)
         # Normalize xymask single-float shorthand to a (wx, wy) tuple.
         if self.mask_type == "xymask" and isinstance(self.mask_width, (int, float)):
             self.mask_width = (float(self.mask_width), float(self.mask_width))
@@ -158,6 +182,9 @@ class SimSpec:
         if "mask_invert" in d and "invert_mask" not in d:
             d["invert_mask"] = d.pop("mask_invert")
         valid = {f.name for f in dataclasses.fields(cls)}
+        unknown = {k for k in d if k not in valid}
+        if unknown:
+            warnings.warn(f"Unknown SimSpec fields ignored: {sorted(unknown)}", stacklevel=2)
         # nested dataclasses
         if "phases" in d and d["phases"] is not None:
             d["phases"] = [CyclePhase(**p) for p in d["phases"]]
@@ -174,7 +201,7 @@ def compute_ml(orientation: str, box_x: int, box_y: int) -> int:
     return ORIENT[orientation]["ml_factor"] * box_x * box_y
 
 
-def parse_data_file_box(path: str) -> tuple:
+def parse_data_file_box(path: str) -> Tuple[float, float]:
     """Parse lx, ly (Å) from a LAMMPS data file header.
 
     Reads until both 'xlo xhi' and 'ylo yhi' lines are found.
@@ -214,6 +241,7 @@ def etch_mode(spec: "SimSpec") -> str:
         "rie-etch"              — single species with O• radicals
         "multi-ion-etch"        — stochastic multi-ion mix, no radicals
         "multi-rie-etch"        — stochastic multi-ion mix with O• radicals
+        "burst-rie-etch"        — single species with O• radicals injected in bursts
         "cycle-etch"            — multi-phase cycling
         "carbon-ion-etch"       — carbon-etch + ion-etch
         "carbon-rie-etch"       — carbon-etch + rie-etch
@@ -238,15 +266,13 @@ def validate(spec: "SimSpec") -> None:
     if spec.dump_mode not in ("all", "etch_only", "none"):
         sys.exit(f"dump_mode must be 'all', 'etch_only', or 'none'; got '{spec.dump_mode}'.")
 
+    if spec.surface_temperature <= 0:
+        sys.exit(f"surface_temperature must be > 0 K; got {spec.surface_temperature}.")
+
     if spec.radical_temperature is not None and spec.radical_temperature <= 0:
         sys.exit(f"radical_temperature must be > 0 K; got {spec.radical_temperature}.")
 
     if spec.radical_burst:
-        if spec.radical_temperature is not None or spec.radical_angle_distribution:
-            sys.exit(
-                "radical_burst requires mono-energetic fixed-angle mode "
-                "(radical_temperature must be None, radical_angle_distribution must be False)."
-            )
         if spec.ml <= 0:
             sys.exit(
                 f"radical_burst requires ml > 0 (got {spec.ml}). "
@@ -299,10 +325,16 @@ def validate(spec: "SimSpec") -> None:
                     f"Phase {i} ({p.species!r}): unknown species. "
                     f"Choose from: {list(SPECIES)}"
                 )
+            if p.energy <= 0:
+                sys.exit(f"Phase {i}: energy must be > 0 eV, got {p.energy}.")
             if p.fluence_ml <= 0:
                 sys.exit(f"Phase {i}: fluence_ml must be > 0, got {p.fluence_ml}.")
             if p.flux_ratio < 0:
                 sys.exit(f"Phase {i}: flux_ratio must be >= 0, got {p.flux_ratio}.")
+            if p.flux_ratio > 0 and p.radical_energy <= 0:
+                sys.exit(f"Phase {i}: radical_energy must be > 0 when flux_ratio > 0, got {p.radical_energy}.")
+            if p.radical_temperature is not None and p.radical_temperature <= 0:
+                sys.exit(f"Phase {i}: radical_temperature must be > 0 K, got {p.radical_temperature}.")
     elif spec.ion_mix is not None:
         # ── Multi-ion-mode validation ──────────────────────────────────────
         if len(spec.ion_mix) < 2:
@@ -335,6 +367,10 @@ def validate(spec: "SimSpec") -> None:
         # ── Single-species-mode validation (ion-etch or RIE-etch) ──────
         if spec.species not in SPECIES:
             sys.exit(f"Unknown species '{spec.species}'. Choose from: {list(SPECIES)}")
+        if spec.energy <= 0:
+            sys.exit(f"energy must be > 0 eV; got {spec.energy}.")
+        if spec.fluence <= 0:
+            sys.exit(f"fluence must be > 0 ML; got {spec.fluence}.")
         if spec.flux_ratio < 0:
             sys.exit(f"flux_ratio must be >= 0, got {spec.flux_ratio}.")
         if spec.flux_ratio > 0:

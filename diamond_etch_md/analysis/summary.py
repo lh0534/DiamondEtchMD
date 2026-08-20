@@ -6,10 +6,15 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 
 from .ncarbon import parse_ncarbon, parse_ncarbon_cycling, is_cycling_format
 from .etch_products import parse_etch_products
+from ._common import _phase_of_impact
 
 
 # ── block averaging ───────────────────────────────────────────────────────────
@@ -132,18 +137,6 @@ def _radical_etch_sequence(nc_records: List[Dict]) -> List[float]:
             yields.append(float(prev_nc - r['n_carbon']))
         prev_nc = r['n_carbon']
     return yields
-
-
-def _phase_of_impact(impact: int, spec, ml: int) -> int:
-    """Return phase index for a given impact number in a cycling simulation."""
-    total_cycle = sum(p.fluence_ml for p in spec.phases) * ml
-    pos = (impact - 1) % total_cycle
-    cum = 0
-    for pi, p in enumerate(spec.phases):
-        cum += p.fluence_ml * ml
-        if pos < cum:
-            return pi
-    return len(spec.phases) - 1
 
 
 # ── main analysis function ────────────────────────────────────────────────────

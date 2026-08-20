@@ -260,14 +260,14 @@ def _deposit_line(species: dict, spec: SimSpec = None) -> str:
         # O2: inject as molecule; type 0 means types come from molecule file
         return (
             f"fix     depo insert deposit 1 0 10000000000 ${{deposeed}} global "
-            f"${{i_above}} ${{i_above}} vx 0.0 0.0 vy ${{vely}} ${{vely}} "
+            f"${{i_above}} ${{i_above}} vx ${{velx}} ${{velx}} vy ${{vely}} ${{vely}} "
             f"vz -${{velz}} -${{velz}} region {region} units box mol O2\n"
         )
     else:
         # single atom: inject by type index
         return (
             f"fix     depo insert deposit 1 ${{incident_type_index}} 10000000000 ${{deposeed}} global "
-            f"${{i_above}} ${{i_above}} vx 0.0 0.0 vy ${{vely}} ${{vely}} "
+            f"${{i_above}} ${{i_above}} vx ${{velx}} ${{velx}} vy ${{vely}} ${{vely}} "
             f"vz -${{velz}} -${{velz}} region {region} units box\n"
         )
 
@@ -382,8 +382,8 @@ def _radical_loop_block(spec: SimSpec) -> str:
         )
     else:
         blk += (
-            f"variable    vx_rad equal 0.0\n"
-            f"variable    vy_rad equal v_rad_speed*sin(${{rad_angl}}*PI/180)\n"
+            f"variable    vx_rad equal v_rad_speed*sin(${{rad_angl}}*PI/180)*cos(${{rad_azimuth}}*PI/180)\n"
+            f"variable    vy_rad equal v_rad_speed*sin(${{rad_angl}}*PI/180)*sin(${{rad_azimuth}}*PI/180)\n"
             f"variable    vz_rad equal -v_rad_speed*cos(${{rad_angl}}*PI/180)\n"
         )
 
@@ -412,9 +412,9 @@ def _radical_loop_block(spec: SimSpec) -> str:
         polar_formula   = "acos(v_cos_theta)*180/PI"
         azimuth_formula = "v_phi_rad*180/PI"
     else:
-        # fixed angle; azimuth is always 0 (radicals in the yz plane)
+        # fixed angle; azimuth comes from rad_azimuth config variable
         polar_formula   = f"${{rad_angl}}"
-        azimuth_formula = "0.0"
+        azimuth_formula = f"${{rad_azimuth}}"
 
     blk += (
         f"variable    rad_spd_sq equal {rad_spd_sq_formula}\n"
@@ -446,8 +446,13 @@ def _radical_loop_block(spec: SimSpec) -> str:
             f"id type x y z vx vy vz fx fy fz q\n"
         )
     elif dm == "etch_only":
+        _rad_first_guard = (
+            'if "${c} == 1 && ${cn} == 1" then "variable keep_dump_n equal 1"\n'
+            if spec.dump_first_impact else ""
+        )
         blk += (
             f"variable    keep_dump_n equal 0\n"
+            f"{_rad_first_guard}"
             f"dump        current_dump_n all custom 100 "
             f"etch_event_trajs/event_dump_n${{c}}_${{cn}}.dump "
             f"id type x y z vx vy vz fx fy fz q\n"
@@ -567,6 +572,58 @@ def _radical_loop_block(spec: SimSpec) -> str:
     return blk
 
 
+def _per_chunk_vel_block(ci: int, use_boltzmann: bool, use_cosine: bool) -> str:
+    """Return LAMMPS variable declarations for per-chunk burst velocity sampling.
+
+    Uses frozen $() captures keyed on ${c}*1000000+ci so each impact×chunk gets
+    independent reproducible samples.  Overwrites vx_burst/vy_burst/vz_burst.
+    Seed offsets 1-6 for Boltzmann speed; 7-8 for cosine angle.
+    """
+    seed_base = f"${{c}}*1000000+{ci}*10000+${{seed_adjust}}*100000000"
+    blk = f"# Per-chunk velocity (chunk {ci})\n"
+    blk += f"variable    bms_b equal {seed_base}\n"
+
+    if use_boltzmann:
+        blk += (
+            f"variable    u1a equal $(random(1e-10,1.0,v_bms_b+1))\n"
+            f"variable    u2a equal $(random(1e-10,1.0,v_bms_b+2))\n"
+            f"variable    u1b equal $(random(1e-10,1.0,v_bms_b+3))\n"
+            f"variable    u2b equal $(random(1e-10,1.0,v_bms_b+4))\n"
+            f"variable    u1c equal $(random(1e-10,1.0,v_bms_b+5))\n"
+            f"variable    u2c equal $(random(1e-10,1.0,v_bms_b+6))\n"
+            f"variable    gx_sq equal (-2*ln(v_u1a))*(1+cos(4*PI*v_u2a))/2*v_sigma_burst*v_sigma_burst\n"
+            f"variable    gy_sq equal (-2*ln(v_u1b))*(1+cos(4*PI*v_u2b))/2*v_sigma_burst*v_sigma_burst\n"
+            f"variable    gz_sq equal (-2*ln(v_u1c))*(1+cos(4*PI*v_u2c))/2*v_sigma_burst*v_sigma_burst\n"
+            f"variable    rad_speed_burst equal sqrt(v_gx_sq+v_gy_sq+v_gz_sq)\n"
+        )
+    else:
+        blk += (
+            f"variable    vel_chem_burst equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+            f"variable    rad_speed_burst equal v_vel_chem_burst\n"
+        )
+
+    if use_cosine:
+        ang_seed = "+7" if use_boltzmann else "+1"
+        ang_seed2 = "+8" if use_boltzmann else "+2"
+        blk += (
+            f"variable    u_th equal $(random(0.0,1.0,v_bms_b{ang_seed}))\n"
+            f"variable    u_ph equal $(random(0.0,1.0,v_bms_b{ang_seed2}))\n"
+            f"variable    cos_th_b equal sqrt(v_u_th)\n"
+            f"variable    sin_th_b equal sqrt(1.0-v_u_th)\n"
+            f"variable    phi_b equal 2*PI*v_u_ph\n"
+            f"variable    vx_burst equal v_rad_speed_burst*v_sin_th_b*cos(v_phi_b)\n"
+            f"variable    vy_burst equal v_rad_speed_burst*v_sin_th_b*sin(v_phi_b)\n"
+            f"variable    vz_burst equal -v_rad_speed_burst*v_cos_th_b\n"
+        )
+    else:
+        blk += (
+            f"variable    vx_burst equal v_rad_speed_burst*sin(${{rad_angl}}*PI/180)*cos(${{rad_azimuth}}*PI/180)\n"
+            f"variable    vy_burst equal v_rad_speed_burst*sin(${{rad_angl}}*PI/180)*sin(${{rad_azimuth}}*PI/180)\n"
+            f"variable    vz_burst equal -v_rad_speed_burst*cos(${{rad_angl}}*PI/180)\n"
+        )
+    return blk
+
+
 def _radical_burst_block(spec: SimSpec) -> str:
     """Return the LAMMPS burst O• injection block for burst-mode RIE.
 
@@ -589,6 +646,10 @@ def _radical_burst_block(spec: SimSpec) -> str:
     remainder  = total % chunk_size
     chunks     = [chunk_size] * n_full + ([remainder] if remainder > 0 else [])
 
+    use_boltzmann = spec.radical_temperature is not None
+    use_cosine    = spec.radical_angle_distribution
+    use_stochastic = use_boltzmann or use_cosine
+
     # ZBL (Ar ions) → must refresh nonargon group after each deposit
     if spec.ion_mix:
         _has_zbl = any(SPECIES[c.species]["needs_zbl"] for c in spec.ion_mix)
@@ -599,17 +660,33 @@ def _radical_burst_block(spec: SimSpec) -> str:
     dm        = spec.dump_mode
     dump_cols = "id type x y z vx vy vz fx fy fz q"
 
+    if use_stochastic:
+        # Per-chunk stochastic: vx/vy/vz_burst are set inside the chunk loop.
+        # Sigma variable defined once; seed base formula uses ${c} so each impact differs.
+        _sigma_decl = (
+            f"variable    sigma_burst equal sqrt(${{kT_rad}}*6.02214129e7/${{M_O}}/6242)/1000\n"
+            if use_boltzmann else ""
+        )
+        _fixed_vel_block = (
+            f"# Stochastic burst mode: per-chunk velocity set inside chunk loop\n"
+            + _sigma_decl
+        )
+    else:
+        _fixed_vel_block = (
+            f"# Fixed velocity for all burst atoms\n"
+            f"variable    vel_chem_burst equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+            f"variable    vx_burst equal v_vel_chem_burst*sin(${{rad_angl}}*PI/180)*cos(${{rad_azimuth}}*PI/180)\n"
+            f"variable    vy_burst equal v_vel_chem_burst*sin(${{rad_angl}}*PI/180)*sin(${{rad_azimuth}}*PI/180)\n"
+            f"variable    vz_burst equal -v_vel_chem_burst*cos(${{rad_angl}}*PI/180)\n"
+        )
+
     blk = (
         f"# ========= Begin radical burst deposition"
         f" ({len(chunks)} chunk(s) × ≤{chunk_size} atoms = {total} total) =========\n"
         f'if "${{cn_start}} >= 1" then "jump SELF skip_burst"\n'
         f"\n"
-        f"# Fixed velocity for all burst atoms\n"
-        f"variable    vel_chem_burst equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
-        f"variable    vx_burst equal 0.0\n"
-        f"variable    vy_burst equal v_vel_chem_burst*sin(${{rad_angl}}*PI/180)\n"
-        f"variable    vz_burst equal -v_vel_chem_burst*cos(${{rad_angl}}*PI/180)\n"
-        f"timestep    1e-10\n"
+        + _fixed_vel_block
+        + f"timestep    1e-10\n"
         f"\n"
         f"# Record pre-burst O count to detect incomplete placement\n"
         f"group       oxygen_pre_burst type 3\n"
@@ -639,8 +716,13 @@ def _radical_burst_block(spec: SimSpec) -> str:
                 f'"variable burst_nclusts0 equal $(c_nclusts)"\n'
             )
         else:  # etch_only
+            _burst_first_guard = (
+                'if "${c} == 1" then "variable keep_dump_burst equal 1"\n'
+                if spec.dump_first_impact and ci == 0 else ""
+            )
             chunk_dump_open  = (
                 f"variable    keep_dump_burst equal 0\n"
+                f"{_burst_first_guard}"
                 f"dump        current_dump_burst all custom 100 {dump_file} {dump_cols}\n"
             )
             chunk_dump_close = (
@@ -671,7 +753,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
             + _bzone_def(spec, f"bzone{ci}", f"$(v_z_ins{ci} - 0.1)", f"$(v_z_ins{ci} + 0.1)")
             + f"group       insert clear\n"
             f"group       mobile subtract all anchor\n"
-            f"variable    burst_seed{ci}_1 equal "
+            + (_per_chunk_vel_block(ci, use_boltzmann, use_cosine) if use_stochastic else "")
+            + f"variable    burst_seed{ci}_1 equal "
             f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+{ci+1}))\n"
             f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{ci}_1}} "
             f"attempt {spec.radical_burst_attempt} "
@@ -935,8 +1018,13 @@ def _build_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
         )
 
     else:  # etch_only
+        _first_guard = (
+            'if "${c} == 1" then "variable keep_dump equal 1"\n'
+            if spec.dump_first_impact else ""
+        )
         ion_dump_open = (
             f"variable    keep_dump equal 0\n"
+            f"{_first_guard}"
             f"dump current_dump all custom 100 {dump_file} {dump_cols}\n"
         )
         ion_dump_close = (
@@ -1034,7 +1122,7 @@ def get_head_lmp(spec: SimSpec) -> str:
     return (
         f"# head.lmp — generated by DiamondEtchMD\n"
         f"# orientation={spec.orientation}  species={spec.species}"
-        f"  {spec.energy}eV  {spec.surface_temperature}K  ion_angle={spec.ion_angle}deg\n"
+        f"  {spec.energy}eV  {spec.surface_temperature}K  ion_angle={spec.ion_angle[0]}deg\n"
         f"package kokkos neigh/qeq full neigh half newton on\n"
         f"units\t\treal\n"
         f"include     config.lmp\n"
@@ -1093,8 +1181,9 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"\n"
         f"# Incident particle velocity components\n"
         f"variable \tvel equal sqrt(2*${{energ}}*6.02214129*1.0e+7/${{M_incident}}/6242)/1000\n"
+        f"variable \tvelx equal sin(${{ion_angl}}*PI/180)*cos(${{ion_azimuth}}*PI/180)*${{vel}}\n"
+        f"variable \tvely equal sin(${{ion_angl}}*PI/180)*sin(${{ion_azimuth}}*PI/180)*${{vel}}\n"
         f"variable \tvelz equal cos(${{ion_angl}}*PI/180)*${{vel}}\n"
-        f"variable \tvely equal sin(${{ion_angl}}*PI/180)*${{vel}}\n"
         f"\n"
         f"# Energy conservation check\n"
         f"compute     ake all ke\n"
@@ -1274,8 +1363,9 @@ def _multi_ion_select_block(spec: SimSpec) -> str:
         "label       ion_sel_done\n",
         'print       "${c} ${cur_ion}" append ion_impacts.txt\n',
         "variable    vel equal sqrt(2*${energ}*6.02214129*1.0e+7/${M_incident}/6242)/1000\n",
+        "variable    velx equal sin(${ion_angl}*PI/180)*cos(${ion_azimuth}*PI/180)*${vel}\n",
+        "variable    vely equal sin(${ion_angl}*PI/180)*sin(${ion_azimuth}*PI/180)*${vel}\n",
         "variable    velz equal cos(${ion_angl}*PI/180)*${vel}\n",
-        "variable    vely equal sin(${ion_angl}*PI/180)*${vel}\n",
         "# ─────────────────────────────────────────────────────────────────────────────\n",
         "\n",
     ])
@@ -1289,11 +1379,11 @@ def _multi_ion_deposit_line(spec: SimSpec = None) -> str:
     return (
         f'if "${{cur_ion_is_mol}} == 1" then &\n'
         f'"fix     depo insert deposit 1 0 10000000000 ${{deposeed}} global '
-        f'${{i_above}} ${{i_above}} vx 0.0 0.0 vy ${{vely}} ${{vely}} '
+        f'${{i_above}} ${{i_above}} vx ${{velx}} ${{velx}} vy ${{vely}} ${{vely}} '
         f'vz -${{velz}} -${{velz}} region {region} units box mol O2" &\n'
         f"else &\n"
         f'"fix     depo insert deposit 1 ${{incident_type_index}} 10000000000 ${{deposeed}} global '
-        f'${{i_above}} ${{i_above}} vx 0.0 0.0 vy ${{vely}} ${{vely}} '
+        f'${{i_above}} ${{i_above}} vx ${{velx}} ${{velx}} vy ${{vely}} ${{vely}} '
         f'vz -${{velz}} -${{velz}} region {region} units box"\n'
     )
 
@@ -1367,7 +1457,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"# head.lmp — generated by DiamondEtchMD (multi-ion)\n"
         f"# orientation={spec.orientation}  "
         f"ions=[{', '.join(f'{c.species}@{c.energy}eV×{c.fraction:.0%}' for c in mix)}]\n"
-        f"# T={spec.surface_temperature}K  ion_angle={spec.ion_angle}deg\n"
+        f"# T={spec.surface_temperature}K  ion_angle={spec.ion_angle[0]}deg\n"
         f"package kokkos neigh/qeq full neigh half newton on\n"
         f"units\t\treal\n"
         f"include     config.lmp\n"
@@ -1659,7 +1749,7 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
     return (
         f"# head.lmp - generated by DiamondEtchMD (carbon-etch)\n"
         f"# config_file={spec.initial_config_file}  species={spec.species}"
-        f"  {spec.energy}eV  {spec.surface_temperature}K  angle={spec.ion_angle}deg\n"
+        f"  {spec.energy}eV  {spec.surface_temperature}K  angle={spec.ion_angle[0]}deg\n"
         f"package kokkos neigh/qeq full neigh half newton on\n"
         f"units\t\treal\n"
         f"include     config.lmp\n"
@@ -1876,7 +1966,7 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         f"# head.lmp - generated by DiamondEtchMD (carbon-etch multi-ion)\n"
         f"# config_file={spec.initial_config_file}\n"
         f"# ions=[{', '.join(f'{c.species}@{c.energy}eV*{c.fraction:.0%}' for c in mix)}]\n"
-        f"# T={spec.surface_temperature}K  angle={spec.ion_angle}deg\n"
+        f"# T={spec.surface_temperature}K  angle={spec.ion_angle[0]}deg\n"
         f"package kokkos neigh/qeq full neigh half newton on\n"
         f"units\t\treal\n"
         f"include     config.lmp\n"

@@ -23,7 +23,11 @@ import sys
 from pathlib import Path
 from typing import Iterator
 
-import numpy as np
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 
 
 # ── LAMMPS dump streaming ─────────────────────────────────────────────────────

@@ -631,10 +631,13 @@ def render_main():
     parallel (good for vis nodes) or submits a SLURM batch job.
 
     Usage:
+        diamond-etch-md-render dump.dump
+        diamond-etch-md-render dump.dump --preset standard
         diamond-etch-md-render dump.dump --config scene.ovito
         diamond-etch-md-render dump.dump --config scene.ovito --frames 200
         diamond-etch-md-render dump.dump --config scene.ovito --interactive
         diamond-etch-md-render dump.dump --config scene.ovito --slurm --cores 32
+        diamond-etch-md-render --list-presets
     """
     import os, sys
     _ANA_LIB = "/usr/licensed/anaconda3/2024.10/lib"
@@ -651,8 +654,17 @@ def render_main():
     )
     rp.add_argument("dump", help="LAMMPS dump file to render")
     rp.add_argument(
-        "--config", required=True, metavar="OVITO_FILE",
-        help="OVITO session file (.ovito) with pipeline/camera settings",
+        "--config", default=None, metavar="OVITO_FILE",
+        help="OVITO session file (.ovito) with pipeline/camera settings "
+             "(default: use --preset)",
+    )
+    rp.add_argument(
+        "--preset", default="standard", metavar="NAME",
+        help="Bundled OVITO preset name (default: standard). Ignored when --config is given.",
+    )
+    rp.add_argument(
+        "--list-presets", action="store_true", dest="list_presets",
+        help="List available bundled presets and exit",
     )
     rp.add_argument(
         "--output", default=None, metavar="FILE",
@@ -704,9 +716,29 @@ def render_main():
     )
     args = rp.parse_args()
 
+    _pkg_configs = Path(__file__).parent / "ovito_configs"
+
+    # Handle --list-presets before requiring a dump file
+    if args.list_presets:
+        presets = sorted(p.stem for p in _pkg_configs.glob("*.ovito"))
+        print("Available presets:")
+        for name in presets:
+            print(f"  {name}")
+        return
+
     dump_arg = Path(args.dump)                 # keep original (may be a symlink)
     dump     = dump_arg.resolve()              # real path for OVITO to read
-    config   = Path(args.config).resolve()
+
+    # Resolve config: explicit --config overrides --preset
+    if args.config:
+        config = Path(args.config).resolve()
+    else:
+        config = _pkg_configs / f"{args.preset}.ovito"
+        if not config.exists():
+            available = sorted(p.stem for p in _pkg_configs.glob("*.ovito"))
+            print(f"Error: preset '{args.preset}' not found. Available: {available}")
+            return
+
     if args.output:
         output  = Path(args.output).resolve()
         viz_dir = output.parent
@@ -726,7 +758,9 @@ def render_main():
 
     # Determine frame list
     import tempfile
-    patched = Path(tempfile.mktemp(suffix=".ovito"))
+    _tmp = tempfile.NamedTemporaryFile(suffix=".ovito", delete=False)
+    _tmp.close()
+    patched = Path(_tmp.name)
     patch_ovito_scene(config, patched)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -738,6 +772,8 @@ def render_main():
         _vp0       = ovito.scene.viewports.active_vp
         base_fov   = float(_vp0.fov)
         base_cam_z = float(_vp0.camera_pos[2])
+        _rs        = ovito.scene.render_settings
+        size_from_file = tuple(_rs.size)
 
     end = args.end_frame
     if args.frames is not None:
@@ -749,21 +785,27 @@ def render_main():
     end_fr   = min(end, total - 1)
     stride   = args.stride
 
-    # Show frame count + duration; let user adjust stride and fps before committing
+    size_override = None   # None = use size embedded in .ovito file
+
+    # Show frame count + duration; let user adjust stride, fps, and resolution before committing
     print(f"\n  Dump: {dump.name}  ({total} frames total)")
+    print(f"  Config: {config.name}")
     while True:
         frames_to_render = list(range(start_fr, end_fr + 1, stride))
         duration = len(frames_to_render) / args.fps
         mins, secs = divmod(duration, 60)
+        cur_size = size_override if size_override else size_from_file
         print(f"  Frames : {len(frames_to_render)}  "
               f"(every {stride}th, indices {frames_to_render[0]}–{frames_to_render[-1]})")
         print(f"  Video  : {duration:.1f}s  ({int(mins)}m {secs:.0f}s)  @ {args.fps} fps")
+        print(f"  Size   : {cur_size[0]}×{cur_size[1]} px")
         try:
             raw_stride = input(f"  Stride [{stride}]    (enter to keep): ").strip()
             raw_fps    = input(f"  FPS    [{args.fps}] (enter to keep): ").strip()
+            raw_size   = input(f"  Size   [{cur_size[0]}x{cur_size[1]}] (enter to keep, or WxH): ").strip()
         except EOFError:
             break
-        if not raw_stride and not raw_fps:
+        if not raw_stride and not raw_fps and not raw_size:
             break
         if raw_stride:
             try:
@@ -783,6 +825,15 @@ def render_main():
                     print("  FPS must be ≥ 1.")
             except ValueError:
                 print("  Invalid fps — enter a positive integer.")
+        if raw_size:
+            try:
+                w, h = [int(x) for x in raw_size.lower().split("x")]
+                if w > 0 and h > 0:
+                    size_override = (w, h)
+                else:
+                    print("  Both dimensions must be > 0.")
+            except (ValueError, TypeError):
+                print("  Invalid size — enter as WxH (e.g. 1920x1080).")
 
     # Auto-compute z shift: place the highest diamond-structured carbon atom 10% from
     # the top of the frame.  Uses the scene pipeline so IdentifyDiamondModifier runs.
@@ -871,6 +922,7 @@ def render_main():
                      frames_to_render=frames_to_render,
                      zoom_start=zoom_start, zoom_end=zoom_end,
                      z_start=z_start, z_end=z_end,
+                     size=size_override,
                      account=args.account, wall_hours=args.wall_hours,
                      mem_gb=args.mem)
     else:
@@ -879,7 +931,57 @@ def render_main():
                      fps=args.fps, cores=cores,
                      frames_to_render=frames_to_render,
                      zoom_start=zoom_start, zoom_end=zoom_end,
-                     z_start=z_start, z_end=z_end)
+                     z_start=z_start, z_end=z_end,
+                     size=size_override)
+
+
+def check_sticking_main():
+    """Entry point for diamond-etch-md-check-sticking.
+
+    Reads etch_products.txt and ncarbon.txt from a simulation directory and
+    reports per-ML radical reflection rates.  Writes RADS_REFLECTING if any
+    monolayer has ≥ threshold reflection rate, removes it if all are below.
+    """
+    import argparse
+    from .analysis.sticking import check_radical_reflecting
+
+    ap = argparse.ArgumentParser(
+        description="Check radical reflection rate and write RADS_REFLECTING warning.",
+    )
+    ap.add_argument(
+        "sim_dir", nargs="?", default=".",
+        help="Simulation directory (default: current directory)",
+    )
+    ap.add_argument(
+        "--ml", type=int, default=0, metavar="N",
+        help="Atoms per monolayer (default: read from spec.json)",
+    )
+    ap.add_argument(
+        "--threshold", type=float, default=0.95, metavar="F",
+        help="Reflection fraction threshold for warning (default: 0.95)",
+    )
+    args = ap.parse_args()
+
+    result = check_radical_reflecting(args.sim_dir, ml=args.ml, threshold=args.threshold)
+
+    stats = result["ml_stats"]
+    if not stats:
+        print("No complete monolayer data found.")
+        return
+
+    print(f"ML  {'Total':>6}  {'Reflect':>7}  {'Rate':>7}")
+    print("-" * 30)
+    for s in stats:
+        rate = f"{s['reflect_frac']*100:.1f}%" if s["reflect_frac"] is not None else "  N/A"
+        flag = " ← WARNING" if s in result["bad_bins"] else ""
+        print(f"{s['ml_number']:>2}  {s['n_total']:>6}  {s['n_reflect']:>7}  {rate:>7}{flag}")
+
+    if result["wrote_warning"]:
+        print(f"\nWrote RADS_REFLECTING in {Path(args.sim_dir).resolve()}")
+    elif result["bad_bins"]:
+        print("\nRADS_REFLECTING updated.")
+    else:
+        print("\nAll MLs below reflection threshold — no warning file.")
 
 
 if __name__ == "__main__":

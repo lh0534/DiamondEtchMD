@@ -20,7 +20,11 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import numpy as np
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 
 try:
     import jax

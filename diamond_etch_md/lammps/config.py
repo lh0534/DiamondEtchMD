@@ -49,7 +49,7 @@ def _radical_config_block(
     flux_ratio: int,
     radical_energy: float,
     radical_temperature,  # Optional[float]
-    radical_angle: float,
+    radical_angle,        # float or (polar_deg, azimuth_deg) tuple
     radical_angle_distribution: bool,
     max_inter_neutral_time: float,
     radical_i_above: float,
@@ -66,6 +66,12 @@ def _radical_config_block(
     use_boltzmann = radical_temperature is not None
     use_cosine = radical_angle_distribution
     use_stochastic = use_boltzmann or use_cosine
+
+    # Normalize radical_angle to (polar, azimuth) tuple
+    if isinstance(radical_angle, (int, float)):
+        rad_theta, rad_phi = float(radical_angle), 90.0
+    else:
+        rad_theta, rad_phi = float(radical_angle[0]), float(radical_angle[1])
 
     lines = f"variable    {prefix}flux_ratio equal {flux_ratio}\n"
 
@@ -97,13 +103,14 @@ def _radical_config_block(
         lines += f"variable    {prefix}inter_neutral_time equal {inter_neutral_time}\n"
 
     if not use_cosine:
-        lines += f"variable    {prefix}rad_angl equal {radical_angle}\n"
+        lines += f"variable    {prefix}rad_angl equal {rad_theta}\n"
+        lines += f"variable    {prefix}rad_azimuth equal {rad_phi}\n"
 
     return lines
 
 
 def _step_config_block(spec: SimSpec) -> str:
-    """Return config.lmp variable lines for the step-edge modifier, or '' if disabled."""
+    """Return config.lmp variable lines for the step-edge modifier and sweep options."""
     depth = (spec.step_depth if spec.step_depth is not None
              else _STEP_DEPTH_DEFAULT.get(spec.orientation, 2.0))
     return (
@@ -113,6 +120,8 @@ def _step_config_block(spec: SimSpec) -> str:
         f"variable    step_position  equal {spec.step_position}\n"
         f"variable    step_invert    equal {'1' if spec.step_invert else '0'}\n"
         f"variable    step_depth_ang equal {depth}\n"
+        f"\n# Sweep options\n"
+        f"variable    do_z_check     equal {'1' if spec.sweep_z_check else '0'}\n"
     )
 
 
@@ -154,17 +163,19 @@ def get_config_lmp(spec: SimSpec) -> str:
     # O2 energy is split across 2 atoms; user specifies total dimer energy
     energy_per_atom = spec.energy / species["energy_divisor"]
 
+    _ion_theta, _ion_phi = spec.ion_angle
     cfg = (
         f"# DiamondEtchMD generated config (single-species)\n"
         f"# orientation={spec.orientation}  surface={spec.surface}\n"
-        f"# species={spec.species}  energy={spec.energy}eV  ion_angle={spec.ion_angle}deg"
+        f"# species={spec.species}  energy={spec.energy}eV  ion_angle={_ion_theta}deg"
         f"  T={spec.surface_temperature}K\n"
         f"\n"
         f"variable    ML equal {spec.ml}            # atoms per monolayer\n"
         f"variable    end_fluence equal {spec.fluence}   # in ML\n"
         f"\n"
         f"variable    energ equal {energy_per_atom}     # incident energy per atom (eV)\n"
-        f"variable    ion_angl equal {spec.ion_angle}   # ion beam angle (deg from normal)\n"
+        f"variable    ion_angl equal {_ion_theta}   # ion beam angle (deg from normal)\n"
+        f"variable    ion_azimuth equal {_ion_phi}  # ion beam azimuth (deg; 90=YZ plane)\n"
         f"variable    T equal {spec.surface_temperature}    # substrate temperature (K)\n"
         f"variable    pot string REAX\n"
         f"\n"
@@ -237,6 +248,7 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
         f"{c.species}@{c.energy}eV×{c.fraction/total:.0%}" for c in mix
     )
 
+    _ion_theta, _ion_phi = spec.ion_angle
     cfg = (
         f"# DiamondEtchMD generated config (multi-ion)\n"
         f"# orientation={spec.orientation}  surface={spec.surface}  T={spec.surface_temperature}K\n"
@@ -245,7 +257,8 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
         f"variable    ML equal {spec.ml}            # atoms per monolayer\n"
         f"variable    end_fluence equal {spec.fluence}   # in ML\n"
         f"\n"
-        f"variable    ion_angl equal {spec.ion_angle}   # ion beam angle (deg from normal)\n"
+        f"variable    ion_angl equal {_ion_theta}   # ion beam angle (deg from normal)\n"
+        f"variable    ion_azimuth equal {_ion_phi}  # ion beam azimuth (deg; 90=YZ plane)\n"
         f"variable    T equal {spec.surface_temperature}    # substrate temperature (K)\n"
         f"variable    pot string REAX\n"
         f"\n"
@@ -338,6 +351,7 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         for p in spec.phases
     )
 
+    _ion_theta, _ion_phi = spec.ion_angle
     return (
         f"# DiamondEtchMD generated config (cycling mode)\n"
         f"# orientation={spec.orientation}  surface={spec.surface}  T={spec.surface_temperature}K\n"
@@ -348,7 +362,8 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"variable    cycles equal {spec.cycles}\n"
         f"variable    end_fluence equal {total_fluence_ml}  # total ML\n"
         f"\n"
-        f"variable    ion_angl equal {spec.ion_angle}   # ion beam angle (deg from normal)\n"
+        f"variable    ion_angl equal {_ion_theta}   # ion beam angle (deg from normal)\n"
+        f"variable    ion_azimuth equal {_ion_phi}  # ion beam azimuth (deg; 90=YZ plane)\n"
         f"variable    T equal {spec.surface_temperature}    # substrate temperature (K)\n"
         f"variable    pot string REAX\n"
         f"\n"
@@ -395,17 +410,19 @@ def get_config_lmp_single_impact(spec: SimSpec) -> str:
     species   = SPECIES[spec.species]
     energy_per_atom = spec.energy / species["energy_divisor"]
 
+    _ion_theta, _ion_phi = spec.ion_angle
     common = (
         f"# DiamondEtchMD generated config (single-impact statistics mode)\n"
         f"# species={spec.species}  energy={spec.energy}eV"
-        f"  ion_angle={spec.ion_angle}deg  T={spec.surface_temperature}K\n"
+        f"  ion_angle={_ion_theta}deg  T={spec.surface_temperature}K\n"
         f"# n_trials={spec.n_trials}"
         f"  randomize_velocities={spec.randomize_velocities}\n"
         f"\n"
         f"variable    n_trials equal {spec.n_trials}\n"
         f"\n"
         f"variable    energ equal {energy_per_atom}     # incident energy per atom (eV)\n"
-        f"variable    ion_angl equal {spec.ion_angle}   # ion beam angle (deg from normal)\n"
+        f"variable    ion_angl equal {_ion_theta}   # ion beam angle (deg from normal)\n"
+        f"variable    ion_azimuth equal {_ion_phi}  # ion beam azimuth (deg; 90=YZ plane)\n"
         f"variable    T equal {spec.surface_temperature}    # substrate temperature (K)\n"
         f"variable    pot string REAX\n"
         f"\n"
@@ -491,13 +508,15 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
     else:
         _zbl_sp_list = [SPECIES[spec.species]]
 
+    _ion_theta, _ion_phi = spec.ion_angle
     common = (
         f"# DiamondEtchMD generated config (carbon-etch)\n"
         f"# initial_config_file: {spec.initial_config_file}\n"
         f"# anchor_z_max: {spec.anchor_z_max} Å\n"
         f"\n"
         f"variable    ML equal {spec.ml}\n"
-        f"variable    ion_angl equal {spec.ion_angle}\n"
+        f"variable    ion_angl equal {_ion_theta}\n"
+        f"variable    ion_azimuth equal {_ion_phi}\n"
         f"variable    T equal {spec.surface_temperature}\n"
         f"variable    pot string REAX\n"
         f"\n"

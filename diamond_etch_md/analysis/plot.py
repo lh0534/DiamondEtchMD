@@ -23,6 +23,8 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from ._common import _phase_of_impact
+
 try:
     import matplotlib
     matplotlib.use('Agg')
@@ -733,18 +735,6 @@ def _bubble_panel(ax, records, color, max_c=6, max_o=6,
     return int(total1), int(total2)
 
 
-def _phase_of_impact(impact, spec, ml):
-    """Return 0-based phase index for a given impact number."""
-    total_cycle = sum(p.fluence_ml for p in spec.phases) * ml
-    pos = (impact - 1) % total_cycle
-    cum = 0
-    for pi, p in enumerate(spec.phases):
-        cum += p.fluence_ml * ml
-        if pos < cum:
-            return pi
-    return len(spec.phases) - 1
-
-
 def plot_product_grid(ep_records, spec=None, ml=0, ax=None,
                       spec_summary=None, plot_title="Carbon Products",
                       max_c=6, max_o=6, panel_title=None):
@@ -1332,5 +1322,13 @@ def make_plots(
     fig = plot_radical_distribution(sim_dir, spec=spec)
     if fig:
         _save(fig, 'radical_distribution')
+
+    # Check radical reflection rate for RIE sims and write RADS_REFLECTING if needed
+    if spec is not None and getattr(spec, 'flux_ratio', 0) > 0 and spec.phases is None and ml > 0:
+        try:
+            from .sticking import check_radical_reflecting
+            check_radical_reflecting(sim_dir, ml=ml)
+        except Exception:
+            pass
 
     return figs

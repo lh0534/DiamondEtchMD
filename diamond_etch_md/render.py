@@ -363,11 +363,12 @@ def _xvfb_render_chunk(scene_path, dump_path, frames, outdir, size, bg,
 def render_local(dump_path, scene_path, output_path, fps=15, cores=4,
                  frames_to_render=None,
                  zoom_start=1.0, zoom_end=1.0, z_start=0.0, z_end=0.0,
-                 verbose=True):
+                 size=None, verbose=True):
     """Render dump_path to output_path using N parallel xvfb workers.
 
     frames_to_render: explicit list of dump frame indices to render.
                       If None, renders all frames.
+    size: (width, height) override in pixels. None = use the .ovito file value.
     Camera is linearly interpolated from (zoom_start, z_start) at the first
     frame to (zoom_end, z_end) at the last frame.
     """
@@ -383,7 +384,7 @@ def render_local(dump_path, scene_path, output_path, fps=15, cores=4,
         p = ovito.scene.pipelines[0]
         p.source.load(str(dump_path))
         rs   = ovito.scene.render_settings
-        size = tuple(rs.size)
+        size = size if size is not None else tuple(rs.size)
         bg   = tuple(float(x) for x in rs.background_color)
         if frames_to_render is None:
             frames_to_render = list(range(p.source.num_frames))
@@ -454,18 +455,19 @@ from pathlib import Path
 sys.path.insert(0, {pkg_root!r})
 from diamond_etch_md.render import patch_ovito_scene, _xvfb_render_chunk, _stitch
 
-dump_path  = Path({dump!r})
-scene_path = Path({scene!r})
-output     = Path({output!r})
-fps        = {fps}
-cores      = {cores}
-frames     = {frames!r}
-zoom_start = {zoom_start}
-zoom_end   = {zoom_end}
-z_start    = {z_start}
-z_end      = {z_end}
-f_first    = frames[0]
-f_last     = frames[-1]
+dump_path     = Path({dump!r})
+scene_path    = Path({scene!r})
+output        = Path({output!r})
+fps           = {fps}
+cores         = {cores}
+frames        = {frames!r}
+zoom_start    = {zoom_start}
+zoom_end      = {zoom_end}
+z_start       = {z_start}
+z_end         = {z_end}
+size_override = {size_override!r}
+f_first       = frames[0]
+f_last        = frames[-1]
 
 patched = Path(tempfile.mktemp(suffix='.ovito'))
 patch_ovito_scene(scene_path, patched)
@@ -477,7 +479,7 @@ with warnings.catch_warnings():
     p = ovito.scene.pipelines[0]
     p.source.load(str(dump_path))
     rs   = ovito.scene.render_settings
-    size = tuple(rs.size)
+    size = size_override if size_override is not None else tuple(rs.size)
     bg   = tuple(float(x) for x in rs.background_color)
 
 print(f'Rendering {{len(frames)}} frames ({{cores}} workers)', flush=True)
@@ -506,8 +508,11 @@ print(f'Done: {{output}}')
 def render_slurm(dump_path, scene_path, output_path, fps=15, cores=16,
                  frames_to_render=None,
                  zoom_start=1.0, zoom_end=1.0, z_start=0.0, z_end=0.0,
-                 account="dgraves", wall_hours=1, mem_gb=32, verbose=True):
-    """Submit a SLURM job to render the video on a CPU cluster node."""
+                 size=None, account="dgraves", wall_hours=1, mem_gb=32, verbose=True):
+    """Submit a SLURM job to render the video on a CPU cluster node.
+
+    size: (width, height) override in pixels. None = use the .ovito file value.
+    """
     pkg_root = str(Path(__file__).parent.parent.resolve())
     job_name = f"ovito_{Path(dump_path).stem[:30]}"
     log_file = Path(output_path).with_suffix(".slurm.log")
@@ -523,6 +528,7 @@ def render_slurm(dump_path, scene_path, output_path, fps=15, cores=16,
             frames=frames_to_render,
             zoom_start=zoom_start, zoom_end=zoom_end,
             z_start=z_start, z_end=z_end,
+            size_override=size,
         ))
         render_script = f.name
 

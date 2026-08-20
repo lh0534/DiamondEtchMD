@@ -42,7 +42,7 @@ group       clust_argon intersect argon small_clust
 # Eject only if CoM is above ALL other atoms and moving upward with meaningful velocity.
 # Threshold 0.01 Å/fs (~1000 m/s) is ~10x above the COM thermal velocity of a 50-atom
 # cluster at 300 K, preventing thermally-fluctuating surface fragments from being swept.
-if "$(xcm(small_clust,z) > (${do_z_check}==1 ? c_top_rest : -1e20)) && $(vcm(small_clust,z) > 0) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)+count(clust_argon)) > 0" then &
+if "$(xcm(small_clust,z) > c_top_rest) && $(vcm(small_clust,z) > 0) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)+count(clust_argon)) > 0" then &
 "print '${c} ${cn} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen)) $(count(clust_argon)) $(vcm(small_clust,z))' append etch_products.txt" &
 "delete_atoms group small_clust" &
 "change_box      all z final $(zlo) $(zhi) units box" &

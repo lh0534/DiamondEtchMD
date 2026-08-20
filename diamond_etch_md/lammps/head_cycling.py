@@ -31,6 +31,15 @@ def _has_ar(spec: SimSpec) -> bool:
     return any(SPECIES[p.species]["needs_zbl"] for p in spec.phases)
 
 
+def _zbl_atomic_number(spec: SimSpec) -> float:
+    """Return the atomic number of the first ZBL-needing species in spec.phases."""
+    for p in spec.phases:
+        sp = SPECIES[p.species]
+        if sp["needs_zbl"]:
+            return sp["atomic_number"]
+    return 18.0
+
+
 def _can_switch_potential(spec: SimSpec) -> bool:
     """True when the cycle mixes Ar phases with non-Ar phases.
 
@@ -43,13 +52,14 @@ def _can_switch_potential(spec: SimSpec) -> bool:
     return has_zbl and has_plain
 
 
-def _potential_switch_block() -> str:
+def _potential_switch_block(spec: SimSpec) -> str:
     """LAMMPS snippet that switches pair potential at phase boundaries.
 
     Emitted once per outer-loop iteration, after phase-selection variables are
     set.  prev_needs_zbl tracks the potential that is currently active; when
     current_needs_zbl differs, the switch commands are executed.
     """
+    z = _zbl_atomic_number(spec)
     return (
         f"# Switch pair potential and qeq group at Ar↔non-Ar phase boundaries.\n"
         f"# ZBL→plain: drop hybrid pair_style; type-4 (Ar, now absent) maps to C.\n"
@@ -62,10 +72,10 @@ def _potential_switch_block() -> str:
         f'"unfix reax_qeq" &\n'
         f'"pair_style hybrid reaxff NULL zbl 5.0 6.0" &\n'
         f'"pair_coeff * * reaxff ffield.reax C H O NULL" &\n'
-        f'"pair_coeff 1 4 zbl 6.0 18.0" &\n'
-        f'"pair_coeff 2 4 zbl 1.0 18.0" &\n'
-        f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
-        f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
+        f'"pair_coeff 1 4 zbl 6.0 {z}" &\n'
+        f'"pair_coeff 2 4 zbl 1.0 {z}" &\n'
+        f'"pair_coeff 3 4 zbl 8.0 {z}" &\n'
+        f'"pair_coeff 4 4 zbl {z} {z}" &\n'
         f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         f"variable prev_needs_zbl equal ${{current_needs_zbl}}\n"
         f"\n"
@@ -76,16 +86,18 @@ def _has_o2(spec: SimSpec) -> bool:
     return any(SPECIES[p.species]["is_molecule"] for p in spec.phases)
 
 
-def _potential_block(has_ar: bool) -> str:
-    if has_ar:
+def _potential_block(spec: SimSpec) -> str:
+    has_zbl = _has_ar(spec)
+    if has_zbl:
+        z = _zbl_atomic_number(spec)
         return (
             f'if "${{pot}} == REAX" then &\n'
             f'"pair_style  hybrid reaxff NULL zbl 5.0 6.0" &\n'
             f'"pair_coeff * * reaxff ffield.reax C H O NULL" &\n'
-            f'"pair_coeff 1 4 zbl 6.0 18.0" &\n'
-            f'"pair_coeff 2 4 zbl 1.0 18.0" &\n'
-            f'"pair_coeff 3 4 zbl 8.0 18.0" &\n'
-            f'"pair_coeff 4 4 zbl 18.0 18.0" &\n'
+            f'"pair_coeff 1 4 zbl 6.0 {z}" &\n'
+            f'"pair_coeff 2 4 zbl 1.0 {z}" &\n'
+            f'"pair_coeff 3 4 zbl 8.0 {z}" &\n'
+            f'"pair_coeff 4 4 zbl {z} {z}" &\n'
             f'"group nonargon type 1 2 3" &\n'
             f'"fix reax_qeq nonargon qeq/reaxff 1 0.0 6.0 1e-6 reaxff"\n'
         )
@@ -118,7 +130,7 @@ def _phase_boundary_vars(phases: list) -> str:
 
 
 def _phase_radical_vars(p: CyclePhase, i: int) -> tuple:
-    """Return (rad_angl_val, inter_neutral_val) strings for phase i.
+    """Return (rad_angl_val, inter_neutral_val, rad_azimuth_val) strings for phase i.
 
     Returns LAMMPS variable references when phase has radicals, else defaults.
     radical_i_above is global (same injection height for all phases).
@@ -127,9 +139,10 @@ def _phase_radical_vars(p: CyclePhase, i: int) -> tuple:
         return (
             f"${{phase_{i}_rad_angl}}",
             f"${{phase_{i}_inter_neutral_time}}",
+            f"${{phase_{i}_rad_azimuth}}",
         )
     else:
-        return ("0.0", "1500.0")
+        return ("0.0", "1500.0", "90.0")
 
 
 def _phase_selection_block(phases: list, has_ar: bool,
@@ -152,7 +165,7 @@ def _phase_selection_block(phases: list, has_ar: bool,
     # Default: last phase
     last = phases[-1]
     last_sp = SPECIES[last.species]
-    rad_angl_v, inter_t_v = _phase_radical_vars(last, N - 1)
+    rad_angl_v, inter_t_v, rad_azimuth_v = _phase_radical_vars(last, N - 1)
 
     lines.append(f"# Phase selection (default: phase {N-1} = {last.species})\n")
     lines.append(f"variable current_ion_type equal {last_sp['type_index']}\n")
@@ -163,6 +176,7 @@ def _phase_selection_block(phases: list, has_ar: bool,
     if has_any_radicals:
         lines.append(f"variable current_radical_energy equal ${{phase_{N-1}_radical_energy}}\n")
     lines.append(f"variable current_rad_angl equal {rad_angl_v}\n")
+    lines.append(f"variable current_rad_azimuth equal {rad_azimuth_v}\n")
     lines.append(f"variable current_inter_neutral_time equal {inter_t_v}\n")
     if has_ar:
         lines.append(
@@ -180,7 +194,7 @@ def _phase_selection_block(phases: list, has_ar: bool,
     for i in range(N - 2, -1, -1):
         p = phases[i]
         sp = SPECIES[p.species]
-        rad_angl_v, inter_t_v = _phase_radical_vars(p, i)
+        rad_angl_v, inter_t_v, rad_azimuth_v = _phase_radical_vars(p, i)
         removal_line = (
             f' &\n"variable current_needs_removal equal '
             f'{1 if sp["remove_after_impact"] else 0}"'
@@ -201,6 +215,7 @@ def _phase_selection_block(phases: list, has_ar: bool,
             f'"variable current_flux_ratio equal ${{phase_{i}_flux_ratio}}" &\n'
             f"{radical_energy_line}"
             f'"variable current_rad_angl equal {rad_angl_v}" &\n'
+            f'"variable current_rad_azimuth equal {rad_azimuth_v}" &\n'
             f'"variable current_inter_neutral_time equal {inter_t_v}"'
             f"{removal_line}"
             f"{zbl_line}\n"
@@ -271,8 +286,13 @@ def _build_cycle_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
         )
 
     else:  # etch_only
+        _first_guard = (
+            'if "${c} == 1" then "variable keep_dump equal 1"\n'
+            if spec.dump_first_impact else ""
+        )
         ion_dump_open = (
             f"variable    keep_dump equal 0\n"
+            f"{_first_guard}"
             f"dump        current_dump_ion all custom 100 {dump_file} {dump_cols}\n"
         )
         ion_dump_close = (
@@ -356,8 +376,13 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         )
         neutral_dump_close = "undump      current_dump_n\n"
     elif dm == "etch_only":
+        _rad_first_guard = (
+            'if "${c} == 1 && ${cn} == 1" then "variable keep_dump_n equal 1"\n'
+            if spec.dump_first_impact else ""
+        )
         neutral_dump_open  = (
             f"variable    keep_dump_n equal 0\n"
+            f"{_rad_first_guard}"
             f"dump        current_dump_n all custom 100 {_neutral_dump_file} "
             f"id type x y z vx vy vz fx fy fz q\n"
         )
@@ -372,7 +397,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
     return (
         f"# head.lmp — generated by DiamondEtchMD (cycling mode)\n"
         f"# orientation={spec.orientation}  phases: {phase_names}\n"
-        f"# {spec.cycles} cycle(s)  T={spec.surface_temperature}K  ion_angle={spec.ion_angle}deg\n"
+        f"# {spec.cycles} cycle(s)  T={spec.surface_temperature}K  ion_angle={spec.ion_angle[0]}deg\n"
         f"package     kokkos neigh/qeq full neigh half newton on\n"
         f"units       real\n"
         f"include     config.lmp\n"
@@ -414,7 +439,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"{masses}"
         f"\n"
         f"# Potential\n"
-        f"{_potential_block(has_ar)}"
+        f"{_potential_block(spec)}"
         + (  # track which potential is active for runtime switching
             f"variable    prev_needs_zbl equal 1\n"
             if switch_pot else ""
@@ -473,11 +498,12 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"{_phase_selection_block(spec.phases, has_ar, switch_pot)}"
         f"# Ion velocities for current phase\n"
         f"variable    vel_ion equal sqrt(2*${{current_ion_energy}}*6.02214129*1.0e+7/${{current_M_ion}}/6242)/1000\n"
+        f"variable    velx_ion equal sin(${{ion_angl}}*PI/180)*cos(${{ion_azimuth}}*PI/180)*${{vel_ion}}\n"
+        f"variable    vely_ion equal sin(${{ion_angl}}*PI/180)*sin(${{ion_azimuth}}*PI/180)*${{vel_ion}}\n"
         f"variable    velz_ion equal cos(${{ion_angl}}*PI/180)*${{vel_ion}}\n"
-        f"variable    vely_ion equal sin(${{ion_angl}}*PI/180)*${{vel_ion}}\n"
         f"\n"
         + (  # potential switch block — only when mixing Ar and non-Ar phases
-            _potential_switch_block() if switch_pot else ""
+            _potential_switch_block(spec) if switch_pot else ""
         ) +
         f"# Adaptive timestep (used for both neutral and ion loops)\n"
         f"fix         ats all dt/reset 1 NULL 1 0.01 units box\n"
@@ -501,13 +527,14 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"\n"
             f"# Radical velocity (fixed-energy, per-phase angle)\n"
             f"variable    vel_chem equal sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+            f"variable    velx_chem equal sin(${{current_rad_angl}}*PI/180)*cos(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
+            f"variable    vely_chem equal sin(${{current_rad_angl}}*PI/180)*sin(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
             f"variable    velz_chem equal cos(${{current_rad_angl}}*PI/180)*${{vel_chem}}\n"
-            f"variable    vely_chem equal sin(${{current_rad_angl}}*PI/180)*${{vel_chem}}\n"
             f"\n"
             f"# Deposit O• radical (always type 3)\n"
             f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
             f"${{radical_i_above}} ${{radical_i_above}} "
-            f"vx 0.0 0.0 vy ${{vely_chem}} ${{vely_chem}} vz -${{velz_chem}} -${{velz_chem}} "
+            f"vx ${{velx_chem}} ${{velx_chem}} vy ${{vely_chem}} ${{vely_chem}} vz -${{velz_chem}} -${{velz_chem}} "
             f"region bbox units box\n"
             f"fix         2 mobile nve\n"
             f"fix         3 insert nve\n"
@@ -577,11 +604,11 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"# Deposit ion (O2 via molecule file, all others as single atom)\n"
         f'if "${{current_use_molecule}} == 1" then &\n'
         f'"fix depo insert deposit 1 0 1 ${{deposeed}} global '
-        f'${{ion_i_above}} ${{ion_i_above}} vx 0.0 0.0 vy ${{vely_ion}} ${{vely_ion}} '
+        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}}'
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box mol O2" &\n'
         f"else &\n"
         f'"fix depo insert deposit 1 ${{current_ion_type}} 1 ${{deposeed}} global '
-        f'${{ion_i_above}} ${{ion_i_above}} vx 0.0 0.0 vy ${{vely_ion}} ${{vely_ion}} '
+        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}}'
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box"\n'
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
@@ -705,8 +732,13 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
         )
         neutral_dump_close = "undump      current_dump_n\n"
     elif dm == "etch_only":
+        _rad_first_guard = (
+            'if "${c} == 1 && ${cn} == 1" then "variable keep_dump_n equal 1"\n'
+            if spec.dump_first_impact else ""
+        )
         neutral_dump_open  = (
             f"variable    keep_dump_n equal 0\n"
+            f"{_rad_first_guard}"
             f"dump        current_dump_n all custom 100 {_neutral_dump_file} "
             f"id type x y z vx vy vz fx fy fz q\n"
         )
@@ -721,7 +753,7 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
     return (
         f"# head.lmp — generated by DiamondEtchMD (carbon-etch cycling)\n"
         f"# config_file={spec.initial_config_file}  phases: {phase_names}\n"
-        f"# {spec.cycles} cycle(s)  T={spec.surface_temperature}K  ion_angle={spec.ion_angle}deg\n"
+        f"# {spec.cycles} cycle(s)  T={spec.surface_temperature}K  ion_angle={spec.ion_angle[0]}deg\n"
         f"package     kokkos neigh/qeq full neigh half newton on\n"
         f"units       real\n"
         f"include     config.lmp\n"
@@ -762,7 +794,7 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
         f"{masses}"
         f"\n"
         f"# Potential\n"
-        f"{_potential_block(has_ar)}"
+        f"{_potential_block(spec)}"
         + (
             f"variable    prev_needs_zbl equal 1\n"
             if switch_pot else ""
@@ -815,11 +847,12 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
         f"\n"
         f"{_phase_selection_block(spec.phases, has_ar, switch_pot)}"
         f"variable    vel_ion equal sqrt(2*${{current_ion_energy}}*6.02214129*1.0e+7/${{current_M_ion}}/6242)/1000\n"
+        f"variable    velx_ion equal sin(${{ion_angl}}*PI/180)*cos(${{ion_azimuth}}*PI/180)*${{vel_ion}}\n"
+        f"variable    vely_ion equal sin(${{ion_angl}}*PI/180)*sin(${{ion_azimuth}}*PI/180)*${{vel_ion}}\n"
         f"variable    velz_ion equal cos(${{ion_angl}}*PI/180)*${{vel_ion}}\n"
-        f"variable    vely_ion equal sin(${{ion_angl}}*PI/180)*${{vel_ion}}\n"
         f"\n"
         + (
-            _potential_switch_block() if switch_pot else ""
+            _potential_switch_block(spec) if switch_pot else ""
         ) +
         f"fix         ats all dt/reset 1 NULL 1 0.01 units box\n"
         f"\n"
@@ -841,12 +874,13 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
             f"{nonargon_refresh}"
             f"\n"
             f"variable    vel_chem equal sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+            f"variable    velx_chem equal sin(${{current_rad_angl}}*PI/180)*cos(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
+            f"variable    vely_chem equal sin(${{current_rad_angl}}*PI/180)*sin(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
             f"variable    velz_chem equal cos(${{current_rad_angl}}*PI/180)*${{vel_chem}}\n"
-            f"variable    vely_chem equal sin(${{current_rad_angl}}*PI/180)*${{vel_chem}}\n"
             f"\n"
             f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
             f"${{radical_i_above}} ${{radical_i_above}} "
-            f"vx 0.0 0.0 vy ${{vely_chem}} ${{vely_chem}} vz -${{velz_chem}} -${{velz_chem}} "
+            f"vx ${{velx_chem}} ${{velx_chem}} vy ${{vely_chem}} ${{vely_chem}} vz -${{velz_chem}} -${{velz_chem}} "
             f"region bbox units box\n"
             f"fix         2 mobile nve\n"
             f"fix         3 insert nve\n"
@@ -910,11 +944,11 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
         f"\n"
         f'if "${{current_use_molecule}} == 1" then &\n'
         f'"fix depo insert deposit 1 0 1 ${{deposeed}} global '
-        f'${{ion_i_above}} ${{ion_i_above}} vx 0.0 0.0 vy ${{vely_ion}} ${{vely_ion}} '
+        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}}'
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box mol O2" &\n'
         f"else &\n"
         f'"fix depo insert deposit 1 ${{current_ion_type}} 1 ${{deposeed}} global '
-        f'${{ion_i_above}} ${{ion_i_above}} vx 0.0 0.0 vy ${{vely_ion}} ${{vely_ion}} '
+        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}}'
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box"\n'
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"

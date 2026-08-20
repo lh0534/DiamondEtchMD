@@ -48,11 +48,17 @@ def parse_data_file(path):
         if m:
             zlo, zhi = float(m.group(1)), float(m.group(2))
 
+    if None in (xlo, xhi, ylo, yhi, zlo, zhi):
+        raise ValueError(f"missing box bounds (truncated file?): {path}")
+
     atom_start = None
     for i, line in enumerate(lines):
         if line.strip().startswith("Atoms"):
             atom_start = i + 2
             break
+
+    if atom_start is None:
+        raise ValueError(f"no Atoms section found (truncated file?): {path}")
 
     rows = []
     for line in lines[atom_start:]:
@@ -162,24 +168,40 @@ def main():
         out_path = cond_dir / "all_impacts_withrads.dump"
         print(f"Found {len(entries)} snapshots (ions + radicals) → {out_path}")
 
+        skipped = 0
         with out_path.open("w") as fout:
             for i, (key, label, p) in enumerate(entries):
-                xlo, xhi, ylo, yhi, zlo, zhi, arr = parse_data_file(p)
+                try:
+                    xlo, xhi, ylo, yhi, zlo, zhi, arr = parse_data_file(p)
+                except ValueError as e:
+                    print(f"  WARNING: skipping {p.name} — {e}")
+                    skipped += 1
+                    continue
                 write_dump(fout, key, xlo, xhi, ylo, yhi, zlo, zhi, arr)
                 if (i + 1) % 200 == 0:
                     print(f"  {i+1}/{len(entries)} frames written ({label})")
+        if skipped:
+            print(f"  Skipped {skipped} corrupt file(s).")
 
     else:
         files = collect_ion_only(data_dir)
         out_path = cond_dir / "all_impacts.dump"
         print(f"Found {len(files)} data files → {out_path}")
 
+        skipped = 0
         with out_path.open("w") as fout:
             for i, (ts, p) in enumerate(files):
-                xlo, xhi, ylo, yhi, zlo, zhi, arr = parse_data_file(p)
+                try:
+                    xlo, xhi, ylo, yhi, zlo, zhi, arr = parse_data_file(p)
+                except ValueError as e:
+                    print(f"  WARNING: skipping {p.name} — {e}")
+                    skipped += 1
+                    continue
                 write_dump(fout, ts, xlo, xhi, ylo, yhi, zlo, zhi, arr)
                 if (i + 1) % 200 == 0:
                     print(f"  {i+1}/{len(files)} frames written")
+        if skipped:
+            print(f"  Skipped {skipped} corrupt file(s).")
 
     print("Done.")
 

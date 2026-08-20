@@ -132,7 +132,7 @@ def test_simspec_defaults():
     assert s.surface_temperature == 300.0
     assert s.species == "O"
     assert s.energy == 0.5
-    assert s.ion_angle == 0.0
+    assert s.ion_angle == (0.0, 90.0)
     assert s.fluence == 50
     assert s.ml == 0
     assert s.box_x == 9
