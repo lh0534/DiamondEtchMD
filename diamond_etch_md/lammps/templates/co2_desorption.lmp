@@ -1,0 +1,65 @@
+# Probabilistic desorption of CO2-precursor C atoms before thermalization.
+# Target: mobile C bonded to exactly 2 O atoms (type 3, cutoff 1.8 Å), where each O
+# has coord_c==1 (exclusive — not bridging to another C).
+#
+# Approximation: exclusivity is verified per-O (coord_c==1), not by traversing
+# each candidate C's specific neighbors. This means a bridging O (coord_c==2) will
+# never appear in the orphan-O group and won't be deleted, even if the adjacent C
+# is desorbed — it stays bonded to the surviving surface C. Conservative and correct.
+#
+# Orphan-O detection uses a static pre-deletion snapshot (co2d_excl_o_snap) intersected
+# with post-deletion coord_c==0. This restricts deletion to O atoms that were exclusively
+# bonded to a C that was just removed — gas-phase O radicals with coord_c==0 are excluded.
+#
+# Called by head.lmp via: if "${co2_desorb_fraction} > 0" then "include co2_desorption.lmp"
+# All names are prefixed co2d_ to avoid collisions with sweep.lmp computes.
+
+compute     co2d_coord_o all coord/atom cutoff 1.8 3   # O-neighbor count per atom
+compute     co2d_coord_c all coord/atom cutoff 1.8 1   # C-neighbor count per atom
+run 0 post no
+
+variable    is_co2d_c atom "type==1 && c_co2d_coord_o==2"
+group       co2d_c_grp dynamic mobile var is_co2d_c
+variable    is_excl_o atom "type==3 && c_co2d_coord_c==1"
+group       co2d_excl_o_snap variable is_excl_o   # static snapshot before deletion
+
+if "$(count(co2d_c_grp)) > 0" then "jump SELF co2d_do_desorb"
+jump SELF co2d_cleanup
+
+label co2d_do_desorb
+variable    n_co2d_c_pre equal $(count(co2d_c_grp))
+variable    co2d_seed equal $(floor(random(1,999999,${c}+${cn}*7+99991)))
+delete_atoms random fraction ${co2_desorb_fraction} no co2d_c_grp ${co2d_seed}
+run 0 post no
+
+# Orphan O: was in the pre-deletion exclusive-O snapshot AND now has no C neighbor.
+# Intersecting with the static snapshot prevents accidentally deleting gas-phase O
+# radicals that happen to have coord_c==0 but were never bonded to the ejected C atoms.
+variable    is_no_c_o atom "type==3 && c_co2d_coord_c==0"
+group       co2d_no_c_o dynamic oxygen var is_no_c_o
+group       co2d_orphan_o_grp intersect co2d_excl_o_snap co2d_no_c_o
+variable    n_desorbed_c equal $(v_n_co2d_c_pre-count(co2d_c_grp))
+variable    n_desorbed_o equal $(count(co2d_orphan_o_grp))
+if "$(count(co2d_orphan_o_grp)) > 0" then "delete_atoms group co2d_orphan_o_grp"
+
+# Log to etch_products.txt (standard 7-col format; vcm_z=0 flags as forced desorption)
+# and to co2_desorption.txt (4-col: impact cn n_C n_O)
+if "${n_desorbed_c} > 0" then &
+"print '${c} ${cn} ${n_desorbed_c} 0 ${n_desorbed_o} 0 0.0' append etch_products.txt" &
+"print '${c} ${cn} ${n_desorbed_c} ${n_desorbed_o}' append co2_desorption.txt"
+
+group       co2d_orphan_o_grp delete
+group       co2d_no_c_o delete
+variable    is_no_c_o delete
+variable    n_co2d_c_pre delete
+variable    co2d_seed delete
+variable    n_desorbed_c delete
+variable    n_desorbed_o delete
+
+label co2d_cleanup
+uncompute   co2d_coord_o
+uncompute   co2d_coord_c
+group       co2d_c_grp delete
+group       co2d_excl_o_snap delete
+variable    is_co2d_c delete
+variable    is_excl_o delete

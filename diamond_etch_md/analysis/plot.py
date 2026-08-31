@@ -217,7 +217,8 @@ def _spec_summary_str(spec) -> str:
                     + _radical_label(radical_energy, radical_temperature)
         return line
 
-    angle = getattr(spec, 'ion_angle', getattr(spec, 'angle', 0.0))
+    _raw_angle = getattr(spec, 'ion_angle', getattr(spec, 'angle', 0.0))
+    angle = _raw_angle[0] if isinstance(_raw_angle, (tuple, list)) else _raw_angle
 
     # ── Step edge suffix ───────────────────────────────────────────────────────
     _step_sfx = ""

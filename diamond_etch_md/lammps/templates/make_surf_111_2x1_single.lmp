@@ -84,19 +84,25 @@ if "${O_terminate} && !${use_starting_data_file}" then &
 "group O delete"
 
 # ── Step edge ─────────────────────────────────────────────────────────────
-variable    stp_px   equal lx*v_step_position
-variable    stp_py   equal ly*v_step_position
-variable    stp_nx   equal cos(v_step_angle*PI/180)*(1-2*v_step_invert)
-variable    stp_ny   equal sin(v_step_angle*PI/180)*(1-2*v_step_invert)
+variable    stp_px1  equal lx*v_step_position
+variable    stp_py1  equal ly*v_step_position
+variable    stp_px2  equal lx*v_step_position_2
+variable    stp_py2  equal ly*v_step_position_2
+variable    stp_nx   equal cos(v_step_angle*PI/180)
+variable    stp_ny   equal sin(v_step_angle*PI/180)
 variable    stp_zcut equal bound(all,zmax)-v_step_depth_ang
 if "${step_edge} == 1" then &
-    "variable stp_sel atom ((x-v_stp_px)*v_stp_nx+(y-v_stp_py)*v_stp_ny)>0&&z>v_stp_zcut" &
+    "variable stp_in  atom (((x-v_stp_px1)*v_stp_nx+(y-v_stp_py1)*v_stp_ny)>0)*(((x-v_stp_px2)*v_stp_nx+(y-v_stp_py2)*v_stp_ny)<0)" &
+    "variable stp_sel atom abs(v_stp_in-v_step_invert)*(z>v_stp_zcut)" &
     "group    step_rm  variable stp_sel" &
     "delete_atoms group step_rm compress no" &
     "group    step_rm  delete" &
-    "variable stp_sel  delete"
-variable    stp_px   delete
-variable    stp_py   delete
+    "variable stp_in  delete" &
+    "variable stp_sel delete"
+variable    stp_px1  delete
+variable    stp_py1  delete
+variable    stp_px2  delete
+variable    stp_py2  delete
 variable    stp_nx   delete
 variable    stp_ny   delete
 variable    stp_zcut delete

@@ -3,10 +3,11 @@
 # species=Ar  energy=50.0eV  ion_angle=0.0deg  T=300.0K
 
 variable    ML equal 64            # atoms per monolayer
-variable    end_fluence equal 0   # in ML
+variable    end_fluence equal 0.01   # in ML
 
 variable    energ equal 50.0     # incident energy per atom (eV)
 variable    ion_angl equal 0.0   # ion beam angle (deg from normal)
+variable    ion_azimuth equal 90.0  # ion beam azimuth (deg; 90=YZ plane)
 variable    T equal 300.0    # substrate temperature (K)
 variable    pot string REAX
 
@@ -18,7 +19,7 @@ if "${pot} == REAX" then &
 
 variable    x equal 8
 variable    y equal 8
-variable    lat_top equal 3
+variable    lat_top equal 2
 variable    z equal ${lat_top}+5
 
 variable    reconstruct equal true
@@ -42,6 +43,11 @@ variable    simdepo equal 1
 # Step edge
 variable    step_edge      equal 1
 variable    step_angle     equal 90.0
-variable    step_position  equal 0.5
+variable    step_position   equal 0.1
+variable    step_position_2 equal 0.3
 variable    step_invert    equal 0
 variable    step_depth_ang equal 2.0
+
+# Sweep options
+variable    do_z_check         equal 1
+variable    co2_desorb_fraction equal 0.0

@@ -35,6 +35,12 @@ from ..orientations import ORIENT
 from ..species import SPECIES
 from ..spec import SimSpec, IonComponent
 
+# Fallback used in f-string expressions — must not contain backslashes (Python < 3.12 restriction)
+_CN_ZERO = 'variable    cn equal 0\n'
+
+# Injected before every thermalize.lmp call; gated so it's a no-op when fraction is 0
+_CO2_DESORB = 'if "${co2_desorb_fraction} > 0" then "include co2_desorption.lmp"\n'
+
 
 def _potential_block(species: dict) -> str:
     """Return the pair_style / pair_coeff / QEQ block for the given species."""
@@ -546,7 +552,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"unfix       depo\n"
     )
     if not spec.skip_radical_thermalization:
-        blk += f"# Thermalize after each radical\ninclude     thermalize.lmp\n"
+        blk += _CO2_DESORB + f"# Thermalize after each radical\ninclude     thermalize.lmp\n"
     blk += (
         f"unfix       2\n"
         f"unfix       3\n"
@@ -560,7 +566,8 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"# ========= End RIE-etch O• radical deposition loop =========\n"
         f"\n"
         f"# Final thermalize before ion impact\n"
-        f"include     thermalize.lmp\n"
+        + _CO2_DESORB
+        + f"include     thermalize.lmp\n"
         f"\n"
         f"# Refresh bbox: thermalize (boundary p p m) may shrink zhi\n"
         f"region bbox delete\n"
@@ -829,7 +836,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
             f"{chunk_dump_close}"
         )
         if not spec.skip_radical_thermalization:
-            blk += f"include     thermalize.lmp\n"
+            blk += _CO2_DESORB + f"include     thermalize.lmp\n"
         blk += (
             f"unfix       2\n"
             f"unfix       3\n"
@@ -914,7 +921,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"unfix       ats_topup\n"
     )
     if not spec.skip_radical_thermalization:
-        blk += f"include     thermalize.lmp\n"
+        blk += _CO2_DESORB + f"include     thermalize.lmp\n"
     blk += (
         f"unfix       2\n"
         f"unfix       3\n"
@@ -936,7 +943,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"# ========= End radical burst deposition =========\n"
         f"\n"
         f"# Final thermalize before ion impact\n"
-        f"include     thermalize.lmp\n"
+        + _CO2_DESORB
+        + f"include     thermalize.lmp\n"
         f"\n"
         f"# Refresh bbox: thermalize (boundary p p m) may shrink zhi\n"
         f"region bbox delete\n"
@@ -1172,7 +1180,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"# Pre-run counters\n"
         f"variable c equal ${{n_complete}}\n"
         f"variable event_count equal ${{n_events}}\n"
-        f"{rie_pre_loop or 'variable    cn equal 0\n'}"
+        f"{rie_pre_loop or _CN_ZERO}"
         f"\n"
         f"# Atom counts\n"
         f"variable\tnfixed   equal count(anchor)\n"
@@ -1266,7 +1274,8 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"unfix   ats\n"
         f"\n"
         f"# Thermalize\n"
-        f"include thermalize.lmp\n"
+        + _CO2_DESORB
+        + f"include thermalize.lmp\n"
         f"\n"
         f"unfix       2\n"
         f"unfix       3\n"
@@ -1501,7 +1510,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"\n"
         f"variable c equal ${{n_complete}}\n"
         f"variable event_count equal ${{n_events}}\n"
-        f"{rie_pre_loop or 'variable    cn equal 0\n'}"
+        f"{rie_pre_loop or _CN_ZERO}"
         f"\n"
         f"variable\tnfixed   equal count(anchor)\n"
         f"variable\tnmobile  equal count(mobile)\n"
@@ -1582,7 +1591,8 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"unfix   depo\n"
         f"unfix   ats\n"
         f"\n"
-        f"include thermalize.lmp\n"
+        + _CO2_DESORB
+        + f"include thermalize.lmp\n"
         f"\n"
         f"unfix       2\n"
         f"unfix       3\n"
@@ -1795,15 +1805,16 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         f"\n"
         f"variable c equal ${{n_complete}}\n"
         f"variable event_count equal ${{n_events}}\n"
-        f"{rie_pre_loop or 'variable    cn equal 0\n'}"
+        f"{rie_pre_loop or _CN_ZERO}"
         f"\n"
         f"variable\tnfixed   equal count(anchor)\n"
         f"variable\tnmobile  equal count(mobile)\n"
         f"variable \tninject  equal count(insert)\n"
         f"\n"
         f"variable \tvel equal sqrt(2*${{energ}}*6.02214129*1.0e+7/${{M_incident}}/6242)/1000\n"
+        f"variable \tvelx equal sin(${{ion_angl}}*PI/180)*cos(${{ion_azimuth}}*PI/180)*${{vel}}\n"
+        f"variable \tvely equal sin(${{ion_angl}}*PI/180)*sin(${{ion_azimuth}}*PI/180)*${{vel}}\n"
         f"variable \tvelz equal cos(${{ion_angl}}*PI/180)*${{vel}}\n"
-        f"variable \tvely equal sin(${{ion_angl}}*PI/180)*${{vel}}\n"
         f"\n"
         f"compute     ake all ke\n"
         f"compute     ape all pe\n"
@@ -1880,7 +1891,8 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         f"unfix   depo\n"
         f"unfix   ats\n"
         f"\n"
-        f"include thermalize.lmp\n"
+        + _CO2_DESORB
+        + f"include thermalize.lmp\n"
         f"\n"
         f"unfix       2\n"
         f"unfix       3\n"
@@ -2003,7 +2015,7 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         f"\n"
         f"variable c equal ${{n_complete}}\n"
         f"variable event_count equal ${{n_events}}\n"
-        f"{rie_pre_loop or 'variable    cn equal 0\n'}"
+        f"{rie_pre_loop or _CN_ZERO}"
         f"\n"
         f"variable\tnfixed   equal count(anchor)\n"
         f"variable\tnmobile  equal count(mobile)\n"
@@ -2085,7 +2097,8 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         f"unfix   depo\n"
         f"unfix   ats\n"
         f"\n"
-        f"include thermalize.lmp\n"
+        + _CO2_DESORB
+        + f"include thermalize.lmp\n"
         f"\n"
         f"unfix       2\n"
         f"unfix       3\n"

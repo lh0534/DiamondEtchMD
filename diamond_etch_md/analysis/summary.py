@@ -533,3 +533,26 @@ def write_summary(stats: Dict, path) -> None:
         lines.append(f"Total radical impacts:  {stats.get('n_radical_impacts', 'N/A')}")
 
     Path(path).write_text('\n'.join(lines) + '\n')
+
+
+def parse_co2_desorption(path) -> list:
+    """Parse co2_desorption.txt; return list of dicts with keys impact, cn, n_C, n_O."""
+    records = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split()
+                if len(parts) != 4:
+                    continue
+                records.append({
+                    'impact': int(parts[0]),
+                    'cn':     int(parts[1]),
+                    'n_C':   int(parts[2]),
+                    'n_O':   int(parts[3]),
+                })
+    except FileNotFoundError:
+        pass
+    return records

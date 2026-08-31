@@ -64,8 +64,9 @@ variable 	ninject  equal count(insert)
 
 # Incident particle velocity components
 variable 	vel equal sqrt(2*${energ}*6.02214129*1.0e+7/${M_incident}/6242)/1000
+variable 	velx equal sin(${ion_angl}*PI/180)*cos(${ion_azimuth}*PI/180)*${vel}
+variable 	vely equal sin(${ion_angl}*PI/180)*sin(${ion_azimuth}*PI/180)*${vel}
 variable 	velz equal cos(${ion_angl}*PI/180)*${vel}
-variable 	vely equal sin(${ion_angl}*PI/180)*${vel}
 
 # Energy conservation check
 compute     ake all ke
@@ -108,7 +109,7 @@ group nonargon type 1 2 3
 variable    c equal ${c}+1
 dump current_dump all custom 100 etch_event_trajs/event_dump_${c}.dump id type x y z vx vy vz fx fy fz q
 variable    deposeed equal floor(random(1,72099+${seed_adjust},${c}))
-fix     depo insert deposit 1 ${incident_type_index} 10000000000 ${deposeed} global ${i_above} ${i_above} vx 0.0 0.0 vy ${vely} ${vely} vz -${velz} -${velz} region bbox units box
+fix     depo insert deposit 1 ${incident_type_index} 10000000000 ${deposeed} global ${i_above} ${i_above} vx ${velx} ${velx} vy ${vely} ${vely} vz -${velz} -${velz} region bbox units box
 
 fix     2 mobile nve
 fix     3 insert nve
@@ -159,6 +160,7 @@ unfix   depo
 unfix   ats
 
 # Thermalize
+if "${co2_desorb_fraction} > 0" then "include co2_desorption.lmp"
 include thermalize.lmp
 
 unfix       2

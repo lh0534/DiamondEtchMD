@@ -154,9 +154,11 @@ class SimSpec:
                                            # 0°  → edge ∥ y, lower terrace is −x half
                                            # 90° → edge ∥ x, lower terrace is −y half
                                            # C(111): 0° = 0°-step, 90° = 30°-step in crystal coords
-    step_position: float          = 0.5   # step location as fraction of box length (0–1)
+    step_position: Union[float, List[float]] = 0.5  # step location as fraction of box length (0–1); or [start, end] for a finite-width band
     step_invert:   bool           = False  # True → remove upper terrace from +normal half instead
     step_depth:    Optional[float] = None  # bilayer thickness to remove, Å; None = orientation default
+    # ── CO₂ auto-desorption ───────────────────────────────────────────────────
+    co2_desorb_fraction: float = 0.0  # fraction of CO2-precursor C atoms force-desorbed before each thermalization
 
     def __post_init__(self):
         # Normalize angle specs to (polar, azimuth) tuples.
@@ -271,6 +273,9 @@ def validate(spec: "SimSpec") -> None:
 
     if spec.radical_temperature is not None and spec.radical_temperature <= 0:
         sys.exit(f"radical_temperature must be > 0 K; got {spec.radical_temperature}.")
+
+    if not (0.0 <= spec.co2_desorb_fraction <= 1.0):
+        sys.exit(f"co2_desorb_fraction must be between 0 and 1; got {spec.co2_desorb_fraction}.")
 
     if spec.radical_burst:
         if spec.ml <= 0:
@@ -407,8 +412,17 @@ def validate(spec: "SimSpec") -> None:
         sys.exit(f"freeze_mask_depth must be > 0; got {spec.freeze_mask_depth}.")
 
     if spec.step_edge:
-        if not 0.0 < spec.step_position < 1.0:
-            sys.exit(f"step_position must be in (0, 1); got {spec.step_position}.")
+        pos = spec.step_position
+        if isinstance(pos, (int, float)):
+            p1, p2 = float(pos), 1.0
+        else:
+            if len(pos) != 2:
+                sys.exit(f"step_position list must have exactly 2 elements; got {pos}.")
+            p1, p2 = float(pos[0]), float(pos[1])
+        if not (0.0 < p1 < 1.0):
+            sys.exit(f"step_position start must be in (0, 1); got {p1}.")
+        if not (p1 < p2 <= 1.0):
+            sys.exit(f"step_position end must be in (start, 1]; got {p2}.")
         if spec.step_depth is not None and spec.step_depth <= 0.0:
             sys.exit(f"step_depth must be > 0; got {spec.step_depth}.")
 

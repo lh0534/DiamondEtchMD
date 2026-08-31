@@ -56,7 +56,7 @@ _C_2ND_INT    = "C1"
 
 REFLECT_THRESH = 1.0   # Å — below this → reflected even if in final frame
 CAGE_THRESH    = 4.0   # Å — cage zone 1 upper bound / 1st_interlayer lower bound
-CAGE2_THRESH   = 9.5   # Å — 1st_interlayer upper bound / cage zone 2 lower bound
+CAGE2_THRESH   = 11.9   # Å — 1st_interlayer upper bound / cage zone 2 lower bound
 CHANNEL_THRESH = 12.0  # Å — cage zone 2 upper bound / 2nd_interlayer lower bound
 
 # gradient bands: reflected | cage1 | 1st_int | cage2 | 2nd_int
@@ -207,6 +207,8 @@ def _plot_title(spec: dict, n_total: int) -> str:
     ion    = spec.get("species", "?")
     energy = spec.get("energy", "?")
     angle  = spec.get("ion_angle", 0.0)
+    if isinstance(angle, (list, tuple)):
+        angle = angle[0]
     angle_str = f"{angle:.0f}°"
     return f"{ion}$^+$ Implantation:  {energy} eV  {angle_str}  (n={n_total})"
 
@@ -274,7 +276,7 @@ def _legend_labels(outcomes, n_total):
 
 
 def _scatter(trials, depths, outcomes, sim_dir: Path, title: str = "") -> None:
-    fig, ax = plt.subplots(figsize=(5, 4))
+    fig, ax = plt.subplots(figsize=(4, 3))
     labels = _legend_labels(outcomes, len(outcomes))
 
     for outcome, color in [
@@ -298,7 +300,7 @@ def _scatter(trials, depths, outcomes, sim_dir: Path, title: str = "") -> None:
     # _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
 
     ax.set_xlabel("Trial #")
-    ax.set_ylabel("Penetration depth (Å)")
+    ax.set_ylabel("Depth (Å)")
     ax.set_title(title, fontsize=12, y=1.05)
     ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
               handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99
@@ -311,7 +313,7 @@ def _scatter(trials, depths, outcomes, sim_dir: Path, title: str = "") -> None:
 
 
 def _histogram(depths, outcomes, sim_dir: Path, title: str = "") -> None:
-    fig, ax = plt.subplots(figsize=(5, 4))
+    fig, ax = plt.subplots(figsize=(4, 3))
     labels = _legend_labels(outcomes, len(outcomes))
 
     depths_arr   = np.array(depths)
@@ -338,10 +340,10 @@ def _histogram(depths, outcomes, sim_dir: Path, title: str = "") -> None:
                 orientation="horizontal")
 
     ax.set_ylim(ymax, 0)
-    _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
+    # _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
 
     ax.set_xlabel("Count")
-    ax.set_ylabel("Final depth below surface (Å)")
+    ax.set_ylabel("Depth (Å)")
     ax.set_title(title, fontsize=12, y=1.05)
     ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
               handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99), loc="lower center")
@@ -352,7 +354,8 @@ def _histogram(depths, outcomes, sim_dir: Path, title: str = "") -> None:
     print(f"Saved: {out}")
 
 
-def _ztrace(sim_dir: Path, outcomes: list, title: str = "") -> None:
+
+def _ztrace(sim_dir: Path, spec: dict, outcomes: list, title: str = "") -> None:
     """Plot per-trial ion depth traces coloured by outcome; save penetration_traces.png."""
     traj_path = sim_dir / "ion_z_trajectories.txt"
     summ_path = sim_dir / "ion_z_summary.txt"
@@ -370,7 +373,7 @@ def _ztrace(sim_dir: Path, outcomes: list, title: str = "") -> None:
     n_total = len(outcomes)
     labels = _legend_labels(outcomes, n_total)
 
-    fig, ax = plt.subplots(figsize=(5, 4))
+    fig, ax = plt.subplots(figsize=(5.5, 2.5))
 
     # Plot traces; track which legend entries have been drawn
     _drawn = set()
@@ -390,7 +393,7 @@ def _ztrace(sim_dir: Path, outcomes: list, title: str = "") -> None:
     # Dummy lines for any outcome categories not present in the data
     for outcome, color in [
         ("reflected",      _C_REFLECTED),
-        ("cage",           _C_CAGE),
+        # ("cage",           _C_CAGE),
         ("1st_interlayer", _C_INTERLAYER),
         ("2nd_interlayer", _C_2ND_INT),
     ]:
@@ -407,11 +410,14 @@ def _ztrace(sim_dir: Path, outcomes: list, title: str = "") -> None:
     ]
     ymax = max(max(all_depths) * 1.1, CHANNEL_THRESH * 1.15) if all_depths else CHANNEL_THRESH * 1.2
     ax.set_ylim(ymax, 0)
-    _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
+    # _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
 
-    ax.set_xlabel("Frame index")
-    ax.set_ylabel("Depth below surface (Å)")
-    ax.set_title(title, fontsize=12, y=1.05)
+    ax.text(0.02, 0.05, f"{spec.get("energy", "?")} eV {spec.get("species", "?")}$^+$", fontsize=12, color="black", transform=ax.transAxes)
+    ax.set_xlabel("Frame (adaptive timestep)")
+    ax.set_ylabel("Depth (Å)")
+    ax.set_xlim(0, 70)
+    ax.set_ylim(18, 0)
+    # ax.set_title(title, fontsize=12, y=1.05)
     ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0, markerscale=2.0,
               handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99), loc="lower center")
     fig.tight_layout()
@@ -450,7 +456,7 @@ def _scatter_final_z(trials, depths, outcomes, sim_dir: Path, title: str = "") -
         if np.isfinite(sz):
             final_depths[trial] = max(sz - last_z, 0.0)
 
-    fig, ax = plt.subplots(figsize=(5, 4))
+    fig, ax = plt.subplots(figsize=(4, 3))
 
     for outcome, color in [
         ("reflected",      _C_REFLECTED),
@@ -469,13 +475,13 @@ def _scatter_final_z(trials, depths, outcomes, sim_dir: Path, title: str = "") -
     all_fd = list(final_depths.values())
     ymax = max(max(all_fd) * 1.1, CHANNEL_THRESH * 1.15) if all_fd else CHANNEL_THRESH * 1.2
     ax.set_ylim(ymax, 0)
-    _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
+    # _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
     ax.xaxis.set_minor_locator(AutoMinorLocator())
     ax.grid(which='major', axis='x', color='white', linewidth=0.6, alpha=0.6, zorder=1)
     ax.grid(which='minor', axis='x', color='white', linewidth=0.3, alpha=0.35, zorder=1)
 
     ax.set_xlabel("Trial #")
-    ax.set_ylabel("Final depth below surface (Å)")
+    ax.set_ylabel("Depth (Å)")
     ax.set_title(title, fontsize=12, y=1.05)
     ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
               handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99), loc="lower center")
@@ -554,15 +560,15 @@ def _summary(sim_dir: Path, trials, pen_depths, final_depths, outcomes, title: s
         _drawn.add(outcome)
     for outcome, color in [
         ("reflected",      _C_REFLECTED),
-        ("cage",           _C_CAGE),
+        # ("cage",           _C_CAGE),
         ("1st_interlayer", _C_INTERLAYER),
         ("2nd_interlayer", _C_2ND_INT),
     ]:
         if outcome not in _drawn:
             ax1.plot([], [], color=color, alpha=0.7, linewidth=1.0, label=labels[outcome])
     ax1.set_ylim(ymax, 0)
-    _bg_gradient(ax1, _THRESHOLDS, _COLORS, axis='y')
-    ax1.set_xlabel("Frame index")
+    # _bg_gradient(ax1, _THRESHOLDS, _COLORS, axis='y')
+    ax1.set_xlabel("Frame (adaptive timestep)")
     ax1.set_ylabel("Depth (Å)")
     ax1.legend(fontsize=10, frameon=False, ncol=4, labelspacing=0.1,
                markerscale=5.0, handlelength=1.0, handletextpad=0.3,
@@ -571,7 +577,7 @@ def _summary(sim_dir: Path, trials, pen_depths, final_depths, outcomes, title: s
     # ── Panel 2: pen depth + final depth per trial, connected by line ──────
     for outcome, color in [
         ("reflected",      _C_REFLECTED),
-        ("cage",           _C_CAGE),
+        # ("cage",           _C_CAGE),
         ("1st_interlayer", _C_INTERLAYER),
         ("2nd_interlayer", _C_2ND_INT),
     ]:
@@ -587,7 +593,7 @@ def _summary(sim_dir: Path, trials, pen_depths, final_depths, outcomes, title: s
                     alpha=0.85, linewidths=0.8, zorder=3, marker='o')
 
     ax2.set_ylim(ymax, 0)
-    _bg_gradient(ax2, _THRESHOLDS, _COLORS, axis='y')
+    # _bg_gradient(ax2, _THRESHOLDS, _COLORS, axis='y')
     ax2.xaxis.set_major_locator(MultipleLocator(5))
     ax2.xaxis.set_minor_locator(AutoMinorLocator())
     ax2.xaxis.set_major_formatter(
@@ -780,7 +786,7 @@ def analyze_ar_z(sim_dir: Path, recompute: bool = False) -> dict:
 
     _scatter(trials, depths, outcomes, sim_dir, title=title)
     _histogram(final_depths_arr, outcomes, sim_dir, title=title)
-    _ztrace(sim_dir, outcomes, title=title)
+    _ztrace(sim_dir, spec_data, outcomes, title=title)
     _scatter_final_z(trials, depths, outcomes, sim_dir, title=title)
     _summary(sim_dir, trials, depths, final_depths_arr, outcomes, title=title)
 

@@ -22,19 +22,19 @@ from diamond_etch_md import SimSpec, compute_ml, make_sim, validate
 OUTDIR = Path("step_edges")
 
 CASES = [
-    # (orientation, surface, step_angle, label)
-    ("100", "2x1",   0.0,  "100_step0"),
-    ("100", "2x1",  90.0,  "100_step90"),
-    ("111", "1x1",   0.0,  "111_step0"),
-    ("111", "1x1",  90.0,  "111_step90"),
+    # (orientation, surface, position, step_angle, depth, invert, label)
+    ("100", "2x1",   [0.25, 0.4],   0.0,    2.0,  False,   "100_step0"),
+    ("100", "2x1",   [0.1, 0.3],    90.0,   2.0,  False,  "100_step90"),
+    ("111", "1x1",   [0.23, 0.35],  0.0,    2.0,  False,  "111_step0"),
+    ("111", "1x1",   [0.25, 0.35],  90.0,   2.0,  False,  "111_step90"),
 ]
 
 BOX = {
-    "100": dict(box_x=8, box_y=8, box_depth=3),   # even dims required for 2×1
-    "111": dict(box_x=5, box_y=9, box_depth=3),
+    "100": dict(box_x=8, box_y=8, box_depth=2),   # even dims required for 2×1
+    "111": dict(box_x=5, box_y=9, box_depth=1),
 }
 
-for orient, surface, angle, name in CASES:
+for orient, surface, position, angle, depth, invert, name in CASES:
     box = BOX[orient]
     ml  = compute_ml(orient, box["box_x"], box["box_y"])
 
@@ -46,17 +46,17 @@ for orient, surface, angle, name in CASES:
         # dummy ion — surface-only run (fluence=0)
         species             = "Ar",
         energy              = 50.0,
-        fluence             = 0,
+        fluence             = 0.01,
 
         ml                  = ml,
         **box,
 
         # step-edge parameters
         step_edge           = True,
-        step_position       = 0.5,
-        step_invert         = False,
+        step_position       = position,
+        step_invert         = invert,
         step_angle          = angle,
-        step_depth          = None,
+        step_depth          = depth,
 
         wall_hours          = 1,
         nice                = 1,

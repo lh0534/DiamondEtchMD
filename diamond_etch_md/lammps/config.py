@@ -113,15 +113,22 @@ def _step_config_block(spec: SimSpec) -> str:
     """Return config.lmp variable lines for the step-edge modifier and sweep options."""
     depth = (spec.step_depth if spec.step_depth is not None
              else _STEP_DEPTH_DEFAULT.get(spec.orientation, 2.0))
+    pos = spec.step_position
+    if isinstance(pos, (int, float)):
+        p1, p2 = float(pos), 1.0
+    else:
+        p1, p2 = float(pos[0]), float(pos[1])
     return (
         f"\n# Step edge\n"
         f"variable    step_edge      equal {'1' if spec.step_edge else '0'}\n"
         f"variable    step_angle     equal {spec.step_angle}\n"
-        f"variable    step_position  equal {spec.step_position}\n"
+        f"variable    step_position   equal {p1}\n"
+        f"variable    step_position_2 equal {p2}\n"
         f"variable    step_invert    equal {'1' if spec.step_invert else '0'}\n"
         f"variable    step_depth_ang equal {depth}\n"
         f"\n# Sweep options\n"
-        f"variable    do_z_check     equal {'1' if spec.sweep_z_check else '0'}\n"
+        f"variable    do_z_check         equal {'1' if spec.sweep_z_check else '0'}\n"
+        f"variable    co2_desorb_fraction equal {spec.co2_desorb_fraction}\n"
     )
 
 
