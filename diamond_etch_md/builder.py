@@ -223,6 +223,10 @@ def _make_sim_carbon_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
         dst = outdir / fname
         if not dst.exists():
             shutil.copy(_TEMPLATES / fname, dst)
+    if spec.co2_desorb_fraction > 0:
+        dst = outdir / "co2_desorption.lmp"
+        if not dst.exists():
+            shutil.copy(_TEMPLATES / "co2_desorption.lmp", dst)
     # Symlink read-only / shared assets
     for fname in ("notify_channeled.lmp",
                   "ffield.reax", "lmp_env.sh", "auto-plot.py",
@@ -339,6 +343,10 @@ def _make_sim_diamond_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
         dst = outdir / fname
         if not dst.exists():
             shutil.copy(_TEMPLATES / fname, dst)
+    if spec.co2_desorb_fraction > 0:
+        dst = outdir / "co2_desorption.lmp"
+        if not dst.exists():
+            shutil.copy(_TEMPLATES / "co2_desorption.lmp", dst)
     # Symlink read-only / shared assets
     for fname in ("notify_channeled.lmp",
                   "ffield.reax", "lat_a.txt", "lmp_env.sh", "auto-plot.py",
@@ -473,6 +481,10 @@ def _make_sim_single_impact(spec: SimSpec, outdir: Path, is_carbon: bool) -> Non
         dst = outdir / fname
         if not dst.exists():
             shutil.copy(_TEMPLATES / fname, dst)
+    if spec.co2_desorb_fraction > 0:
+        dst = outdir / "co2_desorption.lmp"
+        if not dst.exists():
+            shutil.copy(_TEMPLATES / "co2_desorption.lmp", dst)
     # Symlink read-only / shared assets
     common_links = ["notify_channeled.lmp",
                     "ffield.reax", "lmp_env.sh", "auto-plot.py",

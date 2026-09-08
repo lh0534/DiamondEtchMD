@@ -16,7 +16,15 @@
 
 compute     co2d_coord_o all coord/atom cutoff 1.8 3   # O-neighbor count per atom
 compute     co2d_coord_c all coord/atom cutoff 1.8 1   # C-neighbor count per atom
+# Make coord/atom computes current before group...variable commands by adding their
+# global reduces to thermo_style and running — same pattern used in sweep.lmp.
+compute     co2d_sum_o all reduce sum c_co2d_coord_o
+compute     co2d_sum_c all reduce sum c_co2d_coord_c
+thermo_style custom c_co2d_sum_o c_co2d_sum_c
 run 0 post no
+uncompute   co2d_sum_o
+uncompute   co2d_sum_c
+thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts
 
 variable    is_co2d_c atom "type==1 && c_co2d_coord_o==2"
 group       co2d_c_grp dynamic mobile var is_co2d_c
@@ -30,13 +38,19 @@ label co2d_do_desorb
 variable    n_co2d_c_pre equal $(count(co2d_c_grp))
 variable    co2d_seed equal $(floor(random(1,999999,${c}+${cn}*7+99991)))
 delete_atoms random fraction ${co2_desorb_fraction} no co2d_c_grp ${co2d_seed}
+
+# Re-evaluate coord_c after deletion to get post-deletion neighbor state
+compute     co2d_sum_c2 all reduce sum c_co2d_coord_c
+thermo_style custom c_co2d_sum_c2
 run 0 post no
+uncompute   co2d_sum_c2
+thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts
 
 # Orphan O: was in the pre-deletion exclusive-O snapshot AND now has no C neighbor.
 # Intersecting with the static snapshot prevents accidentally deleting gas-phase O
 # radicals that happen to have coord_c==0 but were never bonded to the ejected C atoms.
 variable    is_no_c_o atom "type==3 && c_co2d_coord_c==0"
-group       co2d_no_c_o dynamic oxygen var is_no_c_o
+group       co2d_no_c_o dynamic all var is_no_c_o
 group       co2d_orphan_o_grp intersect co2d_excl_o_snap co2d_no_c_o
 variable    n_desorbed_c equal $(v_n_co2d_c_pre-count(co2d_c_grp))
 variable    n_desorbed_o equal $(count(co2d_orphan_o_grp))
