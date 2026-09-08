@@ -108,7 +108,7 @@ if "${step_edge} == 1" then &
     "variable stp_in  atom (((x-v_stp_px1)*v_stp_nx+(y-v_stp_py1)*v_stp_ny)>0)*(((x-v_stp_px2)*v_stp_nx+(y-v_stp_py2)*v_stp_ny)<0)" &
     "variable stp_sel atom abs(v_stp_in-v_step_invert)*(z>v_stp_zcut)" &
     "group    step_rm  variable stp_sel" &
-    "delete_atoms group step_rm compress no" &
+    "delete_atoms group step_rm compress yes" &
     "group    step_rm  delete" &
     "variable stp_in  delete" &
     "variable stp_sel delete"

@@ -196,3 +196,20 @@ for _sym, (_Z, _mass) in _ZBL_ELEMENTS.items():
         "atomic_number": _Z,
         "remove_after_impact": True,
     }
+
+# Er with ReaxFF C–C interactions and correct Er mass (167.259 amu).
+# Type 4 bonds into the carbon network via ReaxFF, participates in QEQ,
+# and remains embedded after impact. Use species="ErC" in SimSpec.
+SPECIES["ErC"] = {
+    "type_index":          4,
+    "mass_var":            "M_Er",
+    "mass":                167.259,
+    "i_above":             6.0,
+    "is_molecule":         False,
+    "molecule_file":       None,
+    "energy_divisor":      1,
+    "needs_zbl":           False,
+    "atomic_number":       68,   # unused by non-ZBL path; kept for reference
+    "remove_after_impact": False,
+    "emit_mass_var":       True, # ensure M_Er is written to config.lmp
+}

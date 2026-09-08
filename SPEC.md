@@ -85,7 +85,7 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `flux_ratio` | `int` | `0` | O• radicals deposited before each ion impact; `0` = ion-etch |
+| `flux_ratio` | `float` | `0` | O• radicals deposited before each ion impact; `0` = ion-etch; non-integer → stochastic floor/ceil per impact so the long-run average equals the specified value |
 | `radical_energy` | `float` | `0.2` | eV per O• (used when `radical_temperature` is `None`) |
 | `radical_temperature` | `float\|None` | `None` | K; enables Maxwell-Boltzmann speed sampling (overrides `radical_energy`) |
 | `radical_angle` | `float` | `0.0` | Degrees from surface normal for radicals in fixed-angle mode |
@@ -139,6 +139,18 @@ All atoms in a chunk land at the same z height (`bound(all,zmax) + radical_i_abo
 |-------|------|---------|-------|
 | `plot_interval_hours` | `int` | `12` | Hours between auto-plot runs while LAMMPS is running; `0` = disabled |
 | `cna_stride` | `int` | `0` | CNA stride for `--cna` mode; `0` = 1 analysis per ML |
+
+### CO₂* forced desorption
+
+Surface C atoms bonded to exactly 2 O atoms (with each O exclusively bonded to that C, i.e. not bridging to another C) are CO₂ precursors. Setting `co2_desorb_fraction > 0` force-ejects a random fraction of these sites before each thermalization step, mimicking instantaneous CO₂ desorption.
+
+| Field | Type | Default | Constraint | Notes |
+|-------|------|---------|------------|-------|
+| `co2_desorb_fraction` | `float` | `0.0` | `[0, 1]` | Fraction of eligible CO₂-precursor C atoms to force-eject per step; `0` = disabled |
+
+When a C atom is ejected, its exclusively-bonded O atoms are removed with it. Each forced-desorption event is logged to `etch_products.txt` (standard 7-column format; `vcm_z = 0` flags it as a forced event rather than a dynamical ejection) and to a separate `co2_desorption.txt` (columns: `impact cn n_C n_O`).
+
+`co2_desorb_fraction = 1.0` ejects all eligible sites deterministically every step; `0.5` ejects each independently at 50% probability.
 
 ### Miscellaneous
 
@@ -315,7 +327,7 @@ Used in `SimSpec.phases` for cycling simulations.
 | `species` | `str` | — | Any key in `SPECIES` | Ion species for this phase |
 | `energy` | `float` | — | `> 0` | Total kinetic energy in eV |
 | `fluence_ml` | `int` | — | `> 0` | Monolayers of this species per cycle repetition |
-| `flux_ratio` | `int` | `0` | `>= 0` | O• radicals deposited before each ion impact in this phase |
+| `flux_ratio` | `float` | `0` | `>= 0` | O• radicals deposited before each ion impact in this phase; non-integer → stochastic floor/ceil |
 | `radical_energy` | `float` | `0.2` | `> 0` if `flux_ratio > 0` | eV per O• radical (used when `radical_temperature` is `None`) |
 | `radical_temperature` | `float\|None` | `None` | | K; Maxwell-Boltzmann speed sampling for this phase's radicals |
 | `radical_angle` | `float` | `0.0` | | Degrees from normal for radicals in fixed-angle mode |

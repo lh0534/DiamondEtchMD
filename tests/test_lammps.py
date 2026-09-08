@@ -1239,7 +1239,8 @@ def test_config_step_edge_enabled():
     cfg = get_config_lmp(make_rie_spec(step_edge=True))
     assert "step_edge      equal 1" in cfg
     assert "step_angle     equal 0.0" in cfg
-    assert "step_position  equal 0.5" in cfg
+    assert "step_position   equal 0.5" in cfg
+    assert "step_position_2 equal 1.0" in cfg
     assert "step_invert    equal 0" in cfg
 
 
@@ -1289,7 +1290,7 @@ def test_make_surf_contains_step_block(fname):
     assert 'if "${step_edge} == 1"' in src
     assert "variable stp_sel atom" in src
     assert "group    step_rm  variable stp_sel" in src
-    assert "delete_atoms group step_rm compress no" in src
+    assert "delete_atoms group step_rm compress yes" in src
 
 
 @pytest.mark.parametrize("fname", [

@@ -226,8 +226,12 @@ def _spec_summary_str(spec) -> str:
         _sp = ["Step edge"]
         if getattr(spec, 'step_angle', 0.0):
             _sp.append(f"{spec.step_angle:.4g}°")
-        if getattr(spec, 'step_position', 0.5) != 0.5:
-            _sp.append(f"pos={spec.step_position:.2g}")
+        _step_pos = getattr(spec, 'step_position', 0.5)
+        if _step_pos != 0.5:
+            if isinstance(_step_pos, (list, tuple)):
+                _sp.append(f"pos={_step_pos[0]:.2g}–{_step_pos[1]:.2g}")
+            else:
+                _sp.append(f"pos={_step_pos:.2g}")
         if getattr(spec, 'step_invert', False):
             _sp.append("inverted")
         _step_sfx = "\n" + "  ".join(_sp)
@@ -896,7 +900,9 @@ def plot_co_emission(ep_records, ml, spec=None, bandwidth_ml=None,
     ax.set_ylim(bottom=0)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
     h1, l1 = ax.get_legend_handles_labels()
-    ax.legend(handles=h1 + phase_patches, frameon=False, fontsize=11)
+    ax.legend(handles=h1 + phase_patches, frameon=False, fontsize=11,
+              loc='lower center', bbox_to_anchor=(0.5, 1.02),
+              ncol=len(h1 + phase_patches))
 
     if own:
         _apply_suptitle(ax.figure, spec_summary, 'CO / CO₂ Emission')
@@ -955,7 +961,7 @@ def plot_amorphous_thickness(cna_records, ml, ax=None):
     return ax
 
 
-def plot_etch_per_cycle(nc_records, spec, ml, lat_a=None, ax=None):
+def plot_etch_per_cycle(nc_records, spec, ml, ep_records=None, lat_a=None, ax=None):
     """Etch per cycle (ML) vs cycle number — scatter + mean line."""
     _need_mpl()
     if spec is None or spec.phases is None:
@@ -965,24 +971,29 @@ def plot_etch_per_cycle(nc_records, spec, ml, lat_a=None, ax=None):
         fig, ax = plt.subplots(figsize=(7, 4))
 
     total_cycle_ml = sum(p.fluence_ml for p in spec.phases) * ml
-    ion_recs = [r for r in nc_records if r['cn'] == 0]
-    n0 = nc_records[0]['n_carbon'] if nc_records else 0
+    ion_recs = [r for r in nc_records if r['cn'] == 0 and r['impact'] > 0]
     max_impact = max((r['impact'] for r in ion_recs), default=0)
 
+    # Build per-impact ejected-C array from etch products (avoids C-layer-addition artifacts)
+    carbon_ep = [r for r in (ep_records or []) if r['n_C'] > 0]
+    if carbon_ep:
+        cumC = np.zeros(max_impact + 2, dtype=float)
+        for r in carbon_ep:
+            if r['impact'] <= max_impact:
+                cumC[r['impact']] += r['n_C']
+
     cycle_etch = []
-    prev = n0
     for cyc in range(spec.cycles):
         start = cyc * total_cycle_ml
         end   = (cyc + 1) * total_cycle_ml
         if max_impact < end:
             break
-        recs = [r for r in ion_recs if start < r['impact'] <= end]
-        if recs:
-            last = recs[-1]['n_carbon']
-            cycle_etch.append((prev - last) / ml)
-            prev = last
+        if carbon_ep:
+            cycle_etch.append(float(np.sum(cumC[start + 1:end + 1])) / ml)
         else:
-            cycle_etch.append(0.0)
+            # fallback: delta n_carbon (inaccurate when C layers are added)
+            recs = [r for r in ion_recs if start < r['impact'] <= end]
+            cycle_etch.append((recs[0]['n_carbon'] - recs[-1]['n_carbon']) / ml if recs else 0.0)
 
     if not cycle_etch:
         if own:
@@ -999,7 +1010,13 @@ def plot_etch_per_cycle(nc_records, spec, ml, lat_a=None, ax=None):
     ax.set_xlabel('Cycle #')
     ax.set_ylabel('Etch per cycle (ML)')
     ax.set_xlim(0.5, len(cycle_etch) + 0.5)
-    ax.set_ylim(bottom=0)
+    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    # Include negative values (net C deposition cycles) and the mean line
+    data_min = min(min(cycle_etch), mean_etch)
+    data_max = max(max(cycle_etch), mean_etch)
+    pad = max((data_max - data_min) * 0.12, 0.05)
+    ax.set_ylim(data_min - pad, data_max + pad)
+    ax.axhline(0, lw=0.7, color='0.5', zorder=0)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
     ax.legend(frameon=False, fontsize=11, loc='best')
 
@@ -1018,8 +1035,8 @@ def plot_etch_per_cycle(nc_records, spec, ml, lat_a=None, ax=None):
     return ax
 
 
-def plot_per_phase_yield(nc_records, spec, ml, ax=None, spec_summary=None):
-    """Per-phase etch yield: box-and-whisker plot over cycles."""
+def plot_per_phase_yield(nc_records, spec, ml, ep_records=None, ax=None, spec_summary=None):
+    """Per-phase etch yield (C/ion) per cycle — one point per completed cycle per phase."""
     _need_mpl()
     if spec is None or spec.phases is None:
         return None
@@ -1028,39 +1045,51 @@ def plot_per_phase_yield(nc_records, spec, ml, ax=None, spec_summary=None):
         fig, ax = plt.subplots(figsize=(6, 4))
 
     total_cycle_ml = sum(p.fluence_ml for p in spec.phases) * ml
-    phase_yields = defaultdict(list)
+    ion_recs = [r for r in nc_records if r['cn'] == 0 and r['impact'] > 0]
+    max_impact = max((r['impact'] for r in ion_recs), default=0)
 
-    pre_nc = nc_records[0]['n_carbon'] if nc_records else 0
-    for r in nc_records:
-        if r['cn'] == 0:
-            impact_in_cycle = (r['impact'] - 1) % total_cycle_ml
-            cum = 0
-            for pi, p in enumerate(spec.phases):
-                cum += p.fluence_ml * ml
-                if impact_in_cycle < cum:
-                    phase_yields[pi].append(pre_nc - r['n_carbon'])
-                    break
-        pre_nc = r['n_carbon']
+    # Build per-impact ejected-C count from etch products
+    carbon_ep = [r for r in (ep_records or []) if r['n_C'] > 0]
+    cumC = np.zeros(max_impact + 2, dtype=float)
+    for r in carbon_ep:
+        if r['impact'] <= max_impact:
+            cumC[r['impact']] += r['n_C']
+
+    # Accumulate per-cycle per-phase yield (C ejected / impacts)
+    phase_yields = defaultdict(list)  # pi → [yield_cycle1, yield_cycle2, ...]
+    for cyc in range(spec.cycles):
+        cycle_start = cyc * total_cycle_ml
+        if max_impact < cycle_start + total_cycle_ml:
+            break
+        phase_start = cycle_start
+        for pi, p in enumerate(spec.phases):
+            n_impacts  = p.fluence_ml * ml
+            phase_end  = phase_start + n_impacts
+            c_ejected  = float(np.sum(cumC[phase_start + 1:phase_end + 1]))
+            phase_yields[pi].append(c_ejected / n_impacts)
+            phase_start = phase_end
 
     phase_indices = sorted(phase_yields)
-    data   = [phase_yields[pi] for pi in phase_indices]
-    labels = [spec.phases[pi].species for pi in phase_indices]
     colors = [_phase_color(spec.phases[pi].species, pi) for pi in phase_indices]
+    labels = [spec.phases[pi].species for pi in phase_indices]
 
-    bp = ax.boxplot(data, patch_artist=True, widths=0.5,
-                    medianprops=dict(color='k', lw=2),
-                    whiskerprops=dict(lw=1.2),
-                    capprops=dict(lw=1.2),
-                    flierprops=dict(marker='o', ms=4, alpha=0.5))
-    for patch, col in zip(bp['boxes'], colors):
-        patch.set_facecolor(col)
-        patch.set_alpha(0.6)
+    for xi, (pi, col) in enumerate(zip(phase_indices, colors), 1):
+        vals = np.array(phase_yields[pi])
+        mean_val = float(np.mean(vals))
+        # individual cycle points
+        ax.scatter([xi] * len(vals), vals, s=40, color=col, alpha=0.75,
+                   zorder=3, linewidths=0)
+        # mean bar
+        ax.hlines(mean_val, xi - 0.3, xi + 0.3, lw=2.5, color=col,
+                  zorder=4, label=f'{labels[xi-1]} mean: {mean_val:.3g} C/ion')
 
     ax.set_xticks(range(1, len(labels) + 1))
     ax.set_xticklabels(labels)
-    ax.set_ylabel('Etch yield per impact (C/ion)')
+    ax.set_ylabel('Etch yield (C/ion)')
     ax.set_ylim(bottom=0)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
+    ax.legend(frameon=False, fontsize=10, loc='lower center',
+              bbox_to_anchor=(0.5, 1.0), ncol=len(phase_indices))
 
     if own:
         _apply_suptitle(ax.figure, spec_summary, "Per Phase Yield")
@@ -1308,11 +1337,11 @@ def make_plots(
             _save(fig, 'co_emission')
 
     if is_cyc and spec and spec.phases:
-        fig = plot_etch_per_cycle(nc, spec, ml, lat_a=lat_a)
+        fig = plot_etch_per_cycle(nc, spec, ml, ep_records=ep_carbon, lat_a=lat_a)
         if fig:
             _save(fig, 'etch_per_cycle')
 
-        fig = plot_per_phase_yield(nc, spec, ml, spec_summary=summary)
+        fig = plot_per_phase_yield(nc, spec, ml, ep_records=ep_carbon, spec_summary=summary)
         if fig:
             _save(fig, 'per_phase_yield')
 

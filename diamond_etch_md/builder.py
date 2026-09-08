@@ -240,18 +240,21 @@ def _make_sim_carbon_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
         submit.chmod(0o755)
 
         for p in spec.phases:
-            mol = SPECIES[p.species]["molecule_file"]
-            if mol:
-                mol_dst = outdir / mol
-                if not mol_dst.exists():
-                    mol_dst.symlink_to(_TEMPLATES / mol)
+            species_list = (
+                [c.species for c in p.ion_mix]
+                if p.ion_mix is not None
+                else [p.species]
+            )
+            for sp_name in species_list:
+                mol = SPECIES[sp_name]["molecule_file"]
+                if mol:
+                    mol_dst = outdir / mol
+                    if not mol_dst.exists():
+                        mol_dst.symlink_to(_TEMPLATES / mol)
 
+        from .lammps.head_cycling import _phase_label as _plabel
         total_ml = spec.cycles * sum(p.fluence_ml for p in spec.phases)
-        phase_str = " → ".join(
-            f"{p.species}@{p.energy}eV×{p.fluence_ml}ML"
-            + (f"+O•R{p.flux_ratio}" if p.flux_ratio > 0 else "")
-            for p in spec.phases
-        )
+        phase_str = " → ".join(_plabel(p, i) for i, p in enumerate(spec.phases))
         print(f"Simulation created at: {outdir}  [{mode}]")
         print(f"  config:      {spec.initial_config_file}")
         print(f"  anchor_z_max:{spec.anchor_z_max} Å   ML={spec.ml} impacts/monolayer")
@@ -354,20 +357,23 @@ def _make_sim_diamond_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
         submit.write_text(get_submit_script_cycle_etch(spec))
         submit.chmod(0o755)
 
-        # Symlink O2.molecule if any phase uses it
+        # Symlink molecule files for any phase or phase ion_mix component that uses one
         for p in spec.phases:
-            mol = SPECIES[p.species]["molecule_file"]
-            if mol:
-                mol_dst = outdir / mol
-                if not mol_dst.exists():
-                    mol_dst.symlink_to(_TEMPLATES / mol)
+            species_list = (
+                [c.species for c in p.ion_mix]
+                if p.ion_mix is not None
+                else [p.species]
+            )
+            for sp_name in species_list:
+                mol = SPECIES[sp_name]["molecule_file"]
+                if mol:
+                    mol_dst = outdir / mol
+                    if not mol_dst.exists():
+                        mol_dst.symlink_to(_TEMPLATES / mol)
 
+        from .lammps.head_cycling import _phase_label
         total_ml = spec.cycles * sum(p.fluence_ml for p in spec.phases)
-        phase_str = " → ".join(
-            f"{p.species}@{p.energy}eV×{p.fluence_ml}ML"
-            + (f"+O•R{p.flux_ratio}" if p.flux_ratio > 0 else "")
-            for p in spec.phases
-        )
+        phase_str = " → ".join(_phase_label(p, i) for i, p in enumerate(spec.phases))
         print(f"Simulation created at: {outdir}  [{mode}]")
         print(f"  surface:     {spec.orientation}  {surface_label}")
         print(f"  phases:      {phase_str}")

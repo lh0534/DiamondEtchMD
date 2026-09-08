@@ -27,16 +27,45 @@ from ..species import SPECIES
 from ..spec import SimSpec, CyclePhase
 
 
+def _phase_needs_zbl(p: CyclePhase) -> bool:
+    """True when any ion in this phase requires ZBL (i.e. is a non-C/H/O element)."""
+    if p.ion_mix is not None:
+        return any(SPECIES[c.species]["needs_zbl"] for c in p.ion_mix)
+    return SPECIES[p.species]["needs_zbl"]
+
+
+def _phase_has_molecule(p: CyclePhase) -> bool:
+    """True when any ion in this phase is a molecule (e.g. O2)."""
+    if p.ion_mix is not None:
+        return any(SPECIES[c.species]["is_molecule"] for c in p.ion_mix)
+    return SPECIES[p.species]["is_molecule"]
+
+
+def _phase_label(p: CyclePhase, i: int) -> str:
+    """Short display label for phase i (used in head.lmp comments)."""
+    suffix = f"+O•R{p.flux_ratio}" if p.flux_ratio > 0 else ""
+    if p.ion_mix is not None:
+        mix = "+".join(f"{c.species}({c.fraction:.0%})" for c in p.ion_mix)
+        return f"[{mix}]×{p.fluence_ml}ML{suffix}"
+    return f"{p.species}@{p.energy}eV×{p.fluence_ml}ML{suffix}"
+
+
 def _has_ar(spec: SimSpec) -> bool:
-    return any(SPECIES[p.species]["needs_zbl"] for p in spec.phases)
+    return any(_phase_needs_zbl(p) for p in spec.phases)
 
 
 def _zbl_atomic_number(spec: SimSpec) -> float:
     """Return the atomic number of the first ZBL-needing species in spec.phases."""
     for p in spec.phases:
-        sp = SPECIES[p.species]
-        if sp["needs_zbl"]:
-            return sp["atomic_number"]
+        if p.ion_mix is not None:
+            for c in p.ion_mix:
+                sp = SPECIES[c.species]
+                if sp["needs_zbl"]:
+                    return sp["atomic_number"]
+        else:
+            sp = SPECIES[p.species]
+            if sp["needs_zbl"]:
+                return sp["atomic_number"]
     return 18.0
 
 
@@ -47,8 +76,8 @@ def _can_switch_potential(spec: SimSpec) -> bool:
     Ar is always removed after impact (remove_after_impact=True), it is safe
     to drop to plain ReaxFF for non-Ar phases, which is faster.
     """
-    has_zbl = any(SPECIES[p.species]["needs_zbl"] for p in spec.phases)
-    has_plain = any(not SPECIES[p.species]["needs_zbl"] for p in spec.phases)
+    has_zbl = any(_phase_needs_zbl(p) for p in spec.phases)
+    has_plain = any(not _phase_needs_zbl(p) for p in spec.phases)
     return has_zbl and has_plain
 
 
@@ -83,7 +112,7 @@ def _potential_switch_block(spec: SimSpec) -> str:
 
 
 def _has_o2(spec: SimSpec) -> bool:
-    return any(SPECIES[p.species]["is_molecule"] for p in spec.phases)
+    return any(_phase_has_molecule(p) for p in spec.phases)
 
 
 def _potential_block(spec: SimSpec) -> str:
@@ -154,64 +183,126 @@ def _phase_selection_block(phases: list, has_ar: bool,
     phases.  Each earlier phase overrides when idx_in_cycle is below its
     cumulative end threshold.
 
-    Sets current_rad_angl, current_inter_neutral_time
-    in addition to the original current_* ion variables.
+    For ion_mix phases: sets current_phase_mix_idx (1-indexed by mix-phase order)
+    and current_phase_idx (absolute phase index) instead of current_ion_type /
+    current_use_molecule / current_ion_energy / current_M_ion.  The mix dispatch
+    block (_phase_ion_mix_dispatch_block) fills in those vars after this block runs.
+
+    For radical_burst phases: sets current_phase_is_burst = 1 and current_phase_idx
+    so the burst dispatch block can emit the right per-phase burst loop.
+
+    Sets current_rad_angl, current_inter_neutral_time in addition to ion variables.
     radical_i_above is a global variable (same injection height for all phases).
     """
     N = len(phases)
     lines = []
     has_any_radicals = any(p.flux_ratio > 0 for p in phases)
+    has_any_mix = any(p.ion_mix is not None for p in phases)
+    has_any_burst = any(p.radical_burst for p in phases)
 
-    # Default: last phase
+    # Assign 1-indexed mix dispatch slots to ion_mix phases
+    mix_idx_of = {}  # phase_index -> mix dispatch index (1-based)
+    mix_counter = 1
+    for i, p in enumerate(phases):
+        if p.ion_mix is not None:
+            mix_idx_of[i] = mix_counter
+            mix_counter += 1
+
+    def _ion_defaults_for(p, i):
+        """Direct-assignment lines for a non-mix phase (no quotes, for default block)."""
+        lines_out = []
+        if p.ion_mix is not None:
+            lines_out.append(f"variable current_phase_mix_idx equal {mix_idx_of[i]}\n")
+            lines_out.append(f"variable current_phase_idx equal {i}\n")
+            if has_ar:
+                mix_needs_removal = any(
+                    SPECIES[c.species]["remove_after_impact"] for c in p.ion_mix
+                )
+                lines_out.append(f"variable current_needs_removal equal {1 if mix_needs_removal else 0}\n")
+            if switch_potential:
+                lines_out.append(f"variable current_needs_zbl equal {1 if _phase_needs_zbl(p) else 0}\n")
+        else:
+            sp = SPECIES[p.species]
+            lines_out.append(f"variable current_ion_type equal {sp['type_index']}\n")
+            lines_out.append(f"variable current_use_molecule equal {1 if sp['is_molecule'] else 0}\n")
+            lines_out.append(f"variable current_ion_energy equal ${{phase_{i}_energy}}\n")
+            lines_out.append(f"variable current_M_ion equal ${{{sp['mass_var']}}}\n")
+            lines_out.append(f"variable current_phase_mix_idx equal 0\n")
+            lines_out.append(f"variable current_phase_idx equal {i}\n")
+            if has_ar:
+                lines_out.append(f"variable current_needs_removal equal {1 if sp['remove_after_impact'] else 0}\n")
+            if switch_potential:
+                lines_out.append(f"variable current_needs_zbl equal {1 if sp['needs_zbl'] else 0}\n")
+        if has_any_burst:
+            lines_out.append(f"variable current_phase_is_burst equal {1 if p.radical_burst else 0}\n")
+        return lines_out
+
+    def _ion_quoted_for(p, i, radical_energy_line, removal_line, zbl_line):
+        """Quoted if-then clause fragments for phase i override block."""
+        if p.ion_mix is not None:
+            base = (
+                f'"variable current_phase_mix_idx equal {mix_idx_of[i]}" &\n'
+                f'"variable current_phase_idx equal {i}" &\n'
+            )
+        else:
+            sp = SPECIES[p.species]
+            base = (
+                f'"variable current_ion_type equal {sp["type_index"]}" &\n'
+                f'"variable current_use_molecule equal {1 if sp["is_molecule"] else 0}" &\n'
+                f'"variable current_ion_energy equal ${{phase_{i}_energy}}" &\n'
+                f'"variable current_M_ion equal ${{{sp["mass_var"]}}}" &\n'
+                f'"variable current_phase_mix_idx equal 0" &\n'
+                f'"variable current_phase_idx equal {i}" &\n'
+            )
+        burst_line = (
+            f'"variable current_phase_is_burst equal {1 if p.radical_burst else 0}" &\n'
+        ) if has_any_burst else ""
+        return base + burst_line
+
+    # Default: last phase (direct assignment, no if-wrapper)
     last = phases[-1]
-    last_sp = SPECIES[last.species]
     rad_angl_v, inter_t_v, rad_azimuth_v = _phase_radical_vars(last, N - 1)
 
-    lines.append(f"# Phase selection (default: phase {N-1} = {last.species})\n")
-    lines.append(f"variable current_ion_type equal {last_sp['type_index']}\n")
-    lines.append(f"variable current_use_molecule equal {1 if last_sp['is_molecule'] else 0}\n")
-    lines.append(f"variable current_ion_energy equal ${{phase_{N-1}_energy}}\n")
-    lines.append(f"variable current_M_ion equal ${{{last_sp['mass_var']}}}\n")
+    last_sp = SPECIES[last.species] if last.ion_mix is None else None
+
+    lines.append(f"# Phase selection (default: phase {N-1} = {_phase_label(last, N-1)})\n")
+    for ln in _ion_defaults_for(last, N - 1):
+        lines.append(ln)
     lines.append(f"variable current_flux_ratio equal ${{phase_{N-1}_flux_ratio}}\n")
-    if has_any_radicals:
+    if has_any_radicals and last.flux_ratio > 0:
         lines.append(f"variable current_radical_energy equal ${{phase_{N-1}_radical_energy}}\n")
     lines.append(f"variable current_rad_angl equal {rad_angl_v}\n")
     lines.append(f"variable current_rad_azimuth equal {rad_azimuth_v}\n")
     lines.append(f"variable current_inter_neutral_time equal {inter_t_v}\n")
-    if has_ar:
-        lines.append(
-            f"variable current_needs_removal equal "
-            f"{1 if last_sp['remove_after_impact'] else 0}\n"
-        )
-    if switch_potential:
-        lines.append(
-            f"variable current_needs_zbl equal "
-            f"{1 if last_sp['needs_zbl'] else 0}\n"
-        )
     lines.append("\n")
 
     # Reverse-order overrides for phases 0..N-2
     for i in range(N - 2, -1, -1):
         p = phases[i]
-        sp = SPECIES[p.species]
         rad_angl_v, inter_t_v, rad_azimuth_v = _phase_radical_vars(p, i)
+        radical_energy_line = (
+            f'"variable current_radical_energy equal ${{phase_{i}_radical_energy}}" &\n'
+            if (has_any_radicals and p.flux_ratio > 0) else ""
+        )
+
+        sp = SPECIES[p.species] if p.ion_mix is None else None
         removal_line = (
             f' &\n"variable current_needs_removal equal '
             f'{1 if sp["remove_after_impact"] else 0}"'
+        ) if has_ar and sp is not None else (
+            f' &\n"variable current_needs_removal equal 0"'
         ) if has_ar else ""
         zbl_line = (
             f' &\n"variable current_needs_zbl equal '
             f'{1 if sp["needs_zbl"] else 0}"'
+        ) if switch_potential and sp is not None else (
+            f' &\n"variable current_needs_zbl equal 0"'
         ) if switch_potential else ""
-        radical_energy_line = (
-            f'"variable current_radical_energy equal ${{phase_{i}_radical_energy}}" &\n'
-        ) if has_any_radicals else ""
+
+        ion_block = _ion_quoted_for(p, i, radical_energy_line, removal_line, zbl_line)
         lines.append(
             f'if "${{idx_in_cycle}} < ${{phase_{i}_end}}" then &\n'
-            f'"variable current_ion_type equal {sp["type_index"]}" &\n'
-            f'"variable current_use_molecule equal {1 if sp["is_molecule"] else 0}" &\n'
-            f'"variable current_ion_energy equal ${{phase_{i}_energy}}" &\n'
-            f'"variable current_M_ion equal ${{{sp["mass_var"]}}}" &\n'
+            f"{ion_block}"
             f'"variable current_flux_ratio equal ${{phase_{i}_flux_ratio}}" &\n'
             f"{radical_energy_line}"
             f'"variable current_rad_angl equal {rad_angl_v}" &\n'
@@ -222,6 +313,225 @@ def _phase_selection_block(phases: list, has_ar: bool,
             f"\n"
         )
 
+    return "".join(lines)
+
+
+def _phase_ion_mix_dispatch_block(phases: list) -> str:
+    """Generate the per-impact stochastic ion selection block for cycling mix phases.
+
+    Called once per outer-loop iteration after _phase_selection_block.  When
+    current_phase_mix_idx == 0 the block is a no-op (non-mix phase).  For mix
+    phases, a random draw selects one ion component and sets current_ion_type,
+    current_use_molecule, current_ion_energy, current_M_ion.
+    """
+    # Collect mix phases in order of their dispatch index
+    mix_phases = [(i, p) for i, p in enumerate(phases) if p.ion_mix is not None]
+    if not mix_phases:
+        return ""
+
+    lines = [
+        "# ── Per-phase ion mix stochastic dispatch ────────────────────────────────────\n",
+        'if "${current_phase_mix_idx} == 0" then "jump SELF phase_mix_dispatch_done"\n',
+        "\n",
+    ]
+
+    for dispatch_idx, (phase_i, p) in enumerate(mix_phases, start=1):
+        lines.append(
+            f'if "${{current_phase_mix_idx}} == {dispatch_idx}" then "jump SELF phase_mix_{dispatch_idx}"\n'
+        )
+    lines.append("\n")
+
+    for dispatch_idx, (phase_i, p) in enumerate(mix_phases, start=1):
+        mix = p.ion_mix
+        total = sum(c.fraction for c in mix)
+        lines.append(f"label       phase_mix_{dispatch_idx}\n")
+        lines.append(f"variable    r_mix equal random(0,1,${{c}}+50000+${{seed_adjust}})\n")
+        # Jump table for components except last
+        cumulative = 0.0
+        for j, comp in enumerate(mix[:-1]):
+            cumulative += comp.fraction / total
+            lines.append(
+                f'if "${{r_mix}} < {cumulative:.8f}" then "jump SELF phase_mix_{dispatch_idx}_ion_{j}"\n'
+            )
+        lines.append(f"jump        SELF phase_mix_{dispatch_idx}_ion_{len(mix)-1}\n\n")
+
+        for j, comp in enumerate(mix):
+            sp = SPECIES[comp.species]
+            energy_per_atom = comp.energy / sp["energy_divisor"]
+            lines.append(f"label       phase_mix_{dispatch_idx}_ion_{j}\n")
+            lines.append(f"variable    current_ion_type equal {sp['type_index']}\n")
+            lines.append(f"variable    current_use_molecule equal {1 if sp['is_molecule'] else 0}\n")
+            lines.append(f"variable    current_ion_energy equal {energy_per_atom}\n")
+            lines.append(f"variable    current_M_ion equal ${{{sp['mass_var']}}}\n")
+            lines.append(f"jump        SELF phase_mix_dispatch_done\n\n")
+
+    lines.append("label       phase_mix_dispatch_done\n")
+    lines.append("# ─────────────────────────────────────────────────────────────────────────────\n\n")
+    return "".join(lines)
+
+
+def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> str:
+    """Generate burst-mode radical injection blocks for all burst phases.
+
+    Returns empty string when no phase uses radical_burst.
+    The outer loop dispatches to the right label via current_phase_is_burst
+    and current_phase_idx.
+    """
+    burst_phases = [(i, p) for i, p in enumerate(phases) if p.radical_burst]
+    if not burst_phases:
+        return ""
+
+    from ..lammps.config import _DEPOSIT_REGION_BUG_FACTOR
+
+    dm = spec.dump_mode
+    dump_cols = "id type x y z vx vy vz fx fy fz q"
+    ml = spec.ml
+
+    lines = [
+        "# ── Burst radical injection dispatch ─────────────────────────────────────────\n",
+        'if "${current_phase_is_burst} == 0" then "jump SELF burst_dispatch_done"\n',
+        'if "${cn_start} >= 1" then "jump SELF skip_chem"\n',
+    ]
+    for i, _p in burst_phases:
+        lines.append(
+            f'if "${{current_phase_idx}} == {i}" then "jump SELF burst_phase_{i}"\n'
+        )
+    lines.append('jump        SELF burst_dispatch_done\n\n')
+
+    for phase_i, p in burst_phases:
+        chunk_size = p.radical_burst_chunk if p.radical_burst_chunk > 0 else max(1, round(0.5 * ml))
+        total = max(1, round(p.flux_ratio))
+        n_full = total // chunk_size
+        remainder = total % chunk_size
+        chunks = [chunk_size] * n_full + ([remainder] if remainder > 0 else [])
+        attempt = p.radical_burst_attempt
+
+        lines.append(f"label       burst_phase_{phase_i}\n")
+        lines.append(
+            f"# burst: {len(chunks)} chunk(s) × ≤{chunk_size} atoms = {total} O• total\n"
+            f"# Fixed velocity from current_radical_energy / current_rad_angl / current_rad_azimuth\n"
+            f"variable    vel_chem_burst equal "
+            f"sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+            f"variable    vx_burst equal v_vel_chem_burst*sin(${{current_rad_angl}}*PI/180)*cos(${{current_rad_azimuth}}*PI/180)\n"
+            f"variable    vy_burst equal v_vel_chem_burst*sin(${{current_rad_angl}}*PI/180)*sin(${{current_rad_azimuth}}*PI/180)\n"
+            f"variable    vz_burst equal -v_vel_chem_burst*cos(${{current_rad_angl}}*PI/180)\n"
+            f"timestep    1e-10\n"
+            f"\n"
+        )
+
+        for ci, csize in enumerate(chunks):
+            chunk_dump_file = f"etch_event_trajs/event_dump_burst_${{c}}_{ci}.dump"
+            if dm == "none":
+                chunk_dump_open  = ""
+                chunk_dump_close = ""
+                chunk_etch_event = ""
+            elif dm == "all":
+                chunk_dump_open  = f"dump        current_dump_burst all custom 100 {chunk_dump_file} {dump_cols}\n"
+                chunk_dump_close = f"undump      current_dump_burst\n"
+                chunk_etch_event = ""
+            else:  # etch_only — keep if cluster count increases during this chunk's thermalization
+                _first_guard = (
+                    f'if "${{c}} == 1" then "variable keep_dump_burst equal 1"\n'
+                    if (spec.dump_first_impact and ci == 0) else ""
+                )
+                chunk_dump_open = (
+                    f"variable    keep_dump_burst equal 0\n"
+                    + _first_guard
+                    + f"dump        current_dump_burst all custom 100 {chunk_dump_file} {dump_cols}\n"
+                )
+                chunk_etch_event = (
+                    f'if "$(c_nclusts) > ${{burst_nclusts0}}" then "variable keep_dump_burst equal 1"\n'
+                )
+                chunk_dump_close = (
+                    f'if "${{keep_dump_burst}} == 0" then "shell rm {chunk_dump_file}"\n'
+                    f"undump      current_dump_burst\n"
+                )
+
+            lines.append(
+                f"# --- Burst chunk {ci+1}/{len(chunks)}: {csize} atoms (deposit) ---\n"
+                f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
+                f"\"change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box\" "
+                f"\"region bbox delete\" "
+                f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\"\n"
+                f"variable    z_ins{phase_i}_{ci} equal bound(all,zmax)+${{radical_i_above}}\n"
+                f"region      bzone{phase_i}_{ci} block EDGE EDGE EDGE EDGE "
+                f"$(v_z_ins{phase_i}_{ci} - 0.1) $(v_z_ins{phase_i}_{ci} + 0.1) units box\n"
+                f"group       insert clear\n"
+                f"group       mobile subtract all anchor\n"
+                f"variable    burst_seed{phase_i}_{ci}_1 equal "
+                f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+{ci+1}))\n"
+                f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{phase_i}_{ci}_1}} "
+                f"attempt {attempt} "
+                f"vx ${{vx_burst}} ${{vx_burst}} "
+                f"vy ${{vy_burst}} ${{vy_burst}} "
+                f"vz ${{vz_burst}} ${{vz_burst}} "
+                f"region bzone{phase_i}_{ci} near 2.0\n"
+                f"fix         2 mobile nve\n"
+                f"fix         3 insert nve\n"
+                f"run         1 post no\n"
+                f"run         0\n"
+                f"{nonargon_refresh}"
+                f"unfix       burst_depo\n"
+                f"unfix       2\n"
+                f"unfix       3\n"
+            )
+            if csize > 1:
+                lines.append(
+                    f"variable    burst_lp{phase_i}_{ci} loop {csize - 1}\n"
+                    f"label       burst_dep_{phase_i}_{ci}\n"
+                    f"group       insert clear\n"
+                    f"group       mobile subtract all anchor\n"
+                    f"variable    burst_seed{phase_i}_{ci} equal "
+                    f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+v_burst_lp{phase_i}_{ci}))\n"
+                    f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{phase_i}_{ci}}} "
+                    f"attempt {attempt} "
+                    f"vx ${{vx_burst}} ${{vx_burst}} "
+                    f"vy ${{vy_burst}} ${{vy_burst}} "
+                    f"vz ${{vz_burst}} ${{vz_burst}} "
+                    f"region bzone{phase_i}_{ci} near 2.0\n"
+                    f"fix         2 mobile nve\n"
+                    f"fix         3 insert nve\n"
+                    f"run         1 post no\n"
+                    f"run         0\n"
+                    f"{nonargon_refresh}"
+                    f"unfix       burst_depo\n"
+                    f"unfix       2\n"
+                    f"unfix       3\n"
+                    f"next        burst_lp{phase_i}_{ci}\n"
+                    f"jump        SELF burst_dep_{phase_i}_{ci}\n\n"
+                )
+            # Dynamics phase: c_nclusts is current after the last run 0 above
+            lines.append(
+                f"region      bzone{phase_i}_{ci} delete\n"
+                f"# --- Burst chunk {ci+1}/{len(chunks)}: thermalize ---\n"
+                f"{chunk_dump_open}"
+                f"variable    burst_nclusts0 equal $(c_nclusts)\n"
+                f"fix         2 mobile nve\n"
+                f"include     thermalize.lmp\n"
+                f"unfix       2\n"
+                f"{chunk_etch_event}"
+                f"{chunk_dump_close}"
+                f"\n"
+            )
+
+        lines.append(
+            f"group       carbon type 1\n"
+            f"group       hydrogen type 2\n"
+            f"group       oxygen type 3\n"
+            f"variable    ncarbon_b equal count(carbon)\n"
+            f"variable    nhydrogen_b equal count(hydrogen)\n"
+            f"variable    noxygen_b equal count(oxygen)\n"
+            f'print       "Burst complete (${{c}} impacts done)"\n'
+            f'print       "${{c}} 1 ${{ncarbon_b}} ${{nhydrogen_b}} ${{noxygen_b}}" append ncarbon.txt\n'
+            f"write_data  impact_snaps/${{c}}_1.data nofix nocoeff\n"
+            f"variable    cn_start equal 0\n"
+            f"jump        SELF skip_chem\n\n"
+        )
+
+    lines.append(
+        "label       burst_dispatch_done\n"
+        "# ─────────────────────────────────────────────────────────────────────────────\n\n"
+    )
     return "".join(lines)
 
 
@@ -335,25 +645,36 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
     has_o2 = _has_o2(spec)
     switch_pot = _can_switch_potential(spec)
     has_any_radicals = any(p.flux_ratio > 0 for p in spec.phases)
+    has_any_mix = any(p.ion_mix is not None for p in spec.phases)
+    has_any_burst = any(p.radical_burst for p in spec.phases)
     n_types = 4 if has_ar else 3
     dm = spec.dump_mode
 
-    phase_names = " → ".join(
-        f"{p.species}@{p.energy}eV×{p.fluence_ml}ML"
-        + (f"+O•R{p.flux_ratio}" if p.flux_ratio > 0 else "")
-        for p in spec.phases
-    )
+    phase_names = " → ".join(_phase_label(p, i) for i, p in enumerate(spec.phases))
 
     molecule_decl = "molecule    O2 O2.molecule\n" if has_o2 else ""
 
     # nonargon group refresh: only needed when Ar is present
     nonargon_refresh = "group nonargon type 1 2 3\n" if has_ar else ""
 
+    # For ZBL mass line: find the first ZBL species' mass var
+    _zbl_mass_line = ""
+    if has_ar:
+        for p in spec.phases:
+            srcs = p.ion_mix if p.ion_mix is not None else [type('_', (), {'species': p.species})()]
+            for comp in srcs:
+                sp = SPECIES[comp.species]
+                if sp["needs_zbl"]:
+                    _zbl_mass_line = f"mass        4 ${{{sp['mass_var']}}}\n"
+                    break
+            if _zbl_mass_line:
+                break
+
     masses = (
         f"mass        1 ${{M_C}}\n"
         f"mass        2 ${{M_H}}\n"
         f"mass        3 ${{M_O}}\n"
-        + (f"mass        4 ${{M_Ar}}\n" if has_ar else "")
+        + _zbl_mass_line
     )
 
     ar_removal_block = (
@@ -496,6 +817,10 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"variable    idx_in_cycle equal $(v_c-v_cycle_idx*v_impacts_per_cycle)\n"
         f"\n"
         f"{_phase_selection_block(spec.phases, has_ar, switch_pot)}"
+        + (  # stochastic ion selection for ion_mix phases
+            f"{_phase_ion_mix_dispatch_block(spec.phases)}"
+            if has_any_mix else ""
+        ) +
         f"# Ion velocities for current phase\n"
         f"variable    vel_ion equal sqrt(2*${{current_ion_energy}}*6.02214129*1.0e+7/${{current_M_ion}}/6242)/1000\n"
         f"variable    velx_ion equal sin(${{ion_angl}}*PI/180)*cos(${{ion_azimuth}}*PI/180)*${{vel_ion}}\n"
@@ -508,15 +833,27 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"# Adaptive timestep (used for both neutral and ion loops)\n"
         f"fix         ats all dt/reset 1 NULL 1 0.01 units box\n"
         f"\n"
-        + (  # neutral deposition loop — omitted entirely when no phase has radicals
+        + (  # neutral/burst deposition — omitted entirely when no phase has radicals or burst
             f"# ========================= Begin neutral deposition loop =========================\n"
             f'if "${{current_flux_ratio}} == 0" then "jump SELF skip_chem"\n'
-            f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{current_flux_ratio}}" then &\n'
-            f'"variable neutral_lp loop $(v_current_flux_ratio-v_cn_start)" &\n'
-            f'elif "${{cn_start}} == ${{current_flux_ratio}}" &\n'
+            + (  # burst dispatch — jumps to per-phase burst block, skips regular loop
+                _cycle_burst_blocks(spec.phases, spec, nonargon_refresh)
+                if has_any_burst else ""
+            ) +
+            f"# Stochastic floor/ceil: draw floor(R) or ceil(R) radicals so long-run avg = R\n"
+            f"variable    flux_lo equal floor(v_current_flux_ratio)\n"
+            f"variable    flux_hi equal ceil(v_current_flux_ratio)\n"
+            f"variable    p_hi equal v_current_flux_ratio-v_flux_lo\n"
+            f"variable    r_fr equal $(random(0,1,v_c+80000+v_seed_adjust))\n"
+            f"variable    target_flux equal ${{flux_lo}}\n"
+            f'if "${{p_hi}} > 0 && ${{r_fr}} < ${{p_hi}}" then "variable target_flux equal ${{flux_hi}}"\n'
+            f"\n"
+            f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{target_flux}}" then &\n'
+            f'"variable neutral_lp loop $(v_target_flux-v_cn_start)" &\n'
+            f'elif "${{cn_start}} == ${{target_flux}}" &\n'
             f'"jump SELF skip_chem" &\n'
             f"else &\n"
-            f'"variable neutral_lp loop ${{current_flux_ratio}}"\n'
+            f'"variable neutral_lp loop ${{target_flux}}"\n'
             f"\n"
             f"label       neutral_loop\n"
             f"variable    cn equal ${{cn}}+1\n"
@@ -577,8 +914,12 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"unfix       thalt\n"
             f"{neutral_dump_close}"
             f"unfix       depo\n"
-            f"# Thermalize after each radical\n"
-            f"include     thermalize.lmp\n"
+            + (
+                ""
+                if spec.skip_radical_thermalization else
+                f"# Thermalize after each radical\n"
+                f"include     thermalize.lmp\n"
+            ) +
             f"unfix       2\n"
             f"unfix       3\n"
             f"# ======================== End neutral inner loop ========================\n"
@@ -590,7 +931,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"variable    cn equal 0\n"
             f"# ========================= End neutral deposition loop =========================\n"
             f"\n"
-            if has_any_radicals else ""
+            if (has_any_radicals or has_any_burst) else ""
         ) +
         f"# Final thermalize before ion impact\n"
         f"include     thermalize.lmp\n"
@@ -604,11 +945,11 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"# Deposit ion (O2 via molecule file, all others as single atom)\n"
         f'if "${{current_use_molecule}} == 1" then &\n'
         f'"fix depo insert deposit 1 0 1 ${{deposeed}} global '
-        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}}'
+        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}} '
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box mol O2" &\n'
         f"else &\n"
         f'"fix depo insert deposit 1 ${{current_ion_type}} 1 ${{deposeed}} global '
-        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}}'
+        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}} '
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box"\n'
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
@@ -859,12 +1200,20 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
         + (
             f"# ========================= Begin neutral deposition loop =========================\n"
             f'if "${{current_flux_ratio}} == 0" then "jump SELF skip_chem"\n'
-            f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{current_flux_ratio}}" then &\n'
-            f'"variable neutral_lp loop $(v_current_flux_ratio-v_cn_start)" &\n'
-            f'elif "${{cn_start}} == ${{current_flux_ratio}}" &\n'
+            f"# Stochastic floor/ceil: draw floor(R) or ceil(R) radicals so long-run avg = R\n"
+            f"variable    flux_lo equal floor(v_current_flux_ratio)\n"
+            f"variable    flux_hi equal ceil(v_current_flux_ratio)\n"
+            f"variable    p_hi equal v_current_flux_ratio-v_flux_lo\n"
+            f"variable    r_fr equal $(random(0,1,v_c+80000+v_seed_adjust))\n"
+            f"variable    target_flux equal ${{flux_lo}}\n"
+            f'if "${{p_hi}} > 0 && ${{r_fr}} < ${{p_hi}}" then "variable target_flux equal ${{flux_hi}}"\n'
+            f"\n"
+            f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{target_flux}}" then &\n'
+            f'"variable neutral_lp loop $(v_target_flux-v_cn_start)" &\n'
+            f'elif "${{cn_start}} == ${{target_flux}}" &\n'
             f'"jump SELF skip_chem" &\n'
             f"else &\n"
-            f'"variable neutral_lp loop ${{current_flux_ratio}}"\n'
+            f'"variable neutral_lp loop ${{target_flux}}"\n'
             f"\n"
             f"label       neutral_loop\n"
             f"variable    cn equal ${{cn}}+1\n"
@@ -944,11 +1293,11 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
         f"\n"
         f'if "${{current_use_molecule}} == 1" then &\n'
         f'"fix depo insert deposit 1 0 1 ${{deposeed}} global '
-        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}}'
+        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}} '
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box mol O2" &\n'
         f"else &\n"
         f'"fix depo insert deposit 1 ${{current_ion_type}} 1 ${{deposeed}} global '
-        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}}'
+        f'${{ion_i_above}} ${{ion_i_above}} vx ${{velx_ion}} ${{velx_ion}} vy ${{vely_ion}} ${{vely_ion}} '
         f'vz -${{velz_ion}} -${{velz_ion}} region bbox units box"\n'
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"

@@ -63,23 +63,34 @@ def _norm_angle(v) -> Tuple[float, float]:
 class CyclePhase:
     """One phase of a cycling simulation.
 
-    Each phase defines an ion species, its energy, how many monolayers to run
-    per cycle repetition, the number of O• radicals deposited before each ion
-    impact (flux_ratio), and the kinetic energy or temperature of those radicals.
+    Each phase defines an ion species (or ion mix), its energy, how many
+    monolayers to run per cycle repetition, the number of O• radicals deposited
+    before each ion impact (flux_ratio), and the kinetic energy or temperature
+    of those radicals.
+
+    For a stochastic mixture of ion species within a phase set ion_mix to a
+    list of IonComponent entries (fractions must sum to 1.0) and leave species
+    as an empty string.  Only one of species / ion_mix may be set per phase.
     """
-    species:                str
-    energy:                 float          # eV  (total dimer energy for O2)
-    fluence_ml:             int            # ML of this ion species per cycle
-    flux_ratio:             int   = 0      # O• radicals deposited per ion impact (0 = none)
+    species:                str   = ""
+    energy:                 float = 0.0    # eV  (total dimer energy for O2; ignored when ion_mix set)
+    fluence_ml:             int   = 0      # ML of this phase per cycle
+    flux_ratio:             float = 0      # O• radicals deposited per ion impact (0 = none; non-integer → stochastic floor/ceil)
     radical_energy:         float = 0.2    # eV per O• radical (ignored when radical_temperature set)
     radical_temperature:    Optional[float] = None  # K; enables Maxwell-Boltzmann radical sampling
     radical_angle:          Union[float, Tuple[float, float]] = 0.0  # deg from normal; or (polar, azimuth)
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
-    radical_i_above:       float = 6.0    # Å above surface to inject O• radical
+    radical_i_above:        float = 6.0    # Å above surface to inject O• radical
+    radical_burst:          bool  = False  # inject flux_ratio O• as a burst before the ion; fixed-angle mono-energetic only
+    radical_burst_chunk:    int   = 0      # atoms per burst chunk; 0 = auto (0.5 ML)
+    radical_burst_attempt:  int   = 200    # placement attempts per atom in burst mode
+    ion_mix:                Optional[List["IonComponent"]] = None  # stochastic multi-ion mix for this phase
 
     def __post_init__(self):
         self.radical_angle = _norm_angle(self.radical_angle)
+        if self.ion_mix is not None:
+            self.ion_mix = [IonComponent(**c) if isinstance(c, dict) else c for c in self.ion_mix]
 
 
 @dataclass
@@ -114,7 +125,7 @@ class SimSpec:
     remove_ar:              bool  = False  # delete Ar/ZBL ion after each impact; False keeps ion in impact_snaps
     seed_adjust:            int   = 0      # random seed offset; increment for independent replicas
     # ── RIE-etch mode (single-species with radical pre-exposure) ──────────────
-    flux_ratio:             int   = 0      # O• radicals per ion impact (0 = ion-etch; >0 = RIE-etch)
+    flux_ratio:             float = 0      # O• radicals per ion impact (0 = ion-etch; >0 = RIE-etch; non-integer → stochastic floor/ceil)
     radical_energy:         float = 0.2    # eV per O• (used when radical_temperature is None)
     radical_temperature:    Optional[float] = None  # K; enables Maxwell-Boltzmann speed sampling
     radical_angle:          Union[float, Tuple[float, float]] = 0.0  # deg from normal; or (polar, azimuth)
@@ -325,13 +336,33 @@ def validate(spec: "SimSpec") -> None:
         if spec.cycles <= 0:
             sys.exit("cycles must be > 0.")
         for i, p in enumerate(spec.phases):
-            if p.species not in SPECIES:
-                sys.exit(
-                    f"Phase {i} ({p.species!r}): unknown species. "
-                    f"Choose from: {list(SPECIES)}"
-                )
-            if p.energy <= 0:
-                sys.exit(f"Phase {i}: energy must be > 0 eV, got {p.energy}.")
+            has_species = bool(p.species)
+            has_mix     = p.ion_mix is not None
+            if has_species and has_mix:
+                sys.exit(f"Phase {i}: set either species or ion_mix, not both.")
+            if not has_species and not has_mix:
+                sys.exit(f"Phase {i}: must set either species or ion_mix.")
+            if has_mix:
+                if len(p.ion_mix) < 2:
+                    sys.exit(f"Phase {i}: ion_mix must have at least 2 components.")
+                for j, comp in enumerate(p.ion_mix):
+                    if comp.species not in SPECIES:
+                        sys.exit(f"Phase {i} ion_mix[{j}] ({comp.species!r}): unknown species.")
+                    if comp.fraction <= 0:
+                        sys.exit(f"Phase {i} ion_mix[{j}]: fraction must be > 0, got {comp.fraction}.")
+                    if comp.energy <= 0:
+                        sys.exit(f"Phase {i} ion_mix[{j}]: energy must be > 0, got {comp.energy}.")
+                total_frac = sum(c.fraction for c in p.ion_mix)
+                if abs(total_frac - 1.0) > 0.01:
+                    sys.exit(f"Phase {i}: ion_mix fractions sum to {total_frac:.4f}, must be 1.0.")
+            else:
+                if p.species not in SPECIES:
+                    sys.exit(
+                        f"Phase {i} ({p.species!r}): unknown species. "
+                        f"Choose from: {list(SPECIES)}"
+                    )
+                if p.energy <= 0:
+                    sys.exit(f"Phase {i}: energy must be > 0 eV, got {p.energy}.")
             if p.fluence_ml <= 0:
                 sys.exit(f"Phase {i}: fluence_ml must be > 0, got {p.fluence_ml}.")
             if p.flux_ratio < 0:
@@ -340,6 +371,10 @@ def validate(spec: "SimSpec") -> None:
                 sys.exit(f"Phase {i}: radical_energy must be > 0 when flux_ratio > 0, got {p.radical_energy}.")
             if p.radical_temperature is not None and p.radical_temperature <= 0:
                 sys.exit(f"Phase {i}: radical_temperature must be > 0 K, got {p.radical_temperature}.")
+            if p.radical_burst and p.radical_temperature is not None:
+                sys.exit(f"Phase {i}: radical_burst is incompatible with radical_temperature.")
+            if p.radical_burst and p.radical_angle_distribution:
+                sys.exit(f"Phase {i}: radical_burst is incompatible with radical_angle_distribution.")
     elif spec.ion_mix is not None:
         # ── Multi-ion-mode validation ──────────────────────────────────────
         if len(spec.ion_mix) < 2:

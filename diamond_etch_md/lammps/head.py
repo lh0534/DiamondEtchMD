@@ -310,12 +310,20 @@ def _radical_loop_block(spec: SimSpec) -> str:
 
     blk = (
         f"# ========= Begin RIE-etch O• radical deposition loop =========\n"
-        f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{flux_ratio}}" then &\n'
-        f'"variable neutral_lp loop $(v_flux_ratio-v_cn_start)" &\n'
-        f'elif "${{cn_start}} == ${{flux_ratio}}" &\n'
+        f"# Stochastic floor/ceil: draw floor(R) or ceil(R) radicals so long-run avg = R\n"
+        f"variable    flux_lo equal floor(v_flux_ratio)\n"
+        f"variable    flux_hi equal ceil(v_flux_ratio)\n"
+        f"variable    p_hi equal v_flux_ratio-v_flux_lo\n"
+        f"variable    r_fr equal $(random(0,1,v_c+80000+v_seed_adjust))\n"
+        f"variable    target_flux equal ${{flux_lo}}\n"
+        f'if "${{p_hi}} > 0 && ${{r_fr}} < ${{p_hi}}" then "variable target_flux equal ${{flux_hi}}"\n'
+        f"\n"
+        f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{target_flux}}" then &\n'
+        f'"variable neutral_lp loop $(v_target_flux-v_cn_start)" &\n'
+        f'elif "${{cn_start}} == ${{target_flux}}" &\n'
         f'"jump SELF skip_radicals" &\n'
         f"else &\n"
-        f'"variable neutral_lp loop ${{flux_ratio}}"\n'
+        f'"variable neutral_lp loop ${{target_flux}}"\n'
         f"\n"
         f"label       neutral_loop\n"
         f"# Refresh bbox: each radical can shrink zhi; must update before next deposit\n"
@@ -457,6 +465,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
             if spec.dump_first_impact else ""
         )
         blk += (
+            f"variable    n_c_ejected_total equal 0\n"
             f"variable    keep_dump_n equal 0\n"
             f"{_rad_first_guard}"
             f"dump        current_dump_n all custom 100 "
@@ -511,10 +520,10 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"run         0\n"
         f'if "$(c_nclusts) > ${{starting_nclusts}}" then &\n'
         f'"variable event_count equal ${{event_count}}+1" &\n'
-        f'"variable starting_nclusts equal $(c_nclusts)"'
-        + (' &\n"variable keep_dump_n equal 1"' if dm == "etch_only" else "")
-        + "\n"
+        f'"variable starting_nclusts equal $(c_nclusts)"\n'
         + f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
+        + (f'if "${{n_c_ejected_total}} > 0" then "variable keep_dump_n equal 1"\n'
+           if dm == "etch_only" else "")
     )
 
     blk += (
@@ -648,7 +657,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
     ml         = spec.ml
     auto_chunk = max(1, round(0.5 * ml))
     chunk_size = spec.radical_burst_chunk if spec.radical_burst_chunk > 0 else auto_chunk
-    total      = max(1, spec.flux_ratio)
+    total      = max(1, round(spec.flux_ratio))
     n_full     = total // chunk_size
     remainder  = total % chunk_size
     chunks     = [chunk_size] * n_full + ([remainder] if remainder > 0 else [])
@@ -728,6 +737,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
                 if spec.dump_first_impact and ci == 0 else ""
             )
             chunk_dump_open  = (
+                f"variable    n_c_ejected_total equal 0\n"
                 f"variable    keep_dump_burst equal 0\n"
                 f"{_burst_first_guard}"
                 f"dump        current_dump_burst all custom 100 {dump_file} {dump_cols}\n"
@@ -739,8 +749,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
             etch_event_line  = (
                 f'if "$(c_nclusts) > ${{burst_nclusts0}}" then &\n'
                 f'"variable event_count equal ${{event_count}}+1" &\n'
-                f'"variable burst_nclusts0 equal $(c_nclusts)" &\n'
-                f'"variable keep_dump_burst equal 1"\n'
+                f'"variable burst_nclusts0 equal $(c_nclusts)"\n'
             )
 
         # ── All atoms in chunk: narrow z-region at bound(all,zmax)+radical_i_above ──
@@ -830,7 +839,9 @@ def _radical_burst_block(spec: SimSpec) -> str:
             f"run         0\n"
             f"{etch_event_line}"
             f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
-            f'if "$(time-v_t0_burst) < ${{inter_neutral_time}}" then "jump SELF burst_inner_{ci}"\n'
+            + (f'if "${{n_c_ejected_total}} > 0" then "variable keep_dump_burst equal 1"\n'
+               if dm == "etch_only" else "")
+            + f'if "$(time-v_t0_burst) < ${{inter_neutral_time}}" then "jump SELF burst_inner_{ci}"\n'
             f"unfix       burst_thalt\n"
             f"unfix       ats_burst\n"
             f"{chunk_dump_close}"
@@ -1180,6 +1191,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"# Pre-run counters\n"
         f"variable c equal ${{n_complete}}\n"
         f"variable event_count equal ${{n_events}}\n"
+        f"variable n_c_ejected_total equal 0\n"
         f"{rie_pre_loop or _CN_ZERO}"
         f"\n"
         f"# Atom counts\n"

@@ -58,6 +58,7 @@ REFLECT_THRESH = 1.0   # Å — below this → reflected even if in final frame
 CAGE_THRESH    = 4.0   # Å — cage zone 1 upper bound / 1st_interlayer lower bound
 CAGE2_THRESH   = 11.9   # Å — 1st_interlayer upper bound / cage zone 2 lower bound
 CHANNEL_THRESH = 12.0  # Å — cage zone 2 upper bound / 2nd_interlayer lower bound
+_NC_VMAX       = 25.0  # Å — fixed colorbar/ylim ceiling for --noclass plots
 
 # gradient bands: reflected | cage1 | 1st_int | cage2 | 2nd_int
 # cage zones share the same colour so the gradient visually groups them
@@ -72,7 +73,7 @@ _OUTCOME_ALIASES = {
     "1st":            "1st_interlayer",
     "2nd interlayer": "2nd_interlayer",
     "2nd":            "2nd_interlayer",
-    "channeled":      "2nd_interlayer",  # old token → now 2nd_interlayer
+    "channeled":      "2nd_interlayer",
 }
 
 def _normalize_outcome(s: str) -> str:
@@ -275,36 +276,43 @@ def _legend_labels(outcomes, n_total):
     }
 
 
-def _scatter(trials, depths, outcomes, sim_dir: Path, title: str = "") -> None:
+def _scatter(trials, depths, outcomes, sim_dir: Path, title: str = "",
+             noclass: bool = False, final_depths: np.ndarray = None) -> None:
     fig, ax = plt.subplots(figsize=(4, 3))
-    labels = _legend_labels(outcomes, len(outcomes))
 
-    for outcome, color in [
-        ("reflected",      _C_REFLECTED),
-        ("cage",           _C_CAGE),
-        ("1st_interlayer", _C_INTERLAYER),
-        ("2nd_interlayer", _C_2ND_INT),
-    ]:
-        mask = np.array([o == outcome for o in outcomes])
-        if mask.any():
-            ax.scatter(trials[mask], depths[mask], s=20, alpha=0.7, zorder=2,
-                       color=color, label=labels[outcome])
-        else:
-            ax.scatter([], [], s=20, alpha=0.7, color=color, label=labels[outcome])
+    if noclass and final_depths is not None:
+        sc = ax.scatter(trials, depths, s=20, alpha=0.85, zorder=2,
+                        c=final_depths, cmap="plasma_r", vmin=0, vmax=_NC_VMAX)
+        fig.colorbar(sc, ax=ax, label="Final depth (Å)", shrink=0.85)
+    else:
+        labels = _legend_labels(outcomes, len(outcomes))
+        for outcome, color in [
+            ("reflected",      _C_REFLECTED),
+            ("cage",           _C_CAGE),
+            ("1st_interlayer", _C_INTERLAYER),
+            ("2nd_interlayer", _C_2ND_INT),
+        ]:
+            mask = np.array([o == outcome for o in outcomes])
+            if mask.any():
+                ax.scatter(trials[mask], depths[mask], s=20, alpha=0.7, zorder=2,
+                           color=color, label=labels[outcome])
+            else:
+                ax.scatter([], [], s=20, alpha=0.7, color=color, label=labels[outcome])
+        ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
+                  handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99),
+                  loc="lower center")
 
     ymax = max(depths.max() * 1.1, CHANNEL_THRESH * 1.15) if len(depths) else CHANNEL_THRESH * 1.2
+    if noclass:
+        ymax = _NC_VMAX
     ax.set_ylim(ymax, 0)
     ax.xaxis.set_minor_locator(AutoMinorLocator())
     ax.grid(which='major', axis='x', color='white', linewidth=0.6, alpha=0.6, zorder=1)
     ax.grid(which='minor', axis='x', color='white', linewidth=0.3, alpha=0.35, zorder=1)
-    # _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
 
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Depth (Å)")
     ax.set_title(title, fontsize=12, y=1.05)
-    ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
-              handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99
-              ), loc="lower center")
     fig.tight_layout()
     out = sim_dir / "penetration_scatter.png"
     fig.savefig(out, dpi=300, bbox_inches="tight")
@@ -312,9 +320,9 @@ def _scatter(trials, depths, outcomes, sim_dir: Path, title: str = "") -> None:
     print(f"Saved: {out}")
 
 
-def _histogram(depths, outcomes, sim_dir: Path, title: str = "") -> None:
+def _histogram(depths, outcomes, sim_dir: Path, title: str = "",
+               noclass: bool = False) -> None:
     fig, ax = plt.subplots(figsize=(4, 3))
-    labels = _legend_labels(outcomes, len(outcomes))
 
     depths_arr   = np.array(depths)
     outcomes_arr = np.array(outcomes)
@@ -322,31 +330,37 @@ def _histogram(depths, outcomes, sim_dir: Path, title: str = "") -> None:
     if len(depths_arr) == 0:
         ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
         ymax = CHANNEL_THRESH * 1.2
-        bins = np.linspace(0, ymax, 25)
     else:
         ymax = max(depths_arr.max() * 1.05, CHANNEL_THRESH * 1.15)
-        bins = np.linspace(0, ymax, 25)
+    if noclass:
+        ymax = _NC_VMAX
+    bins = np.linspace(0, ymax, 25)
 
-    for outcome, color in [
-        ("reflected",      _C_REFLECTED),
-        ("cage",           _C_CAGE),
-        ("1st_interlayer", _C_INTERLAYER),
-        ("2nd_interlayer", _C_2ND_INT),
-    ]:
-        mask = outcomes_arr == outcome if len(outcomes_arr) else np.array([], dtype=bool)
-        data = depths_arr[mask] if mask.any() else np.array([])
-        ax.hist(data, bins=bins, color=color, edgecolor="white",
-                linewidth=0.4, alpha=0.7, zorder=2, label=labels[outcome],
-                orientation="horizontal")
+    if noclass:
+        ax.hist(depths_arr, bins=bins, color="steelblue", edgecolor="white",
+                linewidth=0.4, alpha=0.8, zorder=2, orientation="horizontal")
+    else:
+        labels = _legend_labels(outcomes, len(outcomes))
+        for outcome, color in [
+            ("reflected",      _C_REFLECTED),
+            ("cage",           _C_CAGE),
+            ("1st_interlayer", _C_INTERLAYER),
+            ("2nd_interlayer", _C_2ND_INT),
+        ]:
+            mask = outcomes_arr == outcome if len(outcomes_arr) else np.array([], dtype=bool)
+            data = depths_arr[mask] if mask.any() else np.array([])
+            ax.hist(data, bins=bins, color=color, edgecolor="white",
+                    linewidth=0.4, alpha=0.7, zorder=2, label=labels[outcome],
+                    orientation="horizontal")
+        ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
+                  handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99),
+                  loc="lower center")
 
     ax.set_ylim(ymax, 0)
-    # _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
 
     ax.set_xlabel("Count")
     ax.set_ylabel("Depth (Å)")
     ax.set_title(title, fontsize=12, y=1.05)
-    ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
-              handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99), loc="lower center")
     fig.tight_layout()
     out = sim_dir / "penetration_histogram.png"
     fig.savefig(out, dpi=300, bbox_inches="tight")
@@ -355,7 +369,8 @@ def _histogram(depths, outcomes, sim_dir: Path, title: str = "") -> None:
 
 
 
-def _ztrace(sim_dir: Path, spec: dict, outcomes: list, title: str = "") -> None:
+def _ztrace(sim_dir: Path, spec: dict, outcomes: list, title: str = "",
+            noclass: bool = False, final_depths_map: dict = None) -> None:
     """Plot per-trial ion depth traces coloured by outcome; save penetration_traces.png."""
     traj_path = sim_dir / "ion_z_trajectories.txt"
     summ_path = sim_dir / "ion_z_summary.txt"
@@ -375,31 +390,40 @@ def _ztrace(sim_dir: Path, spec: dict, outcomes: list, title: str = "") -> None:
 
     fig, ax = plt.subplots(figsize=(5.5, 2.5))
 
-    # Plot traces; track which legend entries have been drawn
-    _drawn = set()
-    for trial, frames in sorted(trajs.items()):
-        outcome = outcome_map.get(trial, "reflected")
-        surf_z  = surf_z_map.get(trial, np.nan)
-        color   = _color(outcome)
-
-        xs = list(range(len(frames)))
-        ys = [max(surf_z - z, 0.0) if np.isfinite(surf_z) else 0.0
-              for _, z in frames]
-
-        lbl = labels[outcome] if outcome not in _drawn else None
-        ax.plot(xs, ys, color=color, alpha=0.5, linewidth=0.8, label=lbl, zorder=2)
-        _drawn.add(outcome)
-
-    # Dummy lines for any outcome categories not present in the data
-    for outcome, color in [
-        ("reflected",      _C_REFLECTED),
-        # ("cage",           _C_CAGE),
-        ("1st_interlayer", _C_INTERLAYER),
-        ("2nd_interlayer", _C_2ND_INT),
-    ]:
-        if outcome not in _drawn:
-            ax.plot([], [], color=color, alpha=0.7, linewidth=1.0,
-                    label=labels[outcome])
+    if noclass and final_depths_map:
+        fd_vals = np.array([final_depths_map.get(t, 0.0) for t in trajs])
+        cmap = plt.get_cmap("plasma_r")
+        norm = mcolors.Normalize(vmin=0, vmax=_NC_VMAX)
+        for trial, frames in sorted(trajs.items()):
+            surf_z = surf_z_map.get(trial, np.nan)
+            fd = final_depths_map.get(trial, 0.0)
+            xs = list(range(len(frames)))
+            ys = [max(surf_z - z, 0.0) if np.isfinite(surf_z) else 0.0 for _, z in frames]
+            ax.plot(xs, ys, color=cmap(norm(fd)), alpha=0.6, linewidth=0.8, zorder=2)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        fig.colorbar(sm, ax=ax, label="Final depth (Å)", shrink=0.85)
+    else:
+        # Plot traces; track which legend entries have been drawn
+        _drawn = set()
+        for trial, frames in sorted(trajs.items()):
+            outcome = outcome_map.get(trial, "reflected")
+            surf_z  = surf_z_map.get(trial, np.nan)
+            color   = _color(outcome)
+            xs = list(range(len(frames)))
+            ys = [max(surf_z - z, 0.0) if np.isfinite(surf_z) else 0.0 for _, z in frames]
+            lbl = labels[outcome] if outcome not in _drawn else None
+            ax.plot(xs, ys, color=color, alpha=0.5, linewidth=0.8, label=lbl, zorder=2)
+            _drawn.add(outcome)
+        # Dummy lines for any outcome categories not present in the data
+        for outcome, color in [
+            ("reflected",      _C_REFLECTED),
+            # ("cage",           _C_CAGE),
+            ("1st_interlayer", _C_INTERLAYER),
+            ("2nd_interlayer", _C_2ND_INT),
+        ]:
+            if outcome not in _drawn:
+                ax.plot([], [], color=color, alpha=0.7, linewidth=1.0, label=labels[outcome])
 
     # y-axis: depth increasing downward
     all_depths = [
@@ -409,14 +433,17 @@ def _ztrace(sim_dir: Path, spec: dict, outcomes: list, title: str = "") -> None:
         if np.isfinite(surf_z_map.get(tr, np.nan))
     ]
     ymax = max(max(all_depths) * 1.1, CHANNEL_THRESH * 1.15) if all_depths else CHANNEL_THRESH * 1.2
+    if noclass:
+        ymax = _NC_VMAX
     ax.set_ylim(ymax, 0)
     # _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
 
-    ax.text(0.02, 0.05, f"{spec.get("energy", "?")} eV {spec.get("species", "?")}$^+$", fontsize=12, color="black", transform=ax.transAxes)
+    _sp = spec.get("species", "?")
+    _sp_label = _sp[:-1] if (_sp.endswith("C") and len(_sp) > 1 and _sp != "C") else _sp
+    ax.text(0.02, 0.05, f"{spec.get("energy", "?")} eV {_sp_label}$^+$", fontsize=12, color="black", transform=ax.transAxes)
     ax.set_xlabel("Frame (adaptive timestep)")
     ax.set_ylabel("Depth (Å)")
-    ax.set_xlim(0, 70)
-    ax.set_ylim(18, 0)
+    ax.set_xlim(left=0)
     # ax.set_title(title, fontsize=12, y=1.05)
     ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0, markerscale=2.0,
               handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99), loc="lower center")
@@ -427,7 +454,8 @@ def _ztrace(sim_dir: Path, spec: dict, outcomes: list, title: str = "") -> None:
     print(f"Saved: {out}")
 
 
-def _scatter_final_z(trials, depths, outcomes, sim_dir: Path, title: str = "") -> None:
+def _scatter_final_z(trials, depths, outcomes, sim_dir: Path, title: str = "",
+                     noclass: bool = False) -> None:
     """Plot final resting depth (surf_z - last-frame ion z) per trial; save penetration_final_z.png."""
     traj_path = sim_dir / "ion_z_trajectories.txt"
     summ_path = sim_dir / "ion_z_summary.txt"
@@ -457,25 +485,35 @@ def _scatter_final_z(trials, depths, outcomes, sim_dir: Path, title: str = "") -
             final_depths[trial] = max(sz - last_z, 0.0)
 
     fig, ax = plt.subplots(figsize=(4, 3))
-
-    for outcome, color in [
-        ("reflected",      _C_REFLECTED),
-        ("cage",           _C_CAGE),
-        ("1st_interlayer", _C_INTERLAYER),
-        ("2nd_interlayer", _C_2ND_INT),
-    ]:
-        t_vals = [t for t in trial_nums if outcome_map.get(t) == outcome and t in final_depths]
-        d_vals = [final_depths[t] for t in t_vals]
-        if t_vals:
-            ax.scatter(t_vals, d_vals, s=20, alpha=0.7, zorder=2,
-                       color=color, label=labels[outcome])
-        else:
-            ax.scatter([], [], s=20, alpha=0.7, color=color, label=labels[outcome])
-
     all_fd = list(final_depths.values())
     ymax = max(max(all_fd) * 1.1, CHANNEL_THRESH * 1.15) if all_fd else CHANNEL_THRESH * 1.2
+    if noclass:
+        ymax = _NC_VMAX
+
+    if noclass:
+        t_vals = [t for t in trial_nums if t in final_depths]
+        d_vals = [final_depths[t] for t in t_vals]
+        sc = ax.scatter(t_vals, d_vals, s=20, alpha=0.85, zorder=2,
+                        c=d_vals, cmap="plasma_r", vmin=0, vmax=_NC_VMAX)
+        fig.colorbar(sc, ax=ax, label="Final depth (Å)", shrink=0.85)
+    else:
+        for outcome, color in [
+            ("reflected",      _C_REFLECTED),
+            ("cage",           _C_CAGE),
+            ("1st_interlayer", _C_INTERLAYER),
+            ("2nd_interlayer", _C_2ND_INT),
+        ]:
+            t_vals = [t for t in trial_nums if outcome_map.get(t) == outcome and t in final_depths]
+            d_vals = [final_depths[t] for t in t_vals]
+            if t_vals:
+                ax.scatter(t_vals, d_vals, s=20, alpha=0.7, zorder=2,
+                           color=color, label=labels[outcome])
+            else:
+                ax.scatter([], [], s=20, alpha=0.7, color=color, label=labels[outcome])
+        ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
+                  handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99), loc="lower center")
+
     ax.set_ylim(ymax, 0)
-    # _bg_gradient(ax, _THRESHOLDS, _COLORS, axis='y')
     ax.xaxis.set_minor_locator(AutoMinorLocator())
     ax.grid(which='major', axis='x', color='white', linewidth=0.6, alpha=0.6, zorder=1)
     ax.grid(which='minor', axis='x', color='white', linewidth=0.3, alpha=0.35, zorder=1)
@@ -483,8 +521,6 @@ def _scatter_final_z(trials, depths, outcomes, sim_dir: Path, title: str = "") -
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Depth (Å)")
     ax.set_title(title, fontsize=12, y=1.05)
-    ax.legend(fontsize=7, frameon=False, ncol=4, labelspacing=0.2, columnspacing=1.0,
-              handlelength=1.2, handletextpad=0.2, bbox_to_anchor=(0.5, 0.99), loc="lower center")
     fig.tight_layout()
     out = sim_dir / "penetration_final_z.png"
     fig.savefig(out, dpi=300, bbox_inches="tight")
@@ -510,7 +546,8 @@ def _get_final_depths(sim_dir: Path, trials_l: list) -> np.ndarray:
     return out
 
 
-def _summary(sim_dir: Path, trials, pen_depths, final_depths, outcomes, title: str = "") -> None:
+def _summary(sim_dir: Path, trials, pen_depths, final_depths, outcomes, title: str = "",
+             noclass: bool = False) -> None:
     """2-panel summary figure: z-traces | pen+final depth per trial."""
     traj_path = sim_dir / "ion_z_trajectories.txt"
     summ_path = sim_dir / "ion_z_summary.txt"
@@ -547,53 +584,85 @@ def _summary(sim_dir: Path, trials, pen_depths, final_depths, outcomes, title: s
         CHANNEL_THRESH * 1.15,
     )
 
-    # ── Panel 1: z-traces (hosts the shared outcome legend) ───────────────
-    _drawn = set()
-    for trial, frames in sorted(trajs.items()):
-        outcome = outcome_map.get(trial, "reflected")
-        surf_z  = surf_z_map.get(trial, np.nan)
-        color   = _color(outcome)
-        xs = list(range(len(frames)))
-        ys = [max(surf_z - z, 0.0) if np.isfinite(surf_z) else 0.0 for _, z in frames]
-        lbl = labels[outcome] if outcome not in _drawn else None
-        ax1.plot(xs, ys, color=color, alpha=0.5, linewidth=0.8, label=lbl, zorder=2)
-        _drawn.add(outcome)
-    for outcome, color in [
-        ("reflected",      _C_REFLECTED),
-        # ("cage",           _C_CAGE),
-        ("1st_interlayer", _C_INTERLAYER),
-        ("2nd_interlayer", _C_2ND_INT),
-    ]:
-        if outcome not in _drawn:
-            ax1.plot([], [], color=color, alpha=0.7, linewidth=1.0, label=labels[outcome])
+    if noclass:
+        ymax = _NC_VMAX
+    cmap = plt.get_cmap("plasma_r") if noclass else None
+    norm = mcolors.Normalize(vmin=0, vmax=_NC_VMAX) if noclass else None
+
+    # ── Panel 1: z-traces ─────────────────────────────────────────────────
+    if noclass:
+        for trial, frames in sorted(trajs.items()):
+            surf_z = surf_z_map.get(trial, np.nan)
+            fd = fd_arr[trials_arr == trial][0] if (trials_arr == trial).any() else 0.0
+            xs = list(range(len(frames)))
+            ys = [max(surf_z - z, 0.0) if np.isfinite(surf_z) else 0.0 for _, z in frames]
+            ax1.plot(xs, ys, color=cmap(norm(fd)), alpha=0.6, linewidth=0.8, zorder=2)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        fig.colorbar(sm, ax=ax1, label="Final depth (Å)", shrink=0.85)
+    else:
+        _drawn = set()
+        for trial, frames in sorted(trajs.items()):
+            outcome = outcome_map.get(trial, "reflected")
+            surf_z  = surf_z_map.get(trial, np.nan)
+            color   = _color(outcome)
+            xs = list(range(len(frames)))
+            ys = [max(surf_z - z, 0.0) if np.isfinite(surf_z) else 0.0 for _, z in frames]
+            lbl = labels[outcome] if outcome not in _drawn else None
+            ax1.plot(xs, ys, color=color, alpha=0.5, linewidth=0.8, label=lbl, zorder=2)
+            _drawn.add(outcome)
+        for outcome, color in [
+            ("reflected",      _C_REFLECTED),
+            ("1st_interlayer", _C_INTERLAYER),
+            ("2nd_interlayer", _C_2ND_INT),
+        ]:
+            if outcome not in _drawn:
+                ax1.plot([], [], color=color, alpha=0.7, linewidth=1.0, label=labels[outcome])
+        ax1.legend(fontsize=10, frameon=False, ncol=4, labelspacing=0.1,
+                   markerscale=5.0, handlelength=1.0, handletextpad=0.3,
+                   loc="upper center", bbox_to_anchor=(1, 1.13))
     ax1.set_ylim(ymax, 0)
-    # _bg_gradient(ax1, _THRESHOLDS, _COLORS, axis='y')
     ax1.set_xlabel("Frame (adaptive timestep)")
     ax1.set_ylabel("Depth (Å)")
-    ax1.legend(fontsize=10, frameon=False, ncol=4, labelspacing=0.1,
-               markerscale=5.0, handlelength=1.0, handletextpad=0.3,
-               loc="upper center", bbox_to_anchor=(1, 1.13))
 
     # ── Panel 2: pen depth + final depth per trial, connected by line ──────
-    for outcome, color in [
-        ("reflected",      _C_REFLECTED),
-        # ("cage",           _C_CAGE),
-        ("1st_interlayer", _C_INTERLAYER),
-        ("2nd_interlayer", _C_2ND_INT),
-    ]:
-        mask = outcomes_arr == outcome
-        if not mask.any():
-            continue
-        t_vals  = trials_arr[mask]
-        pd_vals = pd_arr[mask]
-        fd_vals = fd_arr[mask]
-        ax2.vlines(t_vals, fd_vals, pd_vals, color=color, alpha=0.35, linewidth=0.9, zorder=2)
-        ax2.scatter(t_vals, pd_vals, s=14, color=color, alpha=0.85, zorder=3, marker='o')
-        ax2.scatter(t_vals, fd_vals, s=14, facecolors='none', edgecolors=color,
-                    alpha=0.85, linewidths=0.8, zorder=3, marker='o')
+    if noclass:
+        colors_p2 = cmap(norm(fd_arr))
+        ax2.vlines(trials_arr, fd_arr, pd_arr, color=colors_p2, alpha=0.35, linewidth=0.9, zorder=2)
+        sc2 = ax2.scatter(trials_arr, pd_arr, s=14, c=fd_arr, cmap="plasma_r",
+                          vmin=0, vmax=_NC_VMAX, alpha=0.85, zorder=3, marker='o')
+        ax2.scatter(trials_arr, fd_arr, s=14, facecolors='none', edgecolors=colors_p2,
+                    linewidths=0.8, alpha=0.85, zorder=4, marker='o')
+        ax2.scatter([], [], s=14, color='grey', marker='o', alpha=0.7, label='Max depth')
+        ax2.scatter([], [], s=14, facecolors='none', edgecolors='grey',
+                    linewidths=0.8, marker='o', alpha=0.7, label='Final depth')
+        ax2.legend(fontsize=10, frameon=False, ncol=2, labelspacing=0.1,
+                   handlelength=1.0, handletextpad=0.3, markerscale=2.0)
+        fig.colorbar(sc2, ax=ax2, label="Final depth (Å)", shrink=0.85)
+    else:
+        for outcome, color in [
+            ("reflected",      _C_REFLECTED),
+            ("1st_interlayer", _C_INTERLAYER),
+            ("2nd_interlayer", _C_2ND_INT),
+        ]:
+            mask = outcomes_arr == outcome
+            if not mask.any():
+                continue
+            t_vals  = trials_arr[mask]
+            pd_vals = pd_arr[mask]
+            fd_vals = fd_arr[mask]
+            ax2.vlines(t_vals, fd_vals, pd_vals, color=color, alpha=0.35, linewidth=0.9, zorder=2)
+            ax2.scatter(t_vals, pd_vals, s=14, color=color, alpha=0.85, zorder=3, marker='o')
+            ax2.scatter(t_vals, fd_vals, s=14, facecolors='none', edgecolors=color,
+                        alpha=0.85, linewidths=0.8, zorder=3, marker='o')
+        # marker-type legend (filled vs. open)
+        ax2.scatter([], [], s=14, color='grey', marker='o', alpha=0.7, label='Max depth')
+        ax2.scatter([], [], s=14, facecolors='none', edgecolors='grey',
+                    linewidths=0.8, marker='o', alpha=0.7, label='Final depth')
+        ax2.legend(fontsize=10, frameon=False, ncol=2, labelspacing=0.1,
+                   handlelength=1.0, handletextpad=0.3, markerscale=2.0)
 
     ax2.set_ylim(ymax, 0)
-    # _bg_gradient(ax2, _THRESHOLDS, _COLORS, axis='y')
     ax2.xaxis.set_major_locator(MultipleLocator(5))
     ax2.xaxis.set_minor_locator(AutoMinorLocator())
     ax2.xaxis.set_major_formatter(
@@ -603,12 +672,6 @@ def _summary(sim_dir: Path, trials, pen_depths, final_depths, outcomes, title: s
     ax2.grid(which='minor', axis='x', color='white', linewidth=0.3, alpha=0.3, zorder=1)
     ax2.tick_params(labelleft=False)
     ax2.set_xlabel("Trial #")
-    # marker-type legend (filled vs. open)
-    ax2.scatter([], [], s=14, color='grey', marker='o', alpha=0.7, label='Max depth')
-    ax2.scatter([], [], s=14, facecolors='none', edgecolors='grey',
-                linewidths=0.8, marker='o', alpha=0.7, label='Final depth')
-    ax2.legend(fontsize=10, frameon=False, ncol=2, labelspacing=0.1,
-               handlelength=1.0, handletextpad=0.3, markerscale=2.0)
 
     fig.tight_layout()
     out = sim_dir / "penetration_summary.png"
@@ -726,7 +789,7 @@ def _write_summary(sim_dir, files, surf_z_map, i_above, incident_type=4, substra
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-def analyze_ar_z(sim_dir: Path, recompute: bool = False) -> dict:
+def analyze_ar_z(sim_dir: Path, recompute: bool = False, noclass: bool = False) -> dict:
     traj_path = sim_dir / "ion_z_trajectories.txt"
     summ_path = sim_dir / "ion_z_summary.txt"
 
@@ -784,11 +847,14 @@ def analyze_ar_z(sim_dir: Path, recompute: bool = False) -> dict:
 
     final_depths_arr = _get_final_depths(sim_dir, trials_l)
 
-    _scatter(trials, depths, outcomes, sim_dir, title=title)
-    _histogram(final_depths_arr, outcomes, sim_dir, title=title)
-    _ztrace(sim_dir, spec_data, outcomes, title=title)
-    _scatter_final_z(trials, depths, outcomes, sim_dir, title=title)
-    _summary(sim_dir, trials, depths, final_depths_arr, outcomes, title=title)
+    final_depths_map = dict(zip(trials_l, final_depths_arr.tolist()))
+    _scatter(trials, depths, outcomes, sim_dir, title=title,
+             noclass=noclass, final_depths=final_depths_arr)
+    _histogram(final_depths_arr, outcomes, sim_dir, title=title, noclass=noclass)
+    _ztrace(sim_dir, spec_data, outcomes, title=title,
+            noclass=noclass, final_depths_map=final_depths_map)
+    _scatter_final_z(trials, depths, outcomes, sim_dir, title=title, noclass=noclass)
+    _summary(sim_dir, trials, depths, final_depths_arr, outcomes, title=title, noclass=noclass)
 
     return {
         "n_trials":          n_total,
@@ -808,5 +874,7 @@ if __name__ == "__main__":
     parser.add_argument("sim_dir", nargs="?", default=".", help="simulation directory (default: .)")
     parser.add_argument("--recompute", action="store_true",
                         help="re-parse dumps and overwrite ion_z_trajectories.txt / ion_z_summary.txt")
+    parser.add_argument("--noclass", action="store_true",
+                        help="color plots by final implantation depth (plasma_r) instead of outcome class")
     args = parser.parse_args()
-    analyze_ar_z(Path(args.sim_dir), recompute=args.recompute)
+    analyze_ar_z(Path(args.sim_dir), recompute=args.recompute, noclass=args.noclass)

@@ -39,7 +39,7 @@ def _zbl_mass_vars(species_iter) -> str:
     """Return 'variable M_X equal ...' lines for each unique ZBL species."""
     seen, out = set(), ""
     for sp in species_iter:
-        if sp["needs_zbl"] and sp["mass_var"] not in seen:
+        if (sp["needs_zbl"] or sp.get("emit_mass_var")) and sp["mass_var"] not in seen:
             out += f"variable    {sp['mass_var']} equal {sp['mass']}\n"
             seen.add(sp["mass_var"])
     return out
@@ -331,12 +331,25 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
     # Per-phase parameter block
     phase_vars = ""
     for i, p in enumerate(spec.phases):
-        sp = SPECIES[p.species]
-        energy_per_atom = p.energy / sp["energy_divisor"]
-        phase_vars += (
-            f"variable    phase_{i}_ml equal {p.fluence_ml}       # ML per cycle ({p.species})\n"
-            f"variable    phase_{i}_energy equal {energy_per_atom} # eV/atom\n"
-        )
+        if p.ion_mix is not None:
+            # Mix phase: emit per-component energy vars; no single phase energy
+            mix_label = "+".join(f"{c.species}({c.fraction:.0%})" for c in p.ion_mix)
+            phase_vars += f"variable    phase_{i}_ml equal {p.fluence_ml}       # ML per cycle ({mix_label})\n"
+            # Individual component energies (used by the mix dispatch block at runtime)
+            for j, comp in enumerate(p.ion_mix):
+                sp_c = SPECIES[comp.species]
+                energy_per_atom = comp.energy / sp_c["energy_divisor"]
+                phase_vars += (
+                    f"variable    phase_{i}_energy_comp_{j} equal {energy_per_atom} "
+                    f"# eV/atom ({comp.species})\n"
+                )
+        else:
+            sp = SPECIES[p.species]
+            energy_per_atom = p.energy / sp["energy_divisor"]
+            phase_vars += (
+                f"variable    phase_{i}_ml equal {p.fluence_ml}       # ML per cycle ({p.species})\n"
+                f"variable    phase_{i}_energy equal {energy_per_atom} # eV/atom\n"
+            )
         if p.flux_ratio > 0:
             phase_vars += _radical_config_block(
                 flux_ratio=p.flux_ratio,
@@ -348,12 +361,15 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
                 radical_i_above=p.radical_i_above,
                 inter_neutral_time=spec.inter_neutral_time,
                 prefix=f"phase_{i}_",
+                burst_correction=p.radical_burst,
             )
         else:
             phase_vars += f"variable    phase_{i}_flux_ratio equal 0\n"
 
     phase_summary = ", ".join(
-        f"{p.species}@{p.energy}eV×{p.fluence_ml}ML"
+        ("+".join(f"{c.species}({c.fraction:.0%})" for c in p.ion_mix)
+         if p.ion_mix is not None else f"{p.species}@{p.energy}eV")
+        + f"×{p.fluence_ml}ML"
         + (f"+O•R{p.flux_ratio}" if p.flux_ratio > 0 else "")
         for p in spec.phases
     )
@@ -398,7 +414,15 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"variable    M_C equal 12.011\n"
         f"variable    M_H equal 1.00784\n"
         f"variable    M_O equal 16.0\n"
-        + _zbl_mass_vars(SPECIES[p.species] for p in spec.phases)
+        + _zbl_mass_vars(
+            sp
+            for p in spec.phases
+            for sp in (
+                [SPECIES[c.species] for c in p.ion_mix]
+                if p.ion_mix is not None
+                else [SPECIES[p.species]]
+            )
+        )
         + f"\n"
         f"variable    seed_adjust equal {spec.seed_adjust}\n"
         f"\n"
