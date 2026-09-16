@@ -127,7 +127,7 @@ def _step_config_block(spec: SimSpec) -> str:
         f"variable    step_invert    equal {'1' if spec.step_invert else '0'}\n"
         f"variable    step_depth_ang equal {depth}\n"
         f"\n# Sweep options\n"
-        f"variable    do_z_check         equal {'1' if spec.sweep_z_check else '0'}\n"
+        f"variable    above_surf_eject   equal {'1' if spec.above_surf_eject else '0'}\n"
         f"variable    co2_desorb_fraction equal {spec.co2_desorb_fraction}\n"
     )
 

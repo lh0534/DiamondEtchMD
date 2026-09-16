@@ -38,7 +38,7 @@ from ..spec import SimSpec, IonComponent
 # Fallback used in f-string expressions — must not contain backslashes (Python < 3.12 restriction)
 _CN_ZERO = 'variable    cn equal 0\n'
 
-# Injected before every thermalize.lmp call; gated so it's a no-op when fraction is 0
+# Injected after every thermalize.lmp call; CO2* sites form during thermalization, not before
 _CO2_DESORB = 'if "${co2_desorb_fraction} > 0" then "include co2_desorption.lmp"\n'
 
 
@@ -320,7 +320,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"\n"
         f'if "${{cn_start}} > 0 && ${{cn_start}} < ${{target_flux}}" then &\n'
         f'"variable neutral_lp loop $(v_target_flux-v_cn_start)" &\n'
-        f'elif "${{cn_start}} == ${{target_flux}}" &\n'
+        f'elif "${{cn_start}} >= ${{target_flux}}" &\n'
         f'"jump SELF skip_radicals" &\n'
         f"else &\n"
         f'"variable neutral_lp loop ${{target_flux}}"\n'
@@ -561,7 +561,7 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"unfix       depo\n"
     )
     if not spec.skip_radical_thermalization:
-        blk += _CO2_DESORB + f"# Thermalize after each radical\ninclude     thermalize.lmp\n"
+        blk += f"# Thermalize after each radical\ninclude     thermalize.lmp\n" + _CO2_DESORB
     blk += (
         f"unfix       2\n"
         f"unfix       3\n"
@@ -847,7 +847,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
             f"{chunk_dump_close}"
         )
         if not spec.skip_radical_thermalization:
-            blk += _CO2_DESORB + f"include     thermalize.lmp\n"
+            blk += f"include     thermalize.lmp\n" + _CO2_DESORB
         blk += (
             f"unfix       2\n"
             f"unfix       3\n"
@@ -932,7 +932,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"unfix       ats_topup\n"
     )
     if not spec.skip_radical_thermalization:
-        blk += _CO2_DESORB + f"include     thermalize.lmp\n"
+        blk += f"include     thermalize.lmp\n" + _CO2_DESORB
     blk += (
         f"unfix       2\n"
         f"unfix       3\n"

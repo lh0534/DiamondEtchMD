@@ -49,5 +49,5 @@ variable    step_invert    equal 0
 variable    step_depth_ang equal 2.0
 
 # Sweep options
-variable    do_z_check         equal 1
+variable    above_surf_eject   equal 1
 variable    co2_desorb_fraction equal 0.0

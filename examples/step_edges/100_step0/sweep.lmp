@@ -31,7 +31,7 @@ thermo_style custom c_max_unchecked_clust_num c_top_rest
 run 0 post no
 
 variable    top_thresh equal c_top_rest
-if "${do_z_check} == 0" then "variable top_thresh equal -1e20"
+if "${above_surf_eject} == 0" then "variable top_thresh equal -1e20"
 
 group       carbon type 1
 group       hydrogen type 2

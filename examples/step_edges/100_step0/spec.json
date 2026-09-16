@@ -41,7 +41,7 @@
   "radical_burst_chunk": 0,
   "radical_burst_attempt": 200,
   "dump_mode": "all",
-  "sweep_z_check": true,
+  "above_surf_eject": true,
   "dump_first_impact": true,
   "phases": null,
   "cycles": 1,

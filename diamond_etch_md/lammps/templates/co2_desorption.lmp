@@ -26,18 +26,29 @@ uncompute   co2d_sum_o
 uncompute   co2d_sum_c
 thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts
 
-variable    is_co2d_c atom "type==1 && c_co2d_coord_o==2"
-group       co2d_c_grp dynamic mobile var is_co2d_c
 variable    is_excl_o atom "type==3 && c_co2d_coord_c==1"
-group       co2d_excl_o_snap variable is_excl_o   # static snapshot before deletion
+group       co2d_excl_o_snap variable is_excl_o   # static snapshot before deletion; also primes coord_c neighbor list so coord_o evaluates correctly below
+variable    is_co2d_c atom "type==1 && c_co2d_coord_o>=2"
+group       co2d_c_grp variable is_co2d_c
+
+variable    is_co2d_c_has_o atom "type==1 && c_co2d_coord_o>=1"
+variable    is_co2d_c_has_2o atom "type==1 && c_co2d_coord_o>=2"
+group       co2d_c_has_o variable is_co2d_c_has_o
+group       co2d_c_has_2o variable is_co2d_c_has_2o
+print "CO2D c=${c} cn=${cn}: co2d_c_grp=$(count(co2d_c_grp)) has_o=$(count(co2d_c_has_o)) has_2o=$(count(co2d_c_has_2o)) excl_o=$(count(co2d_excl_o_snap))" append co2d_debug.txt
+group       co2d_c_has_o delete
+group       co2d_c_has_2o delete
+variable    is_co2d_c_has_o delete
+variable    is_co2d_c_has_2o delete
 
 if "$(count(co2d_c_grp)) > 0" then "jump SELF co2d_do_desorb"
 jump SELF co2d_cleanup
 
 label co2d_do_desorb
 variable    n_co2d_c_pre equal $(count(co2d_c_grp))
-variable    co2d_seed equal $(floor(random(1,999999,${c}+${cn}*7+99991)))
-delete_atoms random fraction ${co2_desorb_fraction} no co2d_c_grp ${co2d_seed}
+variable    co2d_seed equal floor(random(1,999999,${c}+${cn}*7+99991))
+write_dump  co2d_c_grp custom co2d_cgrp_ids.txt id type x y z modify append yes
+delete_atoms random fraction ${co2_desorb_fraction} no co2d_c_grp NULL ${co2d_seed} compress no
 
 # Re-evaluate coord_c after deletion to get post-deletion neighbor state
 compute     co2d_sum_c2 all reduce sum c_co2d_coord_c
@@ -50,7 +61,7 @@ thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clu
 # Intersecting with the static snapshot prevents accidentally deleting gas-phase O
 # radicals that happen to have coord_c==0 but were never bonded to the ejected C atoms.
 variable    is_no_c_o atom "type==3 && c_co2d_coord_c==0"
-group       co2d_no_c_o dynamic all var is_no_c_o
+group       co2d_no_c_o variable is_no_c_o
 group       co2d_orphan_o_grp intersect co2d_excl_o_snap co2d_no_c_o
 variable    n_desorbed_c equal $(v_n_co2d_c_pre-count(co2d_c_grp))
 variable    n_desorbed_o equal $(count(co2d_orphan_o_grp))

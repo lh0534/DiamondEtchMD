@@ -137,7 +137,7 @@ class SimSpec:
     radical_burst_chunk:    int   = 0      # max atoms deposited before running dynamics; 0 = auto (0.5 ML)
     radical_burst_attempt:  int   = 200    # placement attempts per atom in burst deposit; increase if packing failures occur
     dump_mode:              str   = "all"  # "all" | "etch_only" | "none"
-    sweep_z_check:          bool  = True   # require ejected cluster CoM above surface before counting
+    above_surf_eject:       bool  = True   # require ejected cluster CoM above surface before counting
     dump_first_impact:      bool  = True   # in etch_only mode, always keep dump for 1st ion + 1st radical
     # ── Cycling mode ──────────────────────────────────────────────────────────
     phases:                 Optional[List[CyclePhase]]    = None  # None = single-species mode
@@ -194,6 +194,8 @@ class SimSpec:
             d["radical_i_above"] = d.pop("chemical_i_above")
         if "mask_invert" in d and "invert_mask" not in d:
             d["invert_mask"] = d.pop("mask_invert")
+        if "sweep_z_check" in d and "above_surf_eject" not in d:
+            d["above_surf_eject"] = d.pop("sweep_z_check")
         valid = {f.name for f in dataclasses.fields(cls)}
         unknown = {k for k in d if k not in valid}
         if unknown:

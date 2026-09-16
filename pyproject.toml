@@ -20,6 +20,10 @@ analysis = [
     "jax[cpu]>=0.4",
     "scipy>=1.7",
 ]
+# lammps is a compiled cluster module — not on PyPI.
+# Install via the jaxmd conda env:
+#   /home/lh0534/.conda/envs/jaxmd/bin/python3 -m pytest tests/ -m lammps
+lammps = []
 
 [project.scripts]
 diamond-etch-md        = "diamond_etch_md.cli:main"
@@ -41,4 +45,5 @@ diamond_etch_md = ["lammps/templates/*.lmp", "lammps/templates/*.reax", "lammps/
 testpaths = ["tests"]
 markers = [
     "slurm: submits a real SLURM job (requires cluster access; run with -m slurm)",
+    "lammps: runs LAMMPS via the Python module (requires jaxmd env; run with -m lammps)",
 ]

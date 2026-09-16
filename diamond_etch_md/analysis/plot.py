@@ -266,16 +266,41 @@ def _spec_summary_str(spec) -> str:
         lines = [f"{surf} Cycle Simulation"]
         for i, p in enumerate(spec.phases):
             rie = p.flux_ratio and p.flux_ratio > 0
-            lines.append(
-                f"Phase {i + 1}:  " + _ion_line(
-                    p.species, p.energy, fluence_ml=p.fluence_ml,
-                    flux_ratio=p.flux_ratio,
-                    radical_energy=getattr(p, 'radical_energy', 0.2),
-                    radical_temperature=getattr(p, 'radical_temperature', None),
-                    angle=angle,
-                    prefix="RIE " if rie else "",
+            prefix = f"Phase {i + 1}:  "
+            if p.ion_mix is not None:
+                # Mix phase: list components; if all share one energy show it once
+                total_frac = sum(c.fraction for c in p.ion_mix)
+                energies = [c.energy for c in p.ion_mix]
+                same_e = len(set(energies)) == 1
+                parts = []
+                for c in p.ion_mix:
+                    pct = c.fraction / total_frac * 100
+                    part = f"{_ion_label(c.species)} {pct:.0f}%"
+                    if not same_e:
+                        part += f" {c.energy:.4g} eV"
+                    parts.append(part)
+                mix_str = " + ".join(parts)
+                if same_e:
+                    mix_str += f"  {energies[0]:.4g} eV"
+                mix_str += f"  {p.fluence_ml} ML"
+                if rie:
+                    mix_str += (
+                        f"  $J_{{rad^\\bullet}}/J_{{ion^+}}$={p.flux_ratio}"
+                        + _radical_label(getattr(p, 'radical_energy', 0.2),
+                                         getattr(p, 'radical_temperature', None))
+                    )
+                lines.append(prefix + mix_str)
+            else:
+                lines.append(
+                    prefix + _ion_line(
+                        p.species, p.energy, fluence_ml=p.fluence_ml,
+                        flux_ratio=p.flux_ratio,
+                        radical_energy=getattr(p, 'radical_energy', 0.2),
+                        radical_temperature=getattr(p, 'radical_temperature', None),
+                        angle=angle,
+                        prefix="RIE " if rie else "",
+                    )
                 )
-            )
         return "\n".join(lines) + _step_sfx
 
     # ── Single ion ─────────────────────────────────────────────────────────────
@@ -1070,6 +1095,8 @@ def plot_per_phase_yield(nc_records, spec, ml, ep_records=None, ax=None, spec_su
             phase_start = phase_end
 
     phase_indices = sorted(phase_yields)
+    if not phase_indices:
+        return None
     colors = [_phase_color(spec.phases[pi].species, pi) for pi in phase_indices]
     labels = [spec.phases[pi].species for pi in phase_indices]
 
