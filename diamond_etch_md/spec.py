@@ -78,6 +78,9 @@ class CyclePhase:
     flux_ratio:             float = 0      # O• radicals deposited per ion impact (0 = none; non-integer → stochastic floor/ceil)
     radical_energy:         float = 0.2    # eV per O• radical (ignored when radical_temperature set)
     radical_temperature:    Optional[float] = None  # K; enables Maxwell-Boltzmann radical sampling
+    radical_energy_threshold: Optional[float] = None  # eV; Boltzmann draws below this are skipped (no MD, counted as reflected)
+    radical_threshold_on:   str   = "total"  # "total" = E, "normal" = E*cos^2(theta) compared to the threshold
+    radical_energy_dist:    str   = "flux"   # Boltzmann draw: "flux" = E*exp(-E/kT) (striking flux) | "gas" = sqrt(E)*exp(-E/kT)
     radical_angle:          Union[float, Tuple[float, float]] = 0.0  # deg from normal; or (polar, azimuth)
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
@@ -128,6 +131,9 @@ class SimSpec:
     flux_ratio:             float = 0      # O• radicals per ion impact (0 = ion-etch; >0 = RIE-etch; non-integer → stochastic floor/ceil)
     radical_energy:         float = 0.2    # eV per O• (used when radical_temperature is None)
     radical_temperature:    Optional[float] = None  # K; enables Maxwell-Boltzmann speed sampling
+    radical_energy_threshold: Optional[float] = None  # eV; Boltzmann draws below this are skipped (no MD, counted as reflected)
+    radical_threshold_on:   str   = "total"  # "total" = E, "normal" = E*cos^2(theta) compared to the threshold
+    radical_energy_dist:    str   = "flux"   # Boltzmann draw: "flux" = E*exp(-E/kT) (striking flux) | "gas" = sqrt(E)*exp(-E/kT)
     radical_angle:          Union[float, Tuple[float, float]] = 0.0  # deg from normal; or (polar, azimuth)
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
@@ -200,9 +206,12 @@ class SimSpec:
         unknown = {k for k in d if k not in valid}
         if unknown:
             warnings.warn(f"Unknown SimSpec fields ignored: {sorted(unknown)}", stacklevel=2)
+        # Specs written before radical_energy_dist existed used the gas-phase
+        # draw; keep that so regenerating/re-analysing a mid-run sim is consistent.
+        d.setdefault("radical_energy_dist", "gas")
         # nested dataclasses
         if "phases" in d and d["phases"] is not None:
-            d["phases"] = [CyclePhase(**p) for p in d["phases"]]
+            d["phases"] = [CyclePhase(**{"radical_energy_dist": "gas", **p}) for p in d["phases"]]
         if "ion_mix" in d and d["ion_mix"] is not None:
             d["ion_mix"] = [IonComponent(**c) for c in d["ion_mix"]]
         return cls(**{k: v for k, v in d.items() if k in valid})
@@ -274,6 +283,21 @@ def etch_mode(spec: "SimSpec") -> str:
     return f"{prefix}ion-etch"
 
 
+def _validate_radical_sampling(obj, where: str) -> None:
+    """Checks shared by SimSpec and CyclePhase for the Boltzmann-radical options."""
+    if obj.radical_energy_dist not in ("flux", "gas"):
+        sys.exit(f"{where}radical_energy_dist must be 'flux' or 'gas'; got {obj.radical_energy_dist!r}.")
+    if obj.radical_threshold_on not in ("total", "normal"):
+        sys.exit(f"{where}radical_threshold_on must be 'total' or 'normal'; got {obj.radical_threshold_on!r}.")
+    if obj.radical_energy_threshold is not None:
+        if obj.radical_temperature is None:
+            sys.exit(f"{where}radical_energy_threshold requires radical_temperature (Boltzmann radicals).")
+        if obj.radical_energy_threshold < 0:
+            sys.exit(f"{where}radical_energy_threshold must be >= 0 eV; got {obj.radical_energy_threshold}.")
+        if obj.radical_burst:
+            sys.exit(f"{where}radical_energy_threshold is incompatible with radical_burst.")
+
+
 def validate(spec: "SimSpec") -> None:
     """Validate a SimSpec; exit with an informative message on any error."""
     is_carbon = spec.initial_config_file is not None
@@ -286,6 +310,7 @@ def validate(spec: "SimSpec") -> None:
 
     if spec.radical_temperature is not None and spec.radical_temperature <= 0:
         sys.exit(f"radical_temperature must be > 0 K; got {spec.radical_temperature}.")
+    _validate_radical_sampling(spec, "")
 
     if not (0.0 <= spec.co2_desorb_fraction <= 1.0):
         sys.exit(f"co2_desorb_fraction must be between 0 and 1; got {spec.co2_desorb_fraction}.")
@@ -375,6 +400,7 @@ def validate(spec: "SimSpec") -> None:
                 sys.exit(f"Phase {i}: radical_temperature must be > 0 K, got {p.radical_temperature}.")
             if p.radical_burst and p.radical_temperature is not None:
                 sys.exit(f"Phase {i}: radical_burst is incompatible with radical_temperature.")
+            _validate_radical_sampling(p, f"Phase {i}: ")
             if p.radical_burst and p.radical_angle_distribution:
                 sys.exit(f"Phase {i}: radical_burst is incompatible with radical_angle_distribution.")
     elif spec.ion_mix is not None:

@@ -541,3 +541,26 @@ def test_validate_step_edge_custom_depth_ok():
     spec = SimSpec(orientation="111", surface="1x1", ml=81, step_edge=True,
                    step_angle=30.0, step_depth=2.2)
     validate(spec)  # should not raise
+
+
+def test_legacy_spec_json_loads_gas_distribution():
+    spec = SimSpec.from_dict({"radical_temperature": 518, "flux_ratio": 5,
+                              "phases": [{"species": "O", "energy": 20, "fluence_ml": 5}]})
+    assert spec.radical_energy_dist == "gas"
+    assert spec.phases[0].radical_energy_dist == "gas"
+    assert SimSpec().radical_energy_dist == "flux"
+    assert SimSpec.from_dict({"radical_energy_dist": "flux"}).radical_energy_dist == "flux"
+
+
+def test_threshold_requires_boltzmann_and_no_burst():
+    from diamond_etch_md.spec import validate
+    base = dict(orientation="100", surface="1x1", species="O", energy=20.0,
+                ml=81, name="t", flux_ratio=5)
+    with pytest.raises(SystemExit):
+        validate(SimSpec(radical_energy_threshold=0.1, **base))
+    with pytest.raises(SystemExit):
+        validate(SimSpec(radical_energy_threshold=0.1, radical_temperature=518,
+                         radical_burst=True, **base))
+    with pytest.raises(SystemExit):
+        validate(SimSpec(radical_temperature=518, radical_energy_dist="bogus", **base))
+    validate(SimSpec(radical_energy_threshold=0.1, radical_temperature=518, **base))

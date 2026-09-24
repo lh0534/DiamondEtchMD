@@ -11,6 +11,9 @@ Produces PNGs in sim_dir:
   etch_per_cycle.png     — etch per cycle (cycling only)
   per_phase_yield.png    — per-phase etch yield with error bars (cycling only)
   o_per_cycle.png        — O loading/unloading per cycle (cycling only)
+  EY_vs_fluence.png      — smoothed etch yield vs dose (cycling only)
+  density_phase_ends.png — C/O depth-density at each phase end (cycling only)
+  density_vs_fluence.gif — animated C/O depth-density vs dose (cycling only)
 
 Requires matplotlib and numpy (install with pip install 'DiamondEtchMD[analysis]').
 """
@@ -23,7 +26,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from ._common import _phase_of_impact
+from ._common import _phase_of_impact, kde_density, DIAMOND_LAT_A
 
 try:
     import matplotlib
@@ -53,6 +56,16 @@ _SPECIES_COLOR = {
 }
 _FALLBACK_COLORS = ["#3aaa3a", "#d62728", "#9467bd", "#8c564b"]
 _AMORPH_COLOR    = "#7c52c8"   # purple — amorphous C line and matching axis
+_TRAJ_AMORPH_COLOR = "#d62728"  # red — amorphous thickness in etch_trajectory
+_TRAJ_O_COLOR      = "#0096ff"  # blue — O uptake (matches O atoms in renders)
+
+
+_PHASE_COLORS = ["#d62728", "#1f77b4", "#7f7f7f"]   # red, blue, gray for phases 1-3
+
+
+def _phase_index_color(i):
+    """Color of cycling phase i (0-based): red, blue, gray, then tab10."""
+    return _PHASE_COLORS[i] if i < len(_PHASE_COLORS) else plt.get_cmap('tab10')(i % 10)
 
 
 def _phase_color(species, fallback_idx=0):
@@ -131,8 +144,7 @@ def _add_phase_shading(ax, spec):
     if spec is None or spec.phases is None:
         return []
     n_phases = len(spec.phases)
-    cmap = plt.get_cmap('tab10')
-    phase_colors = [cmap(i % 10) for i in range(n_phases)]
+    phase_colors = [_phase_index_color(i) for i in range(n_phases)]
     for fi, (x0, x1, _) in enumerate(_phase_spans(spec)):
         ax.axvspan(x0, x1, color=phase_colors[fi % n_phases],
                    alpha=0.12, lw=0, zorder=0)
@@ -354,53 +366,26 @@ def _ml_density_label(sim_dir, ml) -> str:
     return f"1 ML ≡ {mantissa:.2f} × 10$^{{{exp}}}$ #/cm²"
 
 
-def _amorphous_thickness_from_atoms(z_c, zlo, zhi, area_A2):
+def _amorphous_thickness_from_atoms(z_c, area_A2, lat_a=DIAMOND_LAT_A):
     """Amorphous layer thickness in Å from z-positions of C atoms.
 
-    Uses a 0.5 Å z-density histogram smoothed with a 5-bin box-car filter.
-    Bulk density is estimated from the 15–50% height range of the slab.
-    Thickness = distance between the 10% and 90% bulk-density crossings,
-    scanning from the top of the slab downward.
+    Gaussian-KDE depth profile (sigma = a/8, normalized to bulk diamond,
+    _common.kde_density).  Thickness = distance between the highest point
+    above 10% of bulk density (surface) and the highest point above 90%
+    (top of the dense layer).
     """
     if len(z_c) < 10 or area_A2 <= 0:
         return 0.0
-    slab_h = zhi - zlo
-    if slab_h <= 0:
+    h = np.asarray(z_c) - np.min(z_c)
+    grid, rho = kde_density(h, area_A2, lat_a, h.max() + 2.0)
+    i10 = np.where(rho > 0.10)[0]
+    i90 = np.where(rho > 0.90)[0]
+    if not len(i10) or not len(i90) or i90[-1] >= i10[-1]:
         return 0.0
-    bin_w  = 0.5
-    n_bins = max(int(slab_h / bin_w), 1)
-    counts, edges = np.histogram(z_c, bins=n_bins, range=(zlo, zhi))
-    z_ctr   = (edges[:-1] + edges[1:]) / 2.0
-    density = counts / (bin_w * area_A2)
-
-    # 5-bin box-car smooth (≈ 2.5 Å)
-    kernel = np.ones(5) / 5.0
-    smooth = np.convolve(density.astype(float), kernel, mode='same')
-
-    # Bulk density: median of density in 15–50% of slab height from bottom
-    z_norm = (z_ctr - zlo) / slab_h
-    bulk_mask = (z_norm > 0.15) & (z_norm < 0.50)
-    if not bulk_mask.any():
-        return 0.0
-    bulk_dens = np.median(smooth[bulk_mask])
-    if bulk_dens <= 0:
-        return 0.0
-    norm = smooth / bulk_dens
-
-    # Scan from top downward: z_10 = first point ≥ 10%; z_90 = first point ≥ 90%
-    z_10 = z_90 = None
-    for i in range(len(z_ctr) - 1, -1, -1):
-        if z_10 is None and norm[i] >= 0.10:
-            z_10 = z_ctr[i]
-        if z_10 is not None and z_90 is None and norm[i] >= 0.90:
-            z_90 = z_ctr[i]
-            break
-    if z_10 is None or z_90 is None or z_10 <= z_90:
-        return 0.0
-    return float(z_10 - z_90)
+    return float(grid[i10[-1]] - grid[i90[-1]])
 
 
-def _parse_ml_dump(dump_path):
+def _parse_ml_dump(dump_path, lat_a=None):
     """Parse ML_impacts.dump; return [(dose_ml, amorphous_thickness_A), ...].
 
     Each snapshot in the dump corresponds to one ML of fluence (written by
@@ -422,7 +407,7 @@ def _parse_ml_dump(dump_path):
             f.readline()                           # ITEM: BOX BOUNDS ...
             xlo, xhi = map(float, f.readline().split()[:2])
             ylo, yhi = map(float, f.readline().split()[:2])
-            zlo, zhi = map(float, f.readline().split()[:2])
+            f.readline()                           # z bounds (unused: KDE is relative to lowest C)
             area_A2  = (xhi - xlo) * (yhi - ylo)
             header   = f.readline().split()        # ITEM: ATOMS id type ...
             cols     = header[2:]
@@ -435,7 +420,7 @@ def _parse_ml_dump(dump_path):
                     if int(parts[type_col]) == 1:
                         z_c.append(float(parts[z_col]))
             thickness = _amorphous_thickness_from_atoms(
-                np.array(z_c), zlo, zhi, area_A2
+                np.array(z_c), area_A2, lat_a or DIAMOND_LAT_A
             )
             results.append((snap, thickness))
             snap += 1
@@ -449,13 +434,13 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
              lat_a=None, spec_summary=None, ml_density_str=None, ax=None):
     """Etched C (ML) and O uptake (ML) vs ion dose, with amorphous C layer.
 
-    Amorphous C is shown as a step function on a twin right y-axis (blue, C0),
+    Amorphous C is shown as a step function on a twin right y-axis (red),
     labelled in Å but scaled proportionally to the left ML axis so that every
     tick on the right corresponds to the same number of MLs as the left.
     Both y-axes share the same upper limit (in ML-equivalent units), expanded
     automatically if the amorphous C exceeds the etch/uptake range.
 
-    Right y-axis label, ticks, and spine are all colored 'C0' to match the line.
+    Right y-axis label, ticks, and spine are colored to match the (red) line.
     cna_records takes priority over amorphous_rho (never both).
 
     Parameters
@@ -495,7 +480,7 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
     phase_patches = _add_phase_shading(ax, spec)
 
     ax.step(depth_x, depth_y, where='post', lw=3, alpha=0.7, color='k', label='Etched C')
-    ax.plot(nc_x, o_ml, lw=3, alpha=0.7, color=_SPECIES_COLOR["O"],
+    ax.plot(nc_x, o_ml, lw=3, alpha=0.7, color=_TRAJ_O_COLOR,
             label='O uptake')
 
     # Etch yield linear fit with block-average error — non-cycling sims only
@@ -554,14 +539,14 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
             am_label  = 'Amorphous C (CNA)'
             am_ylabel = 'Amorphous layer thickness (Å)' if lat_a else 'Amorphous C (ML)'
 
-        am_line, = ax2.plot(am_x, am_y_A, ls='--', lw=3, color='C0',
+        am_line, = ax2.plot(am_x, am_y_A, ls='--', lw=3, color=_TRAJ_AMORPH_COLOR,
                             label=am_label, zorder=3)
         am_handle = am_line
-        ax2.set_ylabel(am_ylabel, color='C0')
-        ax2.tick_params(axis='y', labelcolor='C0', color='C0')
-        ax2.yaxis.label.set_color('C0')
+        ax2.set_ylabel(am_ylabel, color=_TRAJ_AMORPH_COLOR)
+        ax2.tick_params(axis='y', labelcolor=_TRAJ_AMORPH_COLOR, color=_TRAJ_AMORPH_COLOR)
+        ax2.yaxis.label.set_color(_TRAJ_AMORPH_COLOR)
         ax2.spines['right'].set_visible(True)
-        ax2.spines['right'].set_color('C0')
+        ax2.spines['right'].set_color(_TRAJ_AMORPH_COLOR)
         if xright is not None:
             ax2.set_xlim(xleft, xright)
 
@@ -789,7 +774,7 @@ def plot_product_grid(ep_records, spec=None, ml=0, ax=None,
         fig, axes = plt.subplots(1, n, figsize=(5 * n, 4.5), squeeze=False)
         for pi, p in enumerate(phases):
             phase_recs = [r for r in ep_c if _phase_of_impact(r['impact'], spec, ml) == pi]
-            color = _phase_color(p.species, pi)
+            color = _phase_index_color(pi)
             phase_has_radicals = any(r.get('cn', 0) > 0 for r in phase_recs)
             lbl = f"Ph.{pi+1}"
             if phase_has_radicals:
@@ -933,6 +918,50 @@ def plot_co_emission(ep_records, ml, spec=None, bandwidth_ml=None,
         _apply_suptitle(ax.figure, spec_summary, 'CO / CO₂ Emission')
         return ax.figure
     return ax
+
+
+def plot_ey_vs_fluence(ep_records, nc_records, ml, spec=None, sigma_ml=1.0,
+                       spec_summary=None):
+    """Etch yield vs dose: per-ML etched C (points) and its Gaussian-smoothed
+    derivative (line, sigma = sigma_ml), phase-shaded."""
+    _need_mpl()
+    carbon_ep = [r for r in (ep_records or []) if r['n_C'] > 0]
+    max_imp = max((r['impact'] for r in nc_records), default=0)
+    if not carbon_ep or max_imp < 2 * ml:
+        return None
+    per_imp = np.zeros(max_imp + 1)
+    for r in carbon_ep:
+        if r['impact'] <= max_imp:
+            per_imp[r['impact']] += r['n_C']
+    per_imp = per_imp[1:]
+
+    sig = sigma_ml * ml
+    half = int(4 * sig)
+    kern = np.exp(-0.5 * (np.arange(-half, half + 1) / sig) ** 2)
+    smooth = (np.convolve(per_imp, kern, mode='same')
+              / np.convolve(np.ones_like(per_imp), kern, mode='same'))
+    x_imp = np.arange(1, max_imp + 1) / ml
+
+    n_bins = max_imp // ml
+    per_ml = per_imp[:n_bins * ml].reshape(n_bins, ml).mean(axis=1)
+    x_ml = np.arange(n_bins) + 0.5
+
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    phase_patches = _add_phase_shading(ax, spec)
+    ax.plot(x_ml, per_ml, 'o', ms=3.5, color='0.55', alpha=0.6, label='per ML')
+    ax.plot(x_imp, smooth, color='k', lw=2,
+            label=f'smoothed ($\\sigma$ = {sigma_ml:g} ML)')
+    ax.set_xlim(*_cycle_xlim(max_imp / ml, spec))
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel('Dose (ML)')
+    ax.set_ylabel('Etch yield (C/impact)')
+    ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
+    h, l = ax.get_legend_handles_labels()
+    ax.legend(h + phase_patches, l + [p.get_label() for p in phase_patches],
+              frameon=False, fontsize=10, loc='lower center',
+              bbox_to_anchor=(0.5, 1.0), ncol=2 + len(phase_patches))
+    _apply_suptitle(fig, spec_summary, "Etch Yield vs Fluence")
+    return fig
 
 
 def plot_amorphous(cna_records, ml, ax=None):
@@ -1097,7 +1126,7 @@ def plot_per_phase_yield(nc_records, spec, ml, ep_records=None, ax=None, spec_su
     phase_indices = sorted(phase_yields)
     if not phase_indices:
         return None
-    colors = [_phase_color(spec.phases[pi].species, pi) for pi in phase_indices]
+    colors = [_phase_index_color(pi) for pi in phase_indices]
     labels = [spec.phases[pi].species for pi in phase_indices]
 
     for xi, (pi, col) in enumerate(zip(phase_indices, colors), 1):
@@ -1151,7 +1180,7 @@ def plot_o_per_cycle(nc_records, spec, ml, ax=None, spec_summary=None):
                 o_end.append(recs[-1]['n_oxygen'] / ml)
         if o_end:
             xs = np.arange(1, len(o_end) + 1)
-            col = _phase_color(p.species, pi)
+            col = _phase_index_color(pi)
             ax.scatter(xs, o_end, color=col, s=40, zorder=3)
             ax.plot(xs, o_end, lw=1.0, color=col, alpha=0.5, zorder=2,
                     label=f"After {p.species}$^+$")
@@ -1174,66 +1203,66 @@ def plot_radical_distribution(sim_dir, spec=None, ax=None):
     """Energy and angle histograms for O• radicals logged in radical_log.txt.
 
     Produces a 2-panel figure:
-      Left:  energy histogram vs Maxwell-Boltzmann PDF (if radical_temperature set)
+      Left:  energy histogram of all draws (and the simulated subset when an
+             energy threshold skips some) vs the analytic Boltzmann PDF —
+             striking-flux E·exp(−E/kT)/kT² or gas-phase MB, per the spec
       Right: polar-angle histogram vs Lambert cosine PDF (if radical_angle_distribution set)
 
     Returns the Figure, or None if radical_log.txt is absent or empty.
-    radical_log.txt columns: impact  cn  energy_eV  polar_deg  azimuth_deg
+    radical_log.txt columns: impact  cn  energy_eV  polar_deg  azimuth_deg  [simulated]
     """
     _need_mpl()
+    from ._common import (read_radical_log, radical_sampling_params,
+                          expected_skip_fraction, KB_EV)
     sim_dir = Path(sim_dir)
     rad_log = sim_dir / 'radical_log.txt'
     if not rad_log.exists():
         return None
-
-    energies, polars = [], []
-    with open(rad_log) as f:
-        for line in f:
-            parts = line.split()
-            if len(parts) >= 5:
-                try:
-                    energies.append(float(parts[2]))
-                    polars.append(float(parts[3]))
-                except ValueError:
-                    pass
-
-    if not energies:
+    log = read_radical_log(rad_log)
+    energies, polars, sim = log['energy'], log['polar'], log['simulated']
+    if not len(energies):
         return None
-
-    energies = np.array(energies)
-    polars   = np.array(polars)
+    params = radical_sampling_params(spec)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
 
     # ── Energy panel ─────────────────────────────────────────────────────────
-    ax1.hist(energies, bins=50, density=True, alpha=0.55,
-             color='#e87034', label=f'Simulated  (n={len(energies):,})')
+    bins = np.linspace(0, energies.max() * 1.01, 51)
+    ax1.hist(energies, bins=bins, density=True, alpha=0.35, color='0.5',
+             label=f'All draws  (n={len(energies):,})')
+    if (~sim).any():
+        w = np.full(sim.sum(), 1.0 / (len(energies) * np.diff(bins)[0]))
+        ax1.hist(energies[sim], bins=bins, weights=w, alpha=0.55, color='#e87034',
+                 label=f'Simulated  (n={sim.sum():,})')
 
-    kT = None
-    if spec is not None:
-        rad_T = getattr(spec, 'radical_temperature', None)
-        if rad_T is not None:
-            _kB = 8.617333262e-5
-            kT  = _kB * rad_T
-
-    if kT is not None:
-        # Maxwell-Boltzmann energy PDF: f(E) = 2*sqrt(E/pi) * kT^{-3/2} * exp(-E/kT)
-        E_max = max(energies.max() * 1.5, kT * 5)
-        E = np.linspace(0, E_max, 500)
-        pdf = 2.0 * np.sqrt(E / np.pi) * kT ** (-1.5) * np.exp(-E / kT)
-        ax1.plot(E, pdf, 'k-', lw=2.0, label=f'MB ($k_BT$ = {kT:.4f} eV)')
+    if params is not None:
+        kT = KB_EV * params['T']
+        E = np.linspace(0, max(energies.max() * 1.5, kT * 5), 500)
+        if params['dist'] == 'flux':
+            pdf = E / kT ** 2 * np.exp(-E / kT)
+            lbl = f'Flux $E\\,e^{{-E/kT}}$ ($k_BT$ = {kT:.4f} eV)'
+        else:
+            pdf = 2.0 * np.sqrt(E / np.pi) * kT ** (-1.5) * np.exp(-E / kT)
+            lbl = f'Gas MB ($k_BT$ = {kT:.4f} eV)'
+        ax1.plot(E, pdf, 'k-', lw=2.0, label=lbl)
+        if params['threshold'] is not None:
+            ax1.axvline(params['threshold'], color='k', ls='--', lw=1.2,
+                        label=f"threshold {params['threshold']:g} eV ({params['on']})")
+            exp_skip = expected_skip_fraction(params)
+            ax1.set_title(f"skipped {np.mean(~sim):.1%} (expected {exp_skip:.1%})", fontsize=11)
 
     ax1.set_xlabel('Radical energy (eV)')
     ax1.set_ylabel('Probability density (eV$^{-1}$)')
     ax1.set_xlim(left=0)
-    ax1.legend(frameon=False, fontsize=10)
+    ax1.legend(frameon=False, fontsize=9)
 
     # ── Polar-angle panel ─────────────────────────────────────────────────────
     bins_deg = np.linspace(0, 90, 37)
     ax2.hist(polars, bins=bins_deg, density=True, alpha=0.55,
-             color='#4e9be6', label=f'Simulated  (n={len(polars):,})')
+             color='#4e9be6', label=f'All draws  (n={len(polars):,})')
 
-    use_cosine = spec is not None and getattr(spec, 'radical_angle_distribution', False)
+    use_cosine = (params['cosine'] if params is not None else
+                  spec is not None and getattr(spec, 'radical_angle_distribution', False))
     if use_cosine:
         # Lambert cosine PDF in degrees: f(θ) = sin(2θ°) × π/180
         theta = np.linspace(0, 90, 500)
@@ -1245,7 +1274,7 @@ def plot_radical_distribution(sim_dir, spec=None, ax=None):
     ax2.set_xlim(0, 90)
     ax2.legend(frameon=False, fontsize=10)
 
-    fig.suptitle(f'O• radical velocity distributions', y=1.02)
+    fig.suptitle('O• radical velocity distributions', y=1.02)
     plt.tight_layout()
     return fig
 
@@ -1307,7 +1336,7 @@ def make_plots(
         dump_path = sim_dir / 'ML_impacts.dump'
         if dump_path.exists():
             try:
-                amorphous_rho = _parse_ml_dump(dump_path) or None
+                amorphous_rho = _parse_ml_dump(dump_path, lat_a=lat_a) or None
             except Exception:
                 amorphous_rho = None
 
@@ -1375,6 +1404,24 @@ def make_plots(
         fig = plot_o_per_cycle(nc, spec, ml, spec_summary=summary)
         if fig:
             _save(fig, 'o_per_cycle')
+
+        fig = plot_ey_vs_fluence(ep_carbon, nc, ml, spec=spec, spec_summary=summary)
+        if fig:
+            _save(fig, 'EY_vs_fluence')
+
+        if lat_a:
+            from . import density
+            try:
+                fig = density.plot_phase_end_density(sim_dir, spec, ml, lat_a,
+                                                     spec_summary=summary)
+                if fig:
+                    _save(fig, 'density_phase_ends')
+            except Exception as e:
+                print(f"Warning: density_phase_ends failed ({e})")
+            try:
+                density.animate_density(sim_dir, spec, ml, lat_a)
+            except Exception as e:
+                print(f"Warning: density animation failed ({e})")
 
     fig = plot_radical_distribution(sim_dir, spec=spec)
     if fig:

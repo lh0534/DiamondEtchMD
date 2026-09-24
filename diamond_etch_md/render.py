@@ -31,6 +31,10 @@ def patch_ovito_scene(src: Path, dst: Path) -> None:
     """
     with open(src, "rb") as f:
         orig = f.read()
+    if orig[20:38] == "OVITO Pro".encode("utf-16-be"):
+        with open(dst, "wb") as f:     # saved by the Python module: already loadable
+            f.write(orig)
+        return
 
     product     = "OVITO Pro".encode("utf-16-be")   # 18 bytes (was 22)
     version_str = "3.15.0  ".encode("utf-16-be")    # 16 bytes (was 12) → net 0
@@ -580,3 +584,215 @@ def _stitch(frames_to_render, frame_dir, output_path, fps, verbose=True):
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
         str(output_path),
     ], check=True, capture_output=not verbose)
+
+
+# ---------------------------------------------------------------------------
+# Phase-end snapshot renders (cycling)
+# ---------------------------------------------------------------------------
+
+_ANACONDA_LIB = "/usr/licensed/anaconda3/2024.10/lib"
+# OVITO + the LD_LIBRARY_PATH fix are tested with this interpreter; jobs may run
+# auto-plot under a different python3 (e.g. 3.10 from the LAMMPS module).
+_OVITO_PYTHON = "/usr/licensed/anaconda3/2024.10/bin/python3"
+
+
+def _run_render_jobs(out_dir, jobs, preset="standard", size=None, views=(0,),
+                     verbose=True):
+    """Render snapshot jobs [{data, png, meta, group}] in one xvfb/OVITO subprocess.
+
+    Each group shares one height window (Å above the lowest C atom, from just
+    below the lattice bottom to the group's tallest surface); the .json
+    sidecars give each image's extent on that axis.  `views` are camera
+    rotations (deg) about the vertical axis; view 0 goes to <png>, others to
+    <png stem>_<angle>.png, all listed in the sidecar under "views".
+    """
+    import json
+    out_dir.mkdir(parents=True, exist_ok=True)
+    scene = out_dir / "_scene.ovito"
+    patch_ovito_scene(Path(__file__).parent / "ovito_configs" / f"{preset}.ovito", scene)
+    job_file = out_dir / "_jobs.json"
+    job_file.write_text(json.dumps({"scene": str(scene), "jobs": jobs,
+                                    "size": list(size) if size else None,
+                                    "views": [int(v) for v in views]}))
+    pkg_root = str(Path(__file__).resolve().parents[1])
+    code = (f"import sys; sys.path.insert(0, {pkg_root!r}); "
+            f"from diamond_etch_md.render import _render_worker; "
+            f"_render_worker({str(job_file)!r})")
+    python = _OVITO_PYTHON if Path(_OVITO_PYTHON).exists() else sys.executable
+    env = {**os.environ,
+           "LD_LIBRARY_PATH": _ANACONDA_LIB + ":" + os.environ.get("LD_LIBRARY_PATH", "")}
+    env.pop("PYTHONHOME", None)
+    env.pop("PYTHONPATH", None)
+    try:
+        result = subprocess.run(
+            ["xvfb-run", "-a", "--server-args=-screen 0 1280x800x24",
+             python, "-W", "ignore", "-c", code],
+            capture_output=True, text=True, env=env)
+    finally:
+        scene.unlink(missing_ok=True)
+        job_file.unlink(missing_ok=True)
+    if result.returncode != 0:
+        print(result.stdout, file=sys.stderr)
+        print(result.stderr, file=sys.stderr)
+        raise RuntimeError(f"snapshot render failed (exit {result.returncode})")
+    if verbose:
+        print(result.stdout.strip())
+    return [Path(j["png"]) for j in jobs]
+
+
+def render_phase_ends(sim_dir, spec, ml, preset="standard", views=(0,), verbose=True):
+    """Render every completed phase-end snapshot; one height window per cycle.
+    Writes renders/phase_ends/<stem>.png + .json.  Returns the PNG paths."""
+    from .analysis.density import phase_end_snapshots, render_stem, RENDER_DIR
+    sim_dir = Path(sim_dir).resolve()
+    out_dir = sim_dir / RENDER_DIR
+    jobs = [{"data": str(path), "group": c,
+             "png": str(out_dir / f"{render_stem(c, pi, d)}.png"),
+             "meta": str(out_dir / f"{render_stem(c, pi, d)}.json")}
+            for c, pi, d, path in phase_end_snapshots(sim_dir, spec, ml)]
+    return _run_render_jobs(out_dir, jobs, preset, views=views, verbose=verbose) if jobs else []
+
+
+def render_ml_frames(sim_dir, ml, preset="standard", size=(400, 800), views=(0,),
+                     verbose=True):
+    """Render the movie frames (analysis.density.movie_impacts: one per ML, or
+    finer for short runs), all on one height window.
+    Writes renders/ml_frames/<impact>.png + .json.  Returns the PNG paths."""
+    from .analysis.density import _snap_path, movie_impacts, _frame_stem, ML_FRAME_DIR
+    sim_dir = Path(sim_dir).resolve()
+    out_dir = sim_dir / ML_FRAME_DIR
+    if out_dir.is_dir():                        # window/cadence may change between runs
+        for f in list(out_dir.glob("*.png")) + list(out_dir.glob("*.json")):
+            f.unlink()
+    jobs = [{"data": str(_snap_path(sim_dir, imp)), "group": 0,
+             "png": str(out_dir / f"{_frame_stem(imp)}.png"),
+             "meta": str(out_dir / f"{_frame_stem(imp)}.json")}
+            for imp in movie_impacts(sim_dir, ml)]
+    return (_run_render_jobs(out_dir, jobs, preset, size=size, views=views, verbose=verbose)
+            if jobs else [])
+
+
+def _render_worker(job_file):
+    """Runs under xvfb with OVITO importable; see _run_render_jobs."""
+    import json
+    import warnings
+    import numpy as np
+    from PIL import Image
+    warnings.filterwarnings("ignore")
+    import ovito
+    from ovito.vis import OpenGLRenderer
+
+    cfg = json.loads(Path(job_file).read_text())
+    ovito.scene.load(cfg["scene"])
+    p = ovito.scene.pipelines[0]
+    vp = ovito.scene.viewports.active_vp
+    rs = ovito.scene.render_settings
+    W, H = (int(x) for x in (cfg["size"] or rs.size))
+    bg = tuple(float(x) for x in rs.background_color)
+    pos0 = np.array(vp.camera_pos, dtype=float)
+    dir0 = np.array(vp.camera_dir, dtype=float)
+    orbit = np.array(vp.orbit_center, dtype=float)
+    base_pos = list(pos0)
+
+    def set_view(angle):
+        """Rotate the preset camera by `angle` deg about the vertical axis
+        through the orbit center (same height, same zoom)."""
+        nonlocal base_pos
+        c, s_ = np.cos(np.radians(angle)), np.sin(np.radians(angle))
+        rot = np.array([[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]])
+        vp.camera_dir = tuple(rot @ dir0)
+        base_pos = list(orbit + rot @ (pos0 - orbit))
+
+    views = cfg.get("views") or [0]
+
+    def view_png(job, angle):
+        return job["png"] if angle == 0 else str(
+            Path(job["png"]).with_name(f"{Path(job['png']).stem}_{angle}.png"))
+
+    p.source.load(cfg["jobs"][0]["data"], atom_style="charge")
+    radius = {t.id: float(t.radius or 0.5) for t in p.compute().particles.particle_types.types}
+
+    info = []
+    for job in cfg["jobs"]:
+        p.source.load(job["data"], atom_style="charge")
+        src = p.source.data.particles          # raw positions: no modifiers needed
+        z = np.asarray(src.positions[:, 2])
+        types = np.asarray(src["Particle Type"].array)
+        z_bot = float(z[types == 1].min())
+        top_i = int(np.argmax(z))
+        info.append(dict(z_bot=z_bot, h_top=float(z[top_i]) - z_bot,
+                         r_top=radius.get(int(types[top_i]), 0.5)))
+
+    def render(cam_z, fn):
+        pos = list(base_pos)
+        pos[2] = cam_z
+        vp.camera_pos = tuple(pos)
+        vp.render_image(size=(W, H), background=bg, renderer=OpenGLRenderer(),
+                        filename=str(fn))
+
+    def top_row(fn):
+        a = np.asarray(Image.open(fn).convert("RGB")).astype(int)
+        rows = np.where((a < 235).any(axis=2).any(axis=1))[0]
+        return int(rows.min()) if len(rows) else None
+
+    def calibrate(job, i):
+        """Measure px/Å and the view-center offset (view center != camera z,
+        and the offset does not scale with zoom) from the top atom of one
+        snapshot: find a camera height with the top atom inside the frame,
+        then render again slightly higher."""
+        p.source.load(job["data"], atom_style="charge")
+        cell_vis = p.source.data.cell.vis
+        cell_vis.enabled = False
+        z_top = i["z_bot"] + i["h_top"] + i["r_top"]
+        tmp = Path(job["png"]).with_name("_cal.png")
+        vis_guess = vp.fov * H / W
+        cam1, r1 = z_top, None
+        for _ in range(40):
+            render(cam1, tmp)
+            r1 = top_row(tmp)
+            if r1 is None:                  # everything below the frame
+                cam1 -= vis_guess / 3
+            elif r1 == 0:                   # top atom above the frame
+                cam1 += vis_guess / 3
+            elif r1 > 0.7 * H:              # too close to the bottom for the 2nd shot
+                cam1 -= vis_guess / 6
+            else:
+                break
+        dz = 0.2 * vis_guess
+        render(cam1 + dz, tmp)
+        r2 = top_row(tmp)
+        tmp.unlink(missing_ok=True)
+        cell_vis.enabled = True
+        if r1 is None or r2 is None or not 0 < r1 < r2:
+            raise RuntimeError(f"camera calibration failed (top-atom rows {r1}, {r2})")
+        scale = (r2 - r1) / dz
+        return scale, z_top - cam1 - (H / 2 - r1) / scale
+
+    # Visible height is fov * H / W for this portrait ortho preset.
+    summary = []
+    for g in sorted({j["group"] for j in cfg["jobs"]}):
+        group = [(j, i) for j, i in zip(cfg["jobs"], info) if j["group"] == g]
+        h_lo = -1.0
+        h_hi = max(i["h_top"] + i["r_top"] for _, i in group) + 3.0
+        h_center = (h_lo + h_hi) / 2
+        vp.fov = (h_hi - h_lo) * W / H
+        metas = {id(j): {"z_bottom": i["z_bot"], "snapshot": j["data"], "views": {}}
+                 for j, i in group}
+        for angle in views:
+            set_view(angle)
+            scale, offset = calibrate(*max(group, key=lambda ji: ji[1]["h_top"]))
+            vis_h = H / scale
+            for job, i in group:
+                p.source.load(job["data"], atom_style="charge")
+                render(i["z_bot"] + h_center - offset, view_png(job, angle))
+                metas[id(job)]["views"][str(angle)] = {
+                    "png": Path(view_png(job, angle)).name,
+                    "h_lo": h_center - vis_h / 2, "h_hi": h_center + vis_h / 2,
+                    "width_A": W / scale}
+            summary.append(f"group {g} view {angle}°: {h_lo:.0f}-{h_hi:.0f} Å, "
+                           f"{scale:.1f} px/Å")
+        for job, _ in group:
+            m = metas[id(job)]
+            m.update({k: m["views"][str(views[0])][k] for k in ("h_lo", "h_hi", "width_A")})
+            Path(job["meta"]).write_text(json.dumps(m))
+    print(f"Rendered {len(cfg['jobs'])} snapshots ({'; '.join(summary)})")

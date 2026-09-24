@@ -278,6 +278,23 @@ def _deposit_line(species: dict, spec: SimSpec = None) -> str:
         )
 
 
+# Skipped (below-threshold) radicals: no deposit/MD/thermalize/write_data, but an
+# unchanged ncarbon row so cn stays contiguous and mid-loop restarts resume correctly.
+RADICAL_SKIP_TAIL = (
+    "jump        SELF radical_done\n"
+    "label       radical_skip\n"
+    "group       carbon type 1\n"
+    "group       hydrogen type 2\n"
+    "group       oxygen type 3\n"
+    "variable    ncarbon equal count(carbon)\n"
+    "variable    nhydrogen equal count(hydrogen)\n"
+    "variable    noxygen equal count(oxygen)\n"
+    'print       "Neutral run ${cn} skipped (below radical_e_thresh)"\n'
+    'print       "${c} ${cn} ${ncarbon} ${nhydrogen} ${noxygen}" append ncarbon.txt\n'
+    "label       radical_done\n"
+)
+
+
 def _radical_loop_block(spec: SimSpec) -> str:
     """Return the LAMMPS radical pre-exposure loop for RIE-etch mode.
 
@@ -291,7 +308,14 @@ def _radical_loop_block(spec: SimSpec) -> str:
     as min(radical_i_above / |vz_rad|, max_inter_neutral_time) so slow radicals
     still reach the surface.
 
-    Logs energy and angles of every radical to radical_log.txt.
+    Boltzmann speeds follow spec.radical_energy_dist: "flux" (striking flux,
+    E*exp(-E/kT)) or "gas" (sqrt(E)*exp(-E/kT)).  With radical_energy_threshold,
+    draws below it (total or normal energy) are logged but not simulated: no
+    deposit/MD/thermalize, only an unchanged ncarbon row (RADICAL_SKIP_TAIL).
+    Skipping also removes that radical's simulated surface time.
+
+    Logs energy and angles of every radical to radical_log.txt (6th column
+    simulated 1/0 when a threshold is set).
     Radical etch-event trajectories saved when dump_mode == "all" or "etch_only".
     """
     use_boltzmann = spec.radical_temperature is not None
@@ -339,7 +363,19 @@ def _radical_loop_block(spec: SimSpec) -> str:
     )
 
     # ── Speed sampling ────────────────────────────────────────────────────────
-    if use_boltzmann:
+    use_flux = use_boltzmann and spec.radical_energy_dist == "flux"
+    use_thresh = spec.radical_energy_threshold is not None
+    if use_flux:
+        # Striking-flux energy distribution E*exp(-E/kT) = Gamma(2, kT): the sum of
+        # two exponentials, E = -kT*ln(u1*u2).  Frozen with $() like the MB draws.
+        blk += (
+            f"variable    bms equal v_c*100000+v_cn+${{seed_adjust}}*1000000\n"
+            f"variable    u1f equal $(random(1e-10,1.0,v_bms+9))\n"
+            f"variable    u2f equal $(random(1e-10,1.0,v_bms+10))\n"
+            f"variable    rad_e_draw equal $(-v_kT_rad*ln(v_u1f*v_u2f))\n"
+            f"variable    rad_speed equal sqrt(2*${{rad_e_draw}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+        )
+    elif use_boltzmann:
         # 3 Box-Muller pairs → 3 Gaussian velocity component squares → MB speed magnitude.
         # LAMMPS re-evaluates equal-style variables on every reference: v_gx*v_gx calls
         # the gx formula twice and, in some LAMMPS/Kokkos builds, the two random() calls
@@ -416,7 +452,9 @@ def _radical_loop_block(spec: SimSpec) -> str:
     # components — computing acos(-vz/|v|) would re-evaluate rad_speed independently
     # for the numerator and denominator, and a tiny discrepancy pushes the ratio
     # outside [-1,1], crashing acos.
-    if use_boltzmann:
+    if use_flux:
+        rad_spd_sq_formula = "v_rad_speed*v_rad_speed"
+    elif use_boltzmann:
         rad_spd_sq_formula = "v_gx_sq+v_gy_sq+v_gz_sq"
     else:
         rad_spd_sq_formula = "v_vx_rad*v_vx_rad+v_vy_rad*v_vy_rad+v_vz_rad*v_vz_rad"
@@ -435,9 +473,24 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"variable    rad_energy_ev equal v_rad_spd_sq*${{M_O}}*6242*500000/6.02214129e7\n"
         f"variable    rad_polar_deg equal {polar_formula}\n"
         f"variable    rad_azimuth_deg equal {azimuth_formula}\n"
-        f'print       "${{c}} ${{cn}} $(v_rad_energy_ev) $(v_rad_polar_deg) $(v_rad_azimuth_deg)"'
-        f" append radical_log.txt\n"
     )
+    if use_thresh:
+        # Skip (no MD, counted as reflected) draws below the threshold; column 6
+        # of radical_log.txt records 1 = simulated, 0 = skipped.
+        e_test = ("v_rad_energy_ev*cos(v_rad_polar_deg*PI/180)^2"
+                  if spec.radical_threshold_on == "normal" else "v_rad_energy_ev")
+        blk += (
+            f"variable    rad_sim equal 1\n"
+            f'if "$({e_test}) < ${{radical_e_thresh}}" then "variable rad_sim equal 0"\n'
+            f'print       "${{c}} ${{cn}} $(v_rad_energy_ev) $(v_rad_polar_deg) $(v_rad_azimuth_deg) ${{rad_sim}}"'
+            f" append radical_log.txt\n"
+            f'if "${{rad_sim}} == 0" then "jump SELF radical_skip"\n'
+        )
+    else:
+        blk += (
+            f'print       "${{c}} ${{cn}} $(v_rad_energy_ev) $(v_rad_polar_deg) $(v_rad_azimuth_deg)"'
+            f" append radical_log.txt\n"
+        )
 
     # ── Fix deposit ───────────────────────────────────────────────────────────
     _rad_region = _deposit_region(spec)
@@ -566,7 +619,8 @@ def _radical_loop_block(spec: SimSpec) -> str:
         f"unfix       2\n"
         f"unfix       3\n"
         f"# ===================== End radical inner loop =====================\n"
-        f"next        neutral_lp\n"
+        + (RADICAL_SKIP_TAIL if use_thresh else "")
+        + f"next        neutral_lp\n"
         f"jump        SELF neutral_loop\n"
         f"\n"
         f"label       skip_radicals\n"
@@ -588,18 +642,27 @@ def _radical_loop_block(spec: SimSpec) -> str:
     return blk
 
 
-def _per_chunk_vel_block(ci: int, use_boltzmann: bool, use_cosine: bool) -> str:
+def _per_chunk_vel_block(ci: int, use_boltzmann: bool, use_cosine: bool,
+                         use_flux: bool = False) -> str:
     """Return LAMMPS variable declarations for per-chunk burst velocity sampling.
 
     Uses frozen $() captures keyed on ${c}*1000000+ci so each impact×chunk gets
     independent reproducible samples.  Overwrites vx_burst/vy_burst/vz_burst.
-    Seed offsets 1-6 for Boltzmann speed; 7-8 for cosine angle.
+    Seed offsets 1-6 for Boltzmann (gas) speed, 9-10 for flux-weighted
+    energy; 7-8 for cosine angle.
     """
     seed_base = f"${{c}}*1000000+{ci}*10000+${{seed_adjust}}*100000000"
     blk = f"# Per-chunk velocity (chunk {ci})\n"
     blk += f"variable    bms_b equal {seed_base}\n"
 
-    if use_boltzmann:
+    if use_flux:
+        blk += (
+            f"variable    u1f equal $(random(1e-10,1.0,v_bms_b+9))\n"
+            f"variable    u2f equal $(random(1e-10,1.0,v_bms_b+10))\n"
+            f"variable    rad_e_burst equal $(-v_kT_rad*ln(v_u1f*v_u2f))\n"
+            f"variable    rad_speed_burst equal sqrt(2*${{rad_e_burst}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+        )
+    elif use_boltzmann:
         blk += (
             f"variable    u1a equal $(random(1e-10,1.0,v_bms_b+1))\n"
             f"variable    u2a equal $(random(1e-10,1.0,v_bms_b+2))\n"
@@ -769,7 +832,9 @@ def _radical_burst_block(spec: SimSpec) -> str:
             + _bzone_def(spec, f"bzone{ci}", f"$(v_z_ins{ci} - 0.1)", f"$(v_z_ins{ci} + 0.1)")
             + f"group       insert clear\n"
             f"group       mobile subtract all anchor\n"
-            + (_per_chunk_vel_block(ci, use_boltzmann, use_cosine) if use_stochastic else "")
+            + (_per_chunk_vel_block(ci, use_boltzmann, use_cosine,
+                                    use_boltzmann and spec.radical_energy_dist == "flux")
+               if use_stochastic else "")
             + f"variable    burst_seed{ci}_1 equal "
             f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+{ci+1}))\n"
             f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{ci}_1}} "

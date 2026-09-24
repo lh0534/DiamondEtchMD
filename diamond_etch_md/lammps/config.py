@@ -56,6 +56,9 @@ def _radical_config_block(
     inter_neutral_time: float,
     prefix: str = "",            # e.g. "phase_0_" for cycling per-phase vars
     burst_correction: bool = False,  # divide radical_energy by _DEPOSIT_REGION_BUG_FACTOR
+    radical_energy_dist: str = "gas",
+    radical_energy_threshold=None,   # Optional[float], eV
+    radical_threshold_on: str = "total",
 ) -> str:
     """Return config.lmp lines for radical-related variables.
 
@@ -81,6 +84,14 @@ def _radical_config_block(
             f"variable    {prefix}kT_rad equal {kT:.8f}        "
             f"# eV = kB * {radical_temperature} K\n"
         )
+        if radical_energy_dist == "flux":
+            lines += f"# {prefix}radical energy distribution: striking flux, E*exp(-E/kT)\n"
+        if radical_energy_threshold is not None:
+            lines += (
+                f"variable    {prefix}radical_e_thresh equal {radical_energy_threshold}"
+                f"  # eV; {'normal' if radical_threshold_on == 'normal' else 'total'}-energy "
+                f"draws below this are skipped\n"
+            )
     elif burst_correction:
         corrected = radical_energy / _DEPOSIT_REGION_BUG_FACTOR
         lines += (
@@ -224,6 +235,9 @@ def get_config_lmp(spec: SimSpec) -> str:
                 flux_ratio=spec.flux_ratio,
                 radical_energy=spec.radical_energy,
                 radical_temperature=spec.radical_temperature,
+                radical_energy_dist=spec.radical_energy_dist,
+                radical_energy_threshold=spec.radical_energy_threshold,
+                radical_threshold_on=spec.radical_threshold_on,
                 radical_angle=spec.radical_angle,
                 radical_angle_distribution=spec.radical_angle_distribution,
                 max_inter_neutral_time=spec.max_inter_neutral_time,
@@ -306,6 +320,9 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
                 flux_ratio=spec.flux_ratio,
                 radical_energy=spec.radical_energy,
                 radical_temperature=spec.radical_temperature,
+                radical_energy_dist=spec.radical_energy_dist,
+                radical_energy_threshold=spec.radical_energy_threshold,
+                radical_threshold_on=spec.radical_threshold_on,
                 radical_angle=spec.radical_angle,
                 radical_angle_distribution=spec.radical_angle_distribution,
                 max_inter_neutral_time=spec.max_inter_neutral_time,
@@ -355,6 +372,9 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
                 flux_ratio=p.flux_ratio,
                 radical_energy=p.radical_energy,
                 radical_temperature=p.radical_temperature,
+                radical_energy_dist=p.radical_energy_dist,
+                radical_energy_threshold=p.radical_energy_threshold,
+                radical_threshold_on=p.radical_threshold_on,
                 radical_angle=p.radical_angle,
                 radical_angle_distribution=p.radical_angle_distribution,
                 max_inter_neutral_time=p.max_inter_neutral_time,
@@ -510,6 +530,9 @@ def get_config_lmp_single_impact(spec: SimSpec) -> str:
                 flux_ratio=spec.flux_ratio,
                 radical_energy=spec.radical_energy,
                 radical_temperature=spec.radical_temperature,
+                radical_energy_dist=spec.radical_energy_dist,
+                radical_energy_threshold=spec.radical_energy_threshold,
+                radical_threshold_on=spec.radical_threshold_on,
                 radical_angle=spec.radical_angle,
                 radical_angle_distribution=spec.radical_angle_distribution,
                 max_inter_neutral_time=spec.max_inter_neutral_time,
@@ -585,6 +608,9 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     flux_ratio=p.flux_ratio,
                     radical_energy=p.radical_energy,
                     radical_temperature=p.radical_temperature,
+                radical_energy_dist=p.radical_energy_dist,
+                radical_energy_threshold=p.radical_energy_threshold,
+                radical_threshold_on=p.radical_threshold_on,
                     radical_angle=p.radical_angle,
                     radical_angle_distribution=p.radical_angle_distribution,
                     max_inter_neutral_time=p.max_inter_neutral_time,
@@ -636,6 +662,9 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     flux_ratio=spec.flux_ratio,
                     radical_energy=spec.radical_energy,
                     radical_temperature=spec.radical_temperature,
+                radical_energy_dist=spec.radical_energy_dist,
+                radical_energy_threshold=spec.radical_energy_threshold,
+                radical_threshold_on=spec.radical_threshold_on,
                     radical_angle=spec.radical_angle,
                     radical_angle_distribution=spec.radical_angle_distribution,
                     max_inter_neutral_time=spec.max_inter_neutral_time,
@@ -667,6 +696,9 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     flux_ratio=spec.flux_ratio,
                     radical_energy=spec.radical_energy,
                     radical_temperature=spec.radical_temperature,
+                radical_energy_dist=spec.radical_energy_dist,
+                radical_energy_threshold=spec.radical_energy_threshold,
+                radical_threshold_on=spec.radical_threshold_on,
                     radical_angle=spec.radical_angle,
                     radical_angle_distribution=spec.radical_angle_distribution,
                     max_inter_neutral_time=spec.max_inter_neutral_time,

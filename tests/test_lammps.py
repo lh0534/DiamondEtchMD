@@ -1307,3 +1307,85 @@ def test_make_surf_step_block_before_final_minimize(fname):
     # find the last minimize (before write_data)
     last_min_pos = src.rindex("minimize 1.0e-5")
     assert step_pos < last_min_pos, "step block must come before the final minimize"
+
+
+# ─── Boltzmann radical distribution + energy threshold ───────────────────────
+
+def _boltz_rie(**kw):
+    return make_rie_spec(radical_temperature=518, radical_angle_distribution=True, **kw)
+
+
+def test_rie_boltz_default_is_flux_weighted():
+    head = get_head_lmp(_boltz_rie())
+    assert "u1f equal $(random(1e-10,1.0,v_bms+9))" in head
+    assert "rad_e_draw equal $(-v_kT_rad*ln(v_u1f*v_u2f))" in head
+    assert "gx_sq" not in head
+
+
+def test_rie_boltz_gas_keeps_box_muller_and_no_skip():
+    head = get_head_lmp(_boltz_rie(radical_energy_dist="gas"))
+    assert "gx_sq equal" in head and "u1f" not in head
+    assert "radical_skip" not in head
+    cfg = get_config_lmp(_boltz_rie(radical_energy_dist="gas"))
+    assert "radical_e_thresh" not in cfg
+
+
+def test_rie_threshold_skip_branch_and_log_flag():
+    spec = _boltz_rie(radical_energy_threshold=0.1)
+    head, cfg = get_head_lmp(spec), get_config_lmp(spec)
+    assert "variable    radical_e_thresh equal 0.1" in cfg
+    assert 'if "$(v_rad_energy_ev) < ${radical_e_thresh}" then "variable rad_sim equal 0"' in head
+    assert '$(v_rad_azimuth_deg) ${rad_sim}" append radical_log.txt' in head
+    # skip jump comes before the deposit; skip tail sits before the loop's next
+    assert head.index('jump SELF radical_skip') < head.index("fix         depo insert deposit")
+    assert head.index("label       radical_skip") < head.index("next        neutral_lp")
+    assert head.count("label       radical_done") == 1
+
+
+def test_rie_threshold_on_normal_energy():
+    head = get_head_lmp(_boltz_rie(radical_energy_threshold=0.05, radical_threshold_on="normal"))
+    assert "$(v_rad_energy_ev*cos(v_rad_polar_deg*PI/180)^2) < ${radical_e_thresh}" in head
+
+
+def _cycle_spec(**phase_kw):
+    return SimSpec(
+        ml=64, box_x=8, box_y=8, cycles=2,
+        phases=[
+            CyclePhase(species="Ar", energy=50.0, fluence_ml=5),
+            CyclePhase(species="O", energy=20.0, fluence_ml=5, flux_ratio=3, **phase_kw),
+        ],
+    )
+
+
+def test_cycle_fixed_energy_loop_unchanged_markers():
+    head = get_head_lmp_cycle_etch(_cycle_spec(radical_energy=0.2))
+    assert "rad_samp_done" not in head and "radical_log.txt" not in head
+    assert "v_time_elapsed > ${current_inter_neutral_time}" in head
+
+
+def test_cycle_boltzmann_phase_runtime_sampling_and_threshold():
+    spec = _cycle_spec(radical_temperature=518, radical_angle_distribution=True,
+                       radical_energy_threshold=0.1)
+    head = get_head_lmp_cycle_etch(spec)
+    assert 'if "${current_rad_mode} == 2" then "jump SELF rad_samp_flux"' in head
+    assert "label       rad_samp_gas" not in head          # no gas-phase phase present
+    assert "variable current_e_thresh equal ${phase_1_radical_e_thresh}" in head
+    assert '"variable current_e_thresh equal -1" &' in head   # Ar phase override
+    assert "v_time_elapsed > ${rad_halt_t}" in head
+    assert "append radical_log.txt" in head and "label       radical_skip" in head
+    # Boltzmann phase has no fixed radical_energy variable to reference
+    assert "phase_1_radical_energy" not in head
+
+
+def test_cycle_mixed_fixed_and_gas_phases_emit_both_branches():
+    spec = SimSpec(
+        ml=64, box_x=8, box_y=8, cycles=1,
+        phases=[
+            CyclePhase(species="O", energy=20.0, fluence_ml=5, flux_ratio=2, radical_energy=0.2),
+            CyclePhase(species="O", energy=20.0, fluence_ml=5, flux_ratio=2,
+                       radical_temperature=300, radical_energy_dist="gas"),
+        ],
+    )
+    head = get_head_lmp_cycle_etch(spec)
+    assert "variable    rad_e_draw equal ${current_radical_energy}" in head
+    assert "label       rad_samp_gas" in head and "rad_samp_flux" not in head

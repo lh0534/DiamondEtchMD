@@ -18,13 +18,17 @@ ncarbon.txt format: "c cn ncarbon nhydrogen noxygen"
   - After each ion impact: col2=0
 This format enables mid-radical-loop restarts via the neut_complete LAMMPS variable.
 
-Note: Boltzmann/cosine stochastic radical sampling for cycling phases is tracked
-in TODO.md — the cycling neutral loop currently uses fixed-energy / fixed-angle mode.
+Per-phase radical sampling: fixed energy + fixed angle by default; phases with
+radical_temperature (Boltzmann: gas or striking-flux distribution) and/or
+radical_angle_distribution (Lambert cosine) switch the neutral loop to runtime
+sampling (_cycle_radical_velocity_block), which also logs radical_log.txt and
+skips draws below a phase's radical_energy_threshold.
 """
 
 from ..orientations import ORIENT
 from ..species import SPECIES
 from ..spec import SimSpec, CyclePhase
+from .head import RADICAL_SKIP_TAIL
 
 
 def _phase_needs_zbl(p: CyclePhase) -> bool:
@@ -165,13 +169,125 @@ def _phase_radical_vars(p: CyclePhase, i: int) -> tuple:
     radical_i_above is global (same injection height for all phases).
     """
     if p.flux_ratio > 0:
+        # Stochastic phases get max_inter_neutral_time (the per-radical halt cap)
+        # instead of inter_neutral_time, and no fixed angle when cosine-distributed.
+        inter = (f"${{phase_{i}_max_inter_neutral_time}}" if _phase_is_stochastic(p)
+                 else f"${{phase_{i}_inter_neutral_time}}")
+        if p.radical_angle_distribution:
+            return ("0.0", inter, "90.0")
         return (
             f"${{phase_{i}_rad_angl}}",
-            f"${{phase_{i}_inter_neutral_time}}",
+            inter,
             f"${{phase_{i}_rad_azimuth}}",
         )
     else:
         return ("0.0", "1500.0", "90.0")
+
+
+def _phase_is_stochastic(p: CyclePhase) -> bool:
+    """Phase deposits radicals with Boltzmann speeds and/or cosine angles."""
+    return p.flux_ratio > 0 and (p.radical_temperature is not None or p.radical_angle_distribution)
+
+
+def _cycle_has_stochastic(phases: list) -> bool:
+    return any(_phase_is_stochastic(p) for p in phases)
+
+
+def _phase_stochastic_vars(p: CyclePhase, i: int) -> list:
+    """(name, value) pairs for the current_* radical-sampling variables of phase i.
+
+    rad_mode: 0 fixed energy, 1 Boltzmann gas, 2 Boltzmann flux-weighted.
+    e_thresh: -1 = off.
+    """
+    boltz = p.flux_ratio > 0 and p.radical_temperature is not None
+    mode = (2 if p.radical_energy_dist == "flux" else 1) if boltz else 0
+    return [
+        ("current_rad_mode", str(mode)),
+        ("current_rad_stoch", "1" if _phase_is_stochastic(p) else "0"),
+        ("current_rad_cosine", "1" if (p.flux_ratio > 0 and p.radical_angle_distribution) else "0"),
+        ("current_kT_rad", f"${{phase_{i}_kT_rad}}" if boltz else "0"),
+        ("current_e_thresh",
+         f"${{phase_{i}_radical_e_thresh}}" if (boltz and p.radical_energy_threshold is not None) else "-1"),
+        ("current_thresh_normal", "1" if p.radical_threshold_on == "normal" else "0"),
+    ]
+
+
+def _cycle_radical_velocity_block(phases: list) -> str:
+    """Per-phase radical sampling for cycles with any stochastic phase.
+
+    Branches at runtime on the current_* variables set by the phase selection
+    block: speed from a fixed energy, the gas-phase Maxwell-Boltzmann
+    distribution, or the striking-flux distribution E*exp(-E/kT); direction
+    fixed or Lambert cosine.  Every draw is logged to radical_log.txt
+    (c cn energy polar azimuth simulated); draws below the phase's
+    radical_e_thresh jump to the skip tail.  All draws are frozen with $().
+    """
+    radical_phases = [p for p in phases if p.flux_ratio > 0 and not p.radical_burst]
+    has_fixed = any(p.radical_temperature is None for p in radical_phases)
+    has_gas = any(p.radical_temperature is not None and p.radical_energy_dist == "gas"
+                  for p in radical_phases)
+    has_flux = any(p.radical_temperature is not None and p.radical_energy_dist == "flux"
+                   for p in radical_phases)
+    blk = (
+        "# Radical velocity (per phase: fixed energy / Boltzmann gas / Boltzmann flux;\n"
+        "# fixed angle or Lambert cosine)\n"
+        "variable    bms equal v_c*100000+v_cn+${seed_adjust}*1000000\n"
+        + ("variable    rad_e_draw equal ${current_radical_energy}\n" if has_fixed
+           else "variable    rad_e_draw equal 0\n")
+        + ('if "${current_rad_mode} == 1" then "jump SELF rad_samp_gas"\n' if has_gas else "")
+        + ('if "${current_rad_mode} == 2" then "jump SELF rad_samp_flux"\n' if has_flux else "")
+        + "jump        SELF rad_samp_done\n"
+    )
+    if has_gas:
+        blk += (
+            "label       rad_samp_gas\n"
+            "variable    sigma_rad equal sqrt(${current_kT_rad}*6.02214129e7/${M_O}/6242)/1000\n"
+            "variable    u1a equal $(random(1e-10,1.0,v_bms+1))\n"
+            "variable    u2a equal $(random(1e-10,1.0,v_bms+2))\n"
+            "variable    u1b equal $(random(1e-10,1.0,v_bms+3))\n"
+            "variable    u2b equal $(random(1e-10,1.0,v_bms+4))\n"
+            "variable    u1c equal $(random(1e-10,1.0,v_bms+5))\n"
+            "variable    u2c equal $(random(1e-10,1.0,v_bms+6))\n"
+            "variable    gx_sq equal (-2*ln(v_u1a))*(1+cos(4*PI*v_u2a))/2*v_sigma_rad*v_sigma_rad\n"
+            "variable    gy_sq equal (-2*ln(v_u1b))*(1+cos(4*PI*v_u2b))/2*v_sigma_rad*v_sigma_rad\n"
+            "variable    gz_sq equal (-2*ln(v_u1c))*(1+cos(4*PI*v_u2c))/2*v_sigma_rad*v_sigma_rad\n"
+            "variable    rad_e_draw equal $((v_gx_sq+v_gy_sq+v_gz_sq)*v_M_O*6242*500000/6.02214129e7)\n"
+            "jump        SELF rad_samp_done\n"
+        )
+    if has_flux:
+        blk += (
+            "label       rad_samp_flux\n"
+            "variable    u1f equal $(random(1e-10,1.0,v_bms+9))\n"
+            "variable    u2f equal $(random(1e-10,1.0,v_bms+10))\n"
+            "variable    rad_e_draw equal $(-v_current_kT_rad*ln(v_u1f*v_u2f))\n"
+        )
+    blk += (
+        "label       rad_samp_done\n"
+        "variable    vel_chem equal $(sqrt(2*v_rad_e_draw*6.02214129*1.0e+7/v_M_O/6242)/1000)\n"
+        "variable    cos_th equal $(cos(v_current_rad_angl*PI/180))\n"
+        "variable    phi_r equal $(v_current_rad_azimuth*PI/180)\n"
+        'if "${current_rad_cosine} == 1" then &\n'
+        '"variable u_th equal $(random(0.0,1.0,v_bms+7))" &\n'
+        '"variable u_ph equal $(random(0.0,1.0,v_bms+8))" &\n'
+        '"variable cos_th equal $(sqrt(v_u_th))" &\n'
+        '"variable phi_r equal $(2*PI*v_u_ph)"\n'
+        "variable    sin_th equal $(sqrt(1.0-v_cos_th*v_cos_th))\n"
+        "variable    velx_chem equal $(v_vel_chem*v_sin_th*cos(v_phi_r))\n"
+        "variable    vely_chem equal $(v_vel_chem*v_sin_th*sin(v_phi_r))\n"
+        "variable    velz_chem equal $(v_vel_chem*v_cos_th)\n"
+        "# Halt time: stochastic phases use min(1.5*i_above/|vz|, cap), cap = max_inter_neutral_time\n"
+        "variable    rad_halt_t equal ${current_inter_neutral_time}\n"
+        'if "${current_rad_stoch} == 1" then "variable rad_halt_t equal $(1.5*v_radical_i_above/(v_velz_chem+1e-10))"\n'
+        'if "${rad_halt_t} > ${current_inter_neutral_time}" then "variable rad_halt_t equal ${current_inter_neutral_time}"\n'
+        "# Log every draw (col 6: 1 = simulated, 0 = skipped below radical_e_thresh)\n"
+        "variable    rad_e_test equal ${rad_e_draw}\n"
+        'if "${current_thresh_normal} == 1" then "variable rad_e_test equal $(v_rad_e_draw*v_cos_th*v_cos_th)"\n'
+        "variable    rad_sim equal 1\n"
+        'if "${current_e_thresh} >= 0 && ${rad_e_test} < ${current_e_thresh}" then "variable rad_sim equal 0"\n'
+        'print       "${c} ${cn} ${rad_e_draw} $(acos(v_cos_th)*180/PI) $(v_phi_r*180/PI) ${rad_sim}" append radical_log.txt\n'
+        'if "${rad_sim} == 0" then "jump SELF radical_skip"\n'
+    )
+    return blk
 
 
 def _phase_selection_block(phases: list, has_ar: bool,
@@ -199,6 +315,7 @@ def _phase_selection_block(phases: list, has_ar: bool,
     has_any_radicals = any(p.flux_ratio > 0 for p in phases)
     has_any_mix = any(p.ion_mix is not None for p in phases)
     has_any_burst = any(p.radical_burst for p in phases)
+    has_stoch = _cycle_has_stochastic(phases)
 
     # Assign 1-indexed mix dispatch slots to ion_mix phases
     mix_idx_of = {}  # phase_index -> mix dispatch index (1-based)
@@ -269,8 +386,11 @@ def _phase_selection_block(phases: list, has_ar: bool,
     for ln in _ion_defaults_for(last, N - 1):
         lines.append(ln)
     lines.append(f"variable current_flux_ratio equal ${{phase_{N-1}_flux_ratio}}\n")
-    if has_any_radicals and last.flux_ratio > 0:
+    if has_any_radicals and last.flux_ratio > 0 and last.radical_temperature is None:
         lines.append(f"variable current_radical_energy equal ${{phase_{N-1}_radical_energy}}\n")
+    if has_stoch:
+        for name, val in _phase_stochastic_vars(last, N - 1):
+            lines.append(f"variable {name} equal {val}\n")
     lines.append(f"variable current_rad_angl equal {rad_angl_v}\n")
     lines.append(f"variable current_rad_azimuth equal {rad_azimuth_v}\n")
     lines.append(f"variable current_inter_neutral_time equal {inter_t_v}\n")
@@ -282,8 +402,11 @@ def _phase_selection_block(phases: list, has_ar: bool,
         rad_angl_v, inter_t_v, rad_azimuth_v = _phase_radical_vars(p, i)
         radical_energy_line = (
             f'"variable current_radical_energy equal ${{phase_{i}_radical_energy}}" &\n'
-            if (has_any_radicals and p.flux_ratio > 0) else ""
+            if (has_any_radicals and p.flux_ratio > 0 and p.radical_temperature is None) else ""
         )
+        if has_stoch:
+            radical_energy_line += "".join(
+                f'"variable {name} equal {val}" &\n' for name, val in _phase_stochastic_vars(p, i))
 
         sp = SPECIES[p.species] if p.ion_mix is None else None
         removal_line = (
@@ -645,6 +768,8 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
     has_o2 = _has_o2(spec)
     switch_pot = _can_switch_potential(spec)
     has_any_radicals = any(p.flux_ratio > 0 for p in spec.phases)
+    stoch = _cycle_has_stochastic(spec.phases)
+    halt_ref = "${rad_halt_t}" if stoch else "${current_inter_neutral_time}"
     has_any_mix = any(p.ion_mix is not None for p in spec.phases)
     has_any_burst = any(p.radical_burst for p in spec.phases)
     n_types = 4 if has_ar else 3
@@ -862,11 +987,13 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"group       mobile subtract all anchor\n"
             f"{nonargon_refresh}"
             f"\n"
-            f"# Radical velocity (fixed-energy, per-phase angle)\n"
-            f"variable    vel_chem equal sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
-            f"variable    velx_chem equal sin(${{current_rad_angl}}*PI/180)*cos(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
-            f"variable    vely_chem equal sin(${{current_rad_angl}}*PI/180)*sin(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
-            f"variable    velz_chem equal cos(${{current_rad_angl}}*PI/180)*${{vel_chem}}\n"
+            + (_cycle_radical_velocity_block(spec.phases) if stoch else (
+                f"# Radical velocity (fixed-energy, per-phase angle)\n"
+                f"variable    vel_chem equal sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+                f"variable    velx_chem equal sin(${{current_rad_angl}}*PI/180)*cos(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
+                f"variable    vely_chem equal sin(${{current_rad_angl}}*PI/180)*sin(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
+                f"variable    velz_chem equal cos(${{current_rad_angl}}*PI/180)*${{vel_chem}}\n"
+            )) +
             f"\n"
             f"# Deposit O• radical (always type 3)\n"
             f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
@@ -884,7 +1011,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"variable    starting_nclusts equal $(c_nclusts)\n"
             f"variable    t0 equal $(time)\n"
             f"variable    time_elapsed equal time-${{t0}}\n"
-            f"fix         thalt all halt 1 v_time_elapsed > ${{current_inter_neutral_time}} "
+            f"fix         thalt all halt 1 v_time_elapsed > {halt_ref} "
             f"error continue message yes\n"
             f"\n"
             f"# ======================== Neutral inner loop ========================\n"
@@ -897,7 +1024,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             + (' &\n"variable keep_dump_n equal 1"' if dm == "etch_only" else "")
             + "\n"
             + f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
-            f'if "$(time-v_t0) < ${{current_inter_neutral_time}}" then "jump SELF continue_n_impact"\n'
+            f'if "$(time-v_t0) < {halt_ref}" then "jump SELF continue_n_impact"\n'
             f"\n"
             f"group       carbon type 1\n"
             f"group       hydrogen type 2\n"
@@ -923,6 +1050,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f"unfix       2\n"
             f"unfix       3\n"
             f"# ======================== End neutral inner loop ========================\n"
+            + (RADICAL_SKIP_TAIL if stoch else "") +
             f"next        neutral_lp\n"
             f"jump        SELF neutral_loop\n"
             f"\n"
@@ -1036,6 +1164,8 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
     has_o2 = _has_o2(spec)
     switch_pot = _can_switch_potential(spec)
     has_any_radicals = any(p.flux_ratio > 0 for p in spec.phases)
+    stoch = _cycle_has_stochastic(spec.phases)
+    halt_ref = "${rad_halt_t}" if stoch else "${current_inter_neutral_time}"
     dm = spec.dump_mode
 
     phase_names = " → ".join(
@@ -1222,10 +1352,12 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
             f"group       mobile subtract all anchor\n"
             f"{nonargon_refresh}"
             f"\n"
-            f"variable    vel_chem equal sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
-            f"variable    velx_chem equal sin(${{current_rad_angl}}*PI/180)*cos(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
-            f"variable    vely_chem equal sin(${{current_rad_angl}}*PI/180)*sin(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
-            f"variable    velz_chem equal cos(${{current_rad_angl}}*PI/180)*${{vel_chem}}\n"
+            + (_cycle_radical_velocity_block(spec.phases) if stoch else (
+                f"variable    vel_chem equal sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+                f"variable    velx_chem equal sin(${{current_rad_angl}}*PI/180)*cos(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
+                f"variable    vely_chem equal sin(${{current_rad_angl}}*PI/180)*sin(${{current_rad_azimuth}}*PI/180)*${{vel_chem}}\n"
+                f"variable    velz_chem equal cos(${{current_rad_angl}}*PI/180)*${{vel_chem}}\n"
+            )) +
             f"\n"
             f"fix         depo insert deposit 1 3 1 ${{deposeed}} global "
             f"${{radical_i_above}} ${{radical_i_above}} "
@@ -1242,7 +1374,7 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
             f"variable    starting_nclusts equal $(c_nclusts)\n"
             f"variable    t0 equal $(time)\n"
             f"variable    time_elapsed equal time-${{t0}}\n"
-            f"fix         thalt all halt 1 v_time_elapsed > ${{current_inter_neutral_time}} "
+            f"fix         thalt all halt 1 v_time_elapsed > {halt_ref} "
             f"error continue message yes\n"
             f"\n"
             f"label       continue_n_impact\n"
@@ -1254,7 +1386,7 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
             + (' &\n"variable keep_dump_n equal 1"' if dm == "etch_only" else "")
             + "\n"
             + f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
-            f'if "$(time-v_t0) < ${{current_inter_neutral_time}}" then "jump SELF continue_n_impact"\n'
+            f'if "$(time-v_t0) < {halt_ref}" then "jump SELF continue_n_impact"\n'
             f"\n"
             f"group       carbon type 1\n"
             f"group       hydrogen type 2\n"
@@ -1274,6 +1406,7 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
             f"include     thermalize.lmp\n"
             f"unfix       2\n"
             f"unfix       3\n"
+            + (RADICAL_SKIP_TAIL if stoch else "") +
             f"next        neutral_lp\n"
             f"jump        SELF neutral_loop\n"
             f"\n"

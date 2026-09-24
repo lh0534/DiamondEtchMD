@@ -74,7 +74,7 @@ def _final_plot_block(ml_var: str = "$ML") -> str:
     """Run a final plot with CNA strided to 1-per-ML after normal completion."""
     return (
         f"echo \"Running final analysis plots ...\"\n"
-        f"python3 auto-plot.py --cna-stride {ml_var} 2>>plot.log || true\n"
+        f"python3 auto-plot.py --cna-stride {ml_var} --render 2>>plot.log || true\n"
     )
 
 

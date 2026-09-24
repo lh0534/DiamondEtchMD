@@ -55,6 +55,28 @@ Planned features and known gaps, roughly ordered by expected impact.
   (impact, cn, energy_eV, polar_deg, azimuthal_deg). `make_plots()` produces
   `radical_distribution.png`: energy histogram vs MB PDF, angle histogram vs cosine PDF.
 
+- [x] **Striking-flux radical energies** — `radical_energy_dist` on `SimSpec` / `CyclePhase`:
+  `"flux"` (default for new specs) samples E·e^(−E/kT) as E = −kT·ln(u₁u₂); `"gas"` keeps the
+  Box-Muller gas-phase MB draw. Saved specs without the key load as `"gas"`, so existing sims
+  regenerate byte-identical scripts (checked on all 480 specs under `dfiles/`). Also applies to
+  RIE burst chunks. CLI `--radical-energy-dist`.
+
+- [x] **Radical energy threshold** — `radical_energy_threshold` (eV) + `radical_threshold_on`
+  (`"total"` | `"normal"`): draws below the threshold are logged (6th `radical_log.txt` column
+  = 0) but not simulated; they get an unchanged `ncarbon.txt` row and count as reflected in
+  `summary.txt` sticking. `radical_distribution.png` shows simulated vs skipped and the expected
+  skip fraction. CLI `--radical-energy-threshold [eV]` (bare = 0.1). Validation pairs set up in
+  `dfiles/RIE/radical_threshold_test/` and `dfiles/cycling/radical_threshold_test/`.
+
+- [x] **Boltzmann/cosine radicals in cycling** — per-phase `current_rad_mode` /
+  `current_rad_cosine` / `current_e_thresh` set in the phase-selection block; the neutral loop
+  samples at runtime (fixed / gas / flux energy, fixed / cosine angle), uses the per-radical
+  halt time, logs `radical_log.txt`, and supports the energy threshold. Cycles with only
+  fixed-energy phases generate the unchanged loop.
+
+- [ ] **Validate the energy threshold** — run the two test pairs above; compare etch yield,
+  O uptake, amorphous thickness and wall time between full-distribution and 0.1 eV runs.
+
 - [x] **Ion/radical angle split** — LAMMPS variable `angl` split into `ion_angl` and
   `rad_angl`. SimSpec fields: `ion_angle` (was `angle`), `radical_angle`. Backward compat
   via `SimSpec.from_dict()`.

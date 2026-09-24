@@ -103,6 +103,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable Lambert cosine angle distribution for O• radicals",
     )
     bomb.add_argument(
+        "--radical-energy-dist", choices=["flux", "gas"], default="flux",
+        dest="radical_energy_dist",
+        help=(
+            "Boltzmann radical energy distribution: flux = E*exp(-E/kT), the flux "
+            "striking a surface (default); gas = sqrt(E)*exp(-E/kT)"
+        ),
+    )
+    bomb.add_argument(
+        "--radical-energy-threshold", type=float, nargs="?", const=0.1, default=None,
+        dest="radical_energy_threshold", metavar="eV",
+        help=(
+            "Skip (no MD; counted as reflected) Boltzmann radical draws below this "
+            "energy; bare flag = 0.1 eV (requires --radical-temperature)"
+        ),
+    )
+    bomb.add_argument(
+        "--radical-threshold-on", choices=["total", "normal"], default="total",
+        dest="radical_threshold_on",
+        help="Compare the threshold to the total energy (default) or the normal component E*cos^2(theta)",
+    )
+    bomb.add_argument(
         "--dump-mode", default="all", dest="dump_mode",
         choices=["all", "etch_only", "none"],
         help=(
@@ -217,6 +238,9 @@ def main():
         radical_temperature  = args.radical_temperature,
         radical_angle        = args.radical_angle,
         radical_angle_distribution   = args.radical_angle_distribution,
+        radical_energy_dist  = args.radical_energy_dist,
+        radical_energy_threshold = args.radical_energy_threshold,
+        radical_threshold_on = args.radical_threshold_on,
         dump_mode            = args.dump_mode,
         name                 = args.name or (
             f"{args.orientation}_{args.species}_{args.energy}eV"
@@ -271,7 +295,20 @@ def plot_main():
         "--n-blocks", type=int, default=10, dest="n_blocks",
         help="Number of blocks for block-averaging uncertainties (default: 10)",
     )
+    pp.add_argument(
+        "--render", "--render-phases", action="store_true", dest="render",
+        help="OVITO-render snapshots: render_density_vs_fluence.gif/.mp4 for any "
+             "sim; cycling also gets phase_ends_render_density.png (needs xvfb + OVITO)",
+    )
+    pp.add_argument(
+        "--two-sides", action="store_true", dest="two_sides",
+        help="With --render: add a second render of each snapshot viewed from 90° "
+             "next to the 0° view",
+    )
     args = pp.parse_args()
+    if args.two_sides and not args.render:
+        print("Note: --two-sides only affects --render; ignoring.")
+    views = (0, 90) if args.two_sides else (0,)
 
     sim_dir = Path(args.sim_dir)
     spec = None
@@ -322,6 +359,30 @@ def plot_main():
         make_plots(sim_dir, spec=spec, ml=ml, cna_records=cna_records)
     except ImportError as e:
         print(f"Warning: skipping plots ({e})")
+
+    if args.render:
+        print("Rendering snapshots ...")
+        try:
+            from .render import render_phase_ends, render_ml_frames
+            from .analysis import density
+            from .analysis.plot import _spec_summary_str
+            import matplotlib.pyplot as plt
+            lat_a = float((sim_dir / 'lat_a.txt').read_text().strip())
+            if render_ml_frames(sim_dir, ml, views=views):
+                density.animate_render_density(sim_dir, spec, ml, lat_a,
+                                               cna_records=cna_records)
+            else:
+                print("  no impact_snaps/ snapshots found — skipping movie")
+            if spec is not None and spec.phases:
+                render_phase_ends(sim_dir, spec, ml, views=views)
+                fig = density.plot_phase_end_render_density(
+                    sim_dir, spec, ml, lat_a, spec_summary=_spec_summary_str(spec))
+                if fig:
+                    fig.savefig(sim_dir / 'phase_ends_render_density.png',
+                                dpi=300, bbox_inches='tight')
+                    plt.close(fig)
+        except Exception as e:
+            print(f"Warning: snapshot renders failed ({e})")
 
     print("Computing summary statistics ...")
     stats = analyze_run(sim_dir, spec=spec, ml=ml,

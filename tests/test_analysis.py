@@ -201,3 +201,27 @@ def test_etch_depth_monotone_decrease(ncarbon_file):
     records = parse_ncarbon(ncarbon_file)
     depths = etch_depth(records, ml=81, box_x=9, box_y=9, orientation="100")
     assert depths == sorted(depths)
+
+
+# ─── radical log / energy threshold helpers ──────────────────────────────────
+
+def test_read_radical_log_5_and_6_columns(tmp_path):
+    from diamond_etch_md.analysis._common import read_radical_log, skipped_radicals
+    (tmp_path / "radical_log.txt").write_text(
+        "1 1 0.05 10 20\n"          # legacy 5-column row → simulated
+        "1 2 0.03 11 21 0\n"        # skipped
+        "1 3 0.20 12 22 1\n")
+    log = read_radical_log(tmp_path / "radical_log.txt")
+    assert log["simulated"].tolist() == [True, False, True]
+    assert skipped_radicals(tmp_path) == {(1, 2)}
+
+
+def test_expected_skip_fraction_matches_analytic():
+    import numpy as np
+    from scipy.special import gammainc
+    from diamond_etch_md.analysis._common import expected_skip_fraction, KB_EV
+    x = 0.1 / (KB_EV * 518)
+    flux = expected_skip_fraction({"T": 518, "dist": "flux", "threshold": 0.1, "on": "total", "cosine": True})
+    gas = expected_skip_fraction({"T": 518, "dist": "gas", "threshold": 0.1, "on": "total", "cosine": True})
+    assert abs(flux - (1 - (1 + x) * np.exp(-x))) < 0.005
+    assert abs(gas - gammainc(1.5, x)) < 0.005

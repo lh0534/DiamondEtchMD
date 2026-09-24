@@ -253,14 +253,25 @@ def analyze_run(
         n_bounce = len(rad_bounce_steps)
         stats['n_radical_bounce'] = n_bounce
         if n_radical > 0:
-            # Per-radical bounce indicator (1=bounced, 0=stuck) in deposition order
+            # Per-radical bounce indicator (1=bounced, 0=stuck) in deposition order.
+            # Draws skipped below the energy threshold are counted as bounced (the
+            # model assumption); sticking among simulated draws is reported too.
+            from ._common import skipped_radicals
+            skipped = skipped_radicals(sim_dir)
+            rad_keys = [(r['impact'], r['cn']) for r in nc if r['cn'] > 0]
             bounce_seq = np.array([
-                1.0 if (r['impact'], r['cn']) in rad_bounce_steps else 0.0
-                for r in nc if r['cn'] > 0
+                1.0 if (k in rad_bounce_steps or k in skipped) else 0.0 for k in rad_keys
             ])
             bounce_mean, bounce_err = block_stats(bounce_seq, n_blocks)
             stats['radical_sticking'] = 1.0 - bounce_mean
             stats['radical_sticking_err'] = bounce_err
+            stats['n_radical_skipped'] = sum(1 for k in rad_keys if k in skipped)
+            if skipped:
+                sim_seq = np.array([1.0 if k in rad_bounce_steps else 0.0
+                                    for k in rad_keys if k not in skipped])
+                sm, se = block_stats(sim_seq, n_blocks)
+                stats['radical_sticking_simulated'] = 1.0 - sm
+                stats['radical_sticking_simulated_err'] = se
         else:
             stats['radical_sticking'] = None
             stats['radical_sticking_err'] = None
@@ -268,6 +279,12 @@ def analyze_run(
         stats['n_radical_bounce'] = None
         stats['radical_sticking'] = None
         stats['radical_sticking_err'] = None
+
+    # ── Boltzmann radical sampling ───────────────────────────────────────────
+    from ._common import radical_sampling_params, expected_skip_fraction
+    rp = radical_sampling_params(spec)
+    stats['radical_sampling'] = rp
+    stats['radical_skip_expected'] = expected_skip_fraction(rp)
 
     # ── product composition ───────────────────────────────────────────────────
     if ep_carbon:
@@ -438,6 +455,24 @@ def write_summary(stats: Dict, path) -> None:
         if sc is not None:
             lines.append(
                 f"  Radical sticking coefficient:{_fmt(sc, stats.get('radical_sticking_err'))}  ({nb} bounces / {stats.get('n_radical_impacts')} radicals)"
+            )
+        rp = stats.get('radical_sampling')
+        if rp:
+            thr = (f", threshold {rp['threshold']:g} eV on {rp['on']} energy"
+                   if rp['threshold'] is not None else "")
+            lines.append(f"  Radical sampling:             Boltzmann {rp['T']:g} K, "
+                         f"{rp['dist']} distribution{thr}")
+        n_skip = stats.get('n_radical_skipped')
+        if n_skip:
+            n_rad = stats.get('n_radical_impacts') or 1
+            exp = stats.get('radical_skip_expected')
+            lines.append(
+                f"  Radicals skipped (below thr):  {n_skip} / {n_rad} = {n_skip / n_rad:.1%}"
+                + (f"  (expected {exp:.1%})" if exp is not None else "")
+                + "  — counted as reflected in the sticking coefficient above"
+            )
+            lines.append(
+                f"  Sticking of simulated radicals:{_fmt(stats.get('radical_sticking_simulated'), stats.get('radical_sticking_simulated_err'))}"
             )
 
     if per_phase:

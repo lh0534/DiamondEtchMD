@@ -87,9 +87,12 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 |-------|------|---------|-------|
 | `flux_ratio` | `float` | `0` | O• radicals deposited before each ion impact; `0` = ion-etch; non-integer → stochastic floor/ceil per impact so the long-run average equals the specified value |
 | `radical_energy` | `float` | `0.2` | eV per O• (used when `radical_temperature` is `None`) |
-| `radical_temperature` | `float\|None` | `None` | K; enables Maxwell-Boltzmann speed sampling (overrides `radical_energy`) |
+| `radical_temperature` | `float\|None` | `None` | K; enables Boltzmann energy sampling (overrides `radical_energy`); distribution set by `radical_energy_dist` |
 | `radical_angle` | `float` | `0.0` | Degrees from surface normal for radicals in fixed-angle mode |
 | `radical_angle_distribution` | `bool` | `False` | Lambert cosine (3-D) angle distribution for O• radicals |
+| `radical_energy_dist` | `str` | `"flux"` | Boltzmann energy distribution: `"flux"` = E·e^(−E/kT) (striking flux, mean 2kT) \| `"gas"` = √E·e^(−E/kT) (gas-phase MB, mean 1.5kT). A `spec.json` without this key loads as `"gas"` |
+| `radical_energy_threshold` | `float\|None` | `None` | eV; Boltzmann draws below this are logged but skipped (no MD, treated as reflected). Requires `radical_temperature`; incompatible with `radical_burst` |
+| `radical_threshold_on` | `str` | `"total"` | Threshold compares `"total"` energy E or `"normal"` energy E·cos²θ |
 | `max_inter_neutral_time` | `float` | `5000.0` | fs; cap on per-radical halt time in stochastic mode |
 | `radical_i_above` | `float` | `6.0` | Å above surface to inject O• radical |
 | `skip_radical_thermalization` | `bool` | `False` | Omit `thermalize.lmp` between successive radicals in the one-at-a-time loop |
@@ -97,11 +100,13 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 
 **Stochastic radical sampling notes:**
 
-- When `radical_temperature` is set, three Box-Muller Gaussian deviates (σ = √(k_B T/m)) give the 3D velocity components; the speed follows the Maxwell-Boltzmann speed distribution.
+- When `radical_temperature` is set, the energy is drawn per radical. `radical_energy_dist="flux"` (default for new specs) samples the striking-flux distribution E·e^(−E/kT) as E = −kT·ln(u₁u₂) (Gamma(2, kT)); `"gas"` uses three Box-Muller Gaussian deviates (σ = √(k_B T/m)), i.e. the gas-phase Maxwell-Boltzmann distribution. The flux form is the energy part of the v·cosθ flux weighting; the cosine angle distribution below is the angular part, so combining them is not double counting.
+- `radical_energy_threshold`: every radical is drawn and logged, but draws with E (or E·cos²θ for `radical_threshold_on="normal"`) below the threshold are skipped — no deposit, MD or thermalization, only an unchanged `ncarbon.txt` row so `cn` stays contiguous and restarts resume correctly. Skipped radicals still count toward `flux_ratio`. Draws are seeded by (impact, cn), so two runs with the same `seed_adjust` see identical radicals (useful for threshold vs full-distribution validation pairs).
 - When `radical_angle_distribution=True`, the polar angle θ is sampled from the Lambert cosine (flux-weighted) distribution: θ = arcsin(√U), φ = 2π·U₂. This is the correct distribution for thermalized species hitting a surface, where the flux is weighted by the normal velocity component cos θ.
 - Both flags are independent and can be combined. Fixed-angle + Boltzmann speed is also valid (e.g. normal incidence with a thermal speed distribution).
-- In stochastic mode, `max_inter_neutral_time` is used as the MD window for every radical.
-- Sampled velocities are logged per-radical to `radical_log.txt` (columns: `impact cn energy_eV polar_deg azimuthal_deg`) and visualised in `radical_distribution.png`.
+- In stochastic mode, each radical's MD window is min(1.5·`radical_i_above`/|v_z|, `max_inter_neutral_time`).
+- Sampled velocities are logged per-radical to `radical_log.txt` (columns: `impact cn energy_eV polar_deg azimuthal_deg [simulated]`) and visualised in `radical_distribution.png`.
+- Cycling phases support all of the above per phase; the cycling neutral loop switches to runtime sampling only when some phase uses Boltzmann energies or cosine angles, otherwise the generated script is unchanged.
 
 **Burst radical injection** (`radical_burst=True`): deposits all `flux_ratio` radicals at once instead of one at a time. Mono-energetic fixed-angle only (no `radical_temperature`, no `radical_angle_distribution`); requires `ml > 0`.
 
@@ -329,9 +334,12 @@ Used in `SimSpec.phases` for cycling simulations.
 | `fluence_ml` | `int` | — | `> 0` | Monolayers of this species per cycle repetition |
 | `flux_ratio` | `float` | `0` | `>= 0` | O• radicals deposited before each ion impact in this phase; non-integer → stochastic floor/ceil |
 | `radical_energy` | `float` | `0.2` | `> 0` if `flux_ratio > 0` | eV per O• radical (used when `radical_temperature` is `None`) |
-| `radical_temperature` | `float\|None` | `None` | | K; Maxwell-Boltzmann speed sampling for this phase's radicals |
+| `radical_temperature` | `float\|None` | `None` | `> 0` | K; Boltzmann energy sampling for this phase's radicals (distribution: `radical_energy_dist`) |
 | `radical_angle` | `float` | `0.0` | | Degrees from normal for radicals in fixed-angle mode |
 | `radical_angle_distribution` | `bool` | `False` | | Lambert cosine angle distribution for this phase's radicals |
+| `radical_energy_dist` | `str` | `"flux"` | `"flux"`\|`"gas"` | As on `SimSpec`; missing key in a saved `spec.json` → `"gas"` |
+| `radical_energy_threshold` | `float\|None` | `None` | `>= 0`; needs `radical_temperature`; not with `radical_burst` | eV; skip this phase's radical draws below it |
+| `radical_threshold_on` | `str` | `"total"` | `"total"`\|`"normal"` | Energy compared to the threshold |
 | `max_inter_neutral_time` | `float` | `5000.0` | | fs; per-radical halt time cap in stochastic mode |
 | `radical_i_above` | `float` | `12.0` | | Å above surface to inject O• radical |
 
@@ -386,7 +394,7 @@ Written once per ejection event (each time a cluster leaves the box or a channel
 
 ### `radical_log.txt`
 
-Written in RIE-etch mode (one row per O• radical deposited). Space-separated, no header.
+Written in RIE-etch mode and in cycling runs with a Boltzmann/cosine phase (one row per O• radical draw). Space-separated, no header.
 
 | Column | Name | Description |
 |--------|------|-------------|
@@ -395,8 +403,9 @@ Written in RIE-etch mode (one row per O• radical deposited). Space-separated, 
 | 2 | `energy_eV` | Sampled radical kinetic energy (eV) |
 | 3 | `polar_deg` | Polar angle from surface normal (°) |
 | 4 | `azimuthal_deg` | Azimuthal angle (°) |
+| 5 | `simulated` | 1 = simulated, 0 = skipped below `radical_energy_threshold`. Present when a threshold is set (RIE) and always in cycling runs with a stochastic phase; absent → all simulated |
 
-Used by `plot_radical_distribution()` to verify Boltzmann and cosine sampling.
+Used by `plot_radical_distribution()` to verify Boltzmann and cosine sampling (and the skip fraction), by `check_radical_reflecting()` to exclude skipped draws, and by `summary.txt`, whose radical sticking coefficient counts skipped draws as reflected.
 
 ### `impact_stats.txt` (single-impact mode)
 
@@ -465,7 +474,10 @@ Key flags:
 --fluence 50               # monolayers
 --flux-ratio 5             # O• radicals per impact (0 = ion-etch)
 --radical-energy 0.2       # eV per O• radical (fixed-energy mode)
---radical-temperature 500  # K; enables Maxwell-Boltzmann speed sampling
+--radical-temperature 500  # K; enables Boltzmann energy sampling
+--radical-energy-dist flux # flux (E·exp(-E/kT), default) | gas (sqrt(E)·exp(-E/kT))
+--radical-energy-threshold 0.1  # eV; skip draws below it (bare flag = 0.1)
+--radical-threshold-on total    # total | normal (E·cos²θ)
 --radical-angle-distribution   # Lambert cosine polar angles for radicals
 --max-inter-neutral-time 5000  # fs; cap on per-radical MD window (stochastic mode)
 --box-x 9 --box-y 9        # lateral box size in lattice units

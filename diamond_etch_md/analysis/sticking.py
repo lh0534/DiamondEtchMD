@@ -63,8 +63,12 @@ def check_radical_reflecting(
     nc_records = parse_ncarbon(nc_path)
     ep_records = parse_etch_products(ep_path) if ep_path.exists() else []
 
-    # Radical rows: cn > 0
-    rad_rows = [r for r in nc_records if r.get("cn", 0) > 0]
+    # Radical rows: cn > 0, excluding draws skipped below the energy threshold
+    # (never simulated, so they carry no reflection information)
+    from ._common import skipped_radicals
+    skipped = skipped_radicals(sim_dir)
+    rad_rows = [r for r in nc_records
+                if r.get("cn", 0) > 0 and (r["impact"], r["cn"]) not in skipped]
 
     # Reflect set: (impact, cn) pairs where the product was a lone O atom
     reflect_set = {
