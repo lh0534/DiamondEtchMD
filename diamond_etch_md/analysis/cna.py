@@ -20,6 +20,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from ._common import kde_sigma
+
 try:
     import numpy as np
     HAS_NUMPY = True
@@ -42,7 +44,7 @@ except ImportError:
 # ── z-density constants (matching cycle_plots.ipynb) ─────────────────────────
 _LATTICE_A  = 3.5653871687699               # diamond lattice parameter, Å
 _ML_THICK_A = _LATTICE_A / 4               # (100) interlayer spacing, Å/ML
-_SIGMA_KDE  = _LATTICE_A / 8               # Gaussian KDE bandwidth, Å
+_SIGMA_KDE  = _LATTICE_A / 8               # legacy KDE bandwidth (cache records without kde_sigma_A)
 _RHO_REF    = 3.52 * 6.02214076e23 / 12.011 / 1e24  # diamond density, atoms/Å³
 _FRAC_LO    = 0.10                          # surface threshold
 _FRAC_HI    = 0.90                          # bulk-top threshold
@@ -50,7 +52,6 @@ _DZ         = 0.05                          # z-grid spacing, Å
 _Z_MAX      = 120.0                         # grid upper bound, Å
 _Z_EDGES    = np.arange(-_DZ / 2, _Z_MAX + _DZ, _DZ)
 _Z_CENTERS  = _Z_EDGES[:-1] + _DZ / 2
-_SIGMA_BINS = _SIGMA_KDE / _DZ             # KDE σ in grid bins
 
 OTHER, DIAMOND, NEIGH1, NEIGH2 = 0, 1, 2, 3
 
@@ -255,8 +256,10 @@ def diamond_cna(data: Dict, c_type: int = 1) -> np.ndarray:
 def zdensity_profile(
     data: Dict,
     c_type: int = 1,
+    sigma: float = _SIGMA_KDE,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """1-D Gaussian KDE density profile for carbon atoms (matching cycle_plots.ipynb).
+    sigma is the KDE bandwidth in Å (see _common.kde_sigma).
 
     Returns
     -------
@@ -275,7 +278,7 @@ def zdensity_profile(
     density = hist / (area * _DZ)
 
     if _HAS_SCIPY:
-        density = _gauss(density.astype(float), sigma=_SIGMA_BINS)
+        density = _gauss(density.astype(float), sigma=sigma / _DZ)
 
     return _Z_CENTERS.copy(), density, z_c_rel
 
@@ -304,7 +307,16 @@ def amorphous_metrics(
     return thickness, n_in_zone
 
 
-def analyze_impact(path, c_type: int = 1) -> Dict:
+def _density_metrics(data: Dict, c_type: int, sigma: float) -> Dict:
+    """z-density amorphous metrics for one snapshot (no CNA)."""
+    _, density, z_c_rel = zdensity_profile(data, c_type=c_type, sigma=sigma)
+    thickness, n_amorphous_zone = amorphous_metrics(density, z_c_rel)
+    return {'n_amorphous_zone': n_amorphous_zone,
+            'amorphous_thickness_A': thickness,
+            'kde_sigma_A': sigma}
+
+
+def analyze_impact(path, c_type: int = 1, orientation=None) -> Dict:
     """Compute CNA metrics for one impact_snaps/*.data file.
 
     Returns
@@ -316,6 +328,7 @@ def analyze_impact(path, c_type: int = 1) -> Dict:
         n_amorphous_zone     — C atoms in the amorphous zone (z-density method)
         diamond_fraction     — n_diamond / n_C
         amorphous_thickness_A — amorphous layer thickness in Å (z-density profile)
+        kde_sigma_A          — z-density KDE bandwidth used (orientation-dependent)
     """
     data = read_lammps_data(path)
     n_C = int((data['types'] == c_type).sum())
@@ -325,16 +338,12 @@ def analyze_impact(path, c_type: int = 1) -> Dict:
     n_crystalline = int((labels >= DIAMOND).sum())
     n_amorphous   = int((labels == OTHER).sum())
 
-    _, density, z_c_rel = zdensity_profile(data, c_type=c_type)
-    thickness, n_amorphous_zone = amorphous_metrics(density, z_c_rel)
-
     return {
         'n_diamond':             n_diamond,
         'n_crystalline':         n_crystalline,
         'n_amorphous':           n_amorphous,
-        'n_amorphous_zone':      n_amorphous_zone,
         'diamond_fraction':      n_diamond / n_C if n_C > 0 else 0.0,
-        'amorphous_thickness_A': thickness,
+        **_density_metrics(data, c_type, kde_sigma(_LATTICE_A, orientation)),
     }
 
 
@@ -372,11 +381,15 @@ def update_cna_cache(
     stride: int = 1,
     c_type: int = 1,
     verbose: bool = False,
+    orientation=None,
 ) -> List[Dict]:
     """Load existing cache and append CNA for any new impact snapshots.
 
     Determines which impact numbers belong in the strided set, computes only
     those missing from the cache, merges, saves, and returns the full list.
+    Cached records computed with a different z-density KDE bandwidth (e.g.
+    the old a/8 for every orientation) get their density metrics redone;
+    their CNA counts are kept.
     """
     import json
     cache_path = Path(cache_path)
@@ -409,6 +422,19 @@ def update_cna_cache(
     strided = {all_sorted[i] for i in range(0, len(all_sorted), stride)}
     new_impacts = sorted(strided - cached_impacts)
 
+    sigma = kde_sigma(_LATTICE_A, orientation)
+    stale = [r for r in existing
+             if abs(r.get('kde_sigma_A', _SIGMA_KDE) - sigma) > 1e-9
+             and r['impact'] in by_impact]
+    if stale:
+        if verbose:
+            print(f"  CNA: redoing z-density metrics for {len(stale)} cached "
+                  f"snapshots (KDE sigma -> {sigma:.3f} Å).", flush=True)
+        for r in stale:
+            r.update(_density_metrics(read_lammps_data(by_impact[r['impact']]),
+                                      c_type, sigma))
+        save_cna_cache(existing, cache_path)
+
     if not new_impacts:
         if verbose:
             print(f"  CNA cache up to date ({len(existing)} snapshots).", flush=True)
@@ -424,7 +450,7 @@ def update_cna_cache(
     for i, n in enumerate(new_impacts):
         if verbose and i % 100 == 0:
             print(f"  CNA: {i}/{len(new_impacts)}  ({by_impact[n].name})", flush=True)
-        m = analyze_impact(by_impact[n], c_type=c_type)
+        m = analyze_impact(by_impact[n], c_type=c_type, orientation=orientation)
         m['impact'] = n
         new_records.append(m)
 
@@ -438,6 +464,7 @@ def load_cna_series(
     stride: int = 1,
     c_type: int = 1,
     verbose: bool = False,
+    orientation=None,
 ) -> List[Dict]:
     """Compute CNA metrics for all (or strided) impact_snaps/ entries.
 
@@ -486,7 +513,7 @@ def load_cna_series(
     for i, f in enumerate(files):
         if verbose and i % 100 == 0:
             print(f"  CNA: {i}/{len(files)}  ({f.name})", flush=True)
-        m = analyze_impact(f, c_type=c_type)
+        m = analyze_impact(f, c_type=c_type, orientation=orientation)
         m['impact'] = _impact_num(f)
         records.append(m)
     return records

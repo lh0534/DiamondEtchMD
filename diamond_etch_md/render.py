@@ -52,6 +52,37 @@ def patch_ovito_scene(src: Path, dst: Path) -> None:
         f.write(new_header + orig[70:])
 
 
+def _run_with_xvfb(cmd, env=None, screen="1280x800x24"):
+    """Run cmd against a private Xvfb server; returns the CompletedProcess.
+
+    Xvfb -displayfd claims a free display number itself and reports it on a
+    pipe, so any number of concurrent renders (parallel auto-plots, pool
+    workers) get distinct displays.  xvfb-run -a and fixed display numbers
+    race: two servers pick the same number, one dies, and xvfb-run's cleanup
+    fails with "kill: ... No such process".
+    """
+    r, w = os.pipe()
+    xvfb = subprocess.Popen(
+        ["Xvfb", "-displayfd", str(w), "-screen", "0", screen, "-nolisten", "tcp"],
+        pass_fds=(w,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    os.close(w)
+    try:
+        with os.fdopen(r) as f:
+            display = f.readline().strip()
+        if not display:
+            raise RuntimeError("Xvfb failed to start")
+        run_env = dict(os.environ if env is None else env)
+        run_env["DISPLAY"] = f":{display}"
+        return subprocess.run(cmd, capture_output=True, text=True, env=run_env)
+    finally:
+        xvfb.terminate()
+        try:
+            xvfb.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            xvfb.kill()
+
+
 # ---------------------------------------------------------------------------
 # Scene / camera helpers (run in the main process, ovito already imported)
 # ---------------------------------------------------------------------------
@@ -146,11 +177,7 @@ def _xvfb_preview_frame(scene_path, dump_path, frame_idx, out_path,
         zoom=zoom,
         z_shift=z_shift,
     )
-    result = subprocess.run(
-        ["xvfb-run", "-a", "--server-args=-screen 0 1280x800x24",
-         sys.executable, "-W", "ignore", "-c", script],
-        capture_output=True, text=True,
-    )
+    result = _run_with_xvfb([sys.executable, "-W", "ignore", "-c", script])
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr)
         raise RuntimeError(f"Preview render failed (exit {result.returncode})")
@@ -261,7 +288,7 @@ def interactive_adjust(scene_path, dump_path, preview_dir: Path,
 
 
 # ---------------------------------------------------------------------------
-# Per-worker render script (called in subprocess via xvfb-run)
+# Per-worker render script (run in a subprocess under _run_with_xvfb)
 # ---------------------------------------------------------------------------
 
 _WORKER_SCRIPT = """\
@@ -313,13 +340,8 @@ for i, f in enumerate(frames):
 
 def _xvfb_render_chunk(scene_path, dump_path, frames, outdir, size, bg,
                         zoom_start=1.0, zoom_end=1.0, z_start=0.0, z_end=0.0,
-                        f_first=0, f_last=0, display_num=100):
-    """Render frames on a dedicated Xvfb display.
-
-    Uses an explicit display number instead of xvfb-run -a to avoid the TOCTOU
-    race where concurrent workers all auto-select the same free display number.
-    """
-    import time
+                        f_first=0, f_last=0):
+    """Render frames on a private Xvfb display (see _run_with_xvfb)."""
     script = _WORKER_SCRIPT.format(
         scene=str(scene_path),
         dump=str(dump_path),
@@ -334,23 +356,7 @@ def _xvfb_render_chunk(scene_path, dump_path, frames, outdir, size, bg,
         f_first=f_first,
         f_last=f_last,
     )
-    env = {**os.environ, "DISPLAY": f":{display_num}"}
-    xvfb = subprocess.Popen(
-        ["Xvfb", f":{display_num}", "-screen", "0", "1280x800x24"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-    time.sleep(1.0)  # Let Xvfb finish initialising before the client connects
-    try:
-        result = subprocess.run(
-            [sys.executable, "-W", "ignore", "-c", script],
-            capture_output=True, text=True, env=env,
-        )
-    finally:
-        xvfb.terminate()
-        try:
-            xvfb.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            xvfb.kill()
+    result = _run_with_xvfb([sys.executable, "-W", "ignore", "-c", script])
     if result.returncode != 0:
         print("── worker stdout ──", file=sys.stderr)
         print(result.stdout, file=sys.stderr)
@@ -413,12 +419,11 @@ def render_local(dump_path, scene_path, output_path, fps=15, cores=4,
     with tempfile.TemporaryDirectory() as tmpdir:
         t0 = time.time()
 
-        # Each worker gets a unique display number (:100, :101, …) so concurrent
-        # Xvfb instances never race on display number allocation.
+        # Each worker starts its own Xvfb (_run_with_xvfb picks a free display).
         args_list = [
             (patched, dump_path, chunk, str(tmpdir), size, bg,
-             zoom_start, zoom_end, z_start, z_end, f_first, f_last, 100 + i)
-            for i, chunk in enumerate(chunks)
+             zoom_start, zoom_end, z_start, z_end, f_first, f_last)
+            for chunk in chunks
         ]
         with mp.Pool(cores) as pool:
             pool.starmap(_xvfb_render_chunk, args_list)
@@ -624,10 +629,7 @@ def _run_render_jobs(out_dir, jobs, preset="standard", size=None, views=(0,),
     env.pop("PYTHONHOME", None)
     env.pop("PYTHONPATH", None)
     try:
-        result = subprocess.run(
-            ["xvfb-run", "-a", "--server-args=-screen 0 1280x800x24",
-             python, "-W", "ignore", "-c", code],
-            capture_output=True, text=True, env=env)
+        result = _run_with_xvfb([python, "-W", "ignore", "-c", code], env=env)
     finally:
         scene.unlink(missing_ok=True)
         job_file.unlink(missing_ok=True)
@@ -720,8 +722,10 @@ def _render_worker(job_file):
         types = np.asarray(src["Particle Type"].array)
         z_bot = float(z[types == 1].min())
         top_i = int(np.argmax(z))
+        r = np.array([radius.get(int(t), 0.5) for t in types])
         info.append(dict(z_bot=z_bot, h_top=float(z[top_i]) - z_bot,
-                         r_top=radius.get(int(types[top_i]), 0.5)))
+                         r_top=radius.get(int(types[top_i]), 0.5),
+                         z_low=float((z - r).min())))
 
     def render(cam_z, fn):
         pos = list(base_pos)
@@ -730,43 +734,45 @@ def _render_worker(job_file):
         vp.render_image(size=(W, H), background=bg, renderer=OpenGLRenderer(),
                         filename=str(fn))
 
-    def top_row(fn):
+    def bottom_edge(fn):
+        """Pixel row just below the lowest drawn pixel (None if frame is empty)."""
         a = np.asarray(Image.open(fn).convert("RGB")).astype(int)
         rows = np.where((a < 235).any(axis=2).any(axis=1))[0]
-        return int(rows.min()) if len(rows) else None
+        return int(rows.max()) + 1 if len(rows) else None
 
     def calibrate(job, i):
         """Measure px/Å and the view-center offset (view center != camera z,
-        and the offset does not scale with zoom) from the top atom of one
-        snapshot: find a camera height with the top atom inside the frame,
-        then render again slightly higher."""
+        and the offset does not scale with zoom) from the lattice bottom of
+        one snapshot: find a camera height with the bottom edge inside the
+        frame, then render again slightly higher.  The bottom layer spans the
+        whole width, so it cannot be cropped out the way a lone top atom can."""
         p.source.load(job["data"], atom_style="charge")
         cell_vis = p.source.data.cell.vis
         cell_vis.enabled = False
-        z_top = i["z_bot"] + i["h_top"] + i["r_top"]
+        z_low = i["z_low"]
         tmp = Path(job["png"]).with_name("_cal.png")
         vis_guess = vp.fov * H / W
-        cam1, r1 = z_top, None
+        cam1, r1 = z_low, None
         for _ in range(40):
             render(cam1, tmp)
-            r1 = top_row(tmp)
-            if r1 is None:                  # everything below the frame
-                cam1 -= vis_guess / 3
-            elif r1 == 0:                   # top atom above the frame
+            r1 = bottom_edge(tmp)
+            if r1 is None:                  # everything above the frame
                 cam1 += vis_guess / 3
+            elif r1 >= H:                   # lattice bottom below the frame
+                cam1 -= vis_guess / 3
             elif r1 > 0.7 * H:              # too close to the bottom for the 2nd shot
                 cam1 -= vis_guess / 6
             else:
                 break
         dz = 0.2 * vis_guess
         render(cam1 + dz, tmp)
-        r2 = top_row(tmp)
+        r2 = bottom_edge(tmp)
         tmp.unlink(missing_ok=True)
         cell_vis.enabled = True
-        if r1 is None or r2 is None or not 0 < r1 < r2:
-            raise RuntimeError(f"camera calibration failed (top-atom rows {r1}, {r2})")
+        if r1 is None or r2 is None or not 0 < r1 < r2 < H:
+            raise RuntimeError(f"camera calibration failed (lattice-bottom rows {r1}, {r2})")
         scale = (r2 - r1) / dz
-        return scale, z_top - cam1 - (H / 2 - r1) / scale
+        return scale, z_low - cam1 - (H / 2 - r1) / scale
 
     # Visible height is fov * H / W for this portrait ortho preset.
     summary = []
@@ -778,10 +784,14 @@ def _render_worker(job_file):
         vp.fov = (h_hi - h_lo) * W / H
         metas = {id(j): {"z_bottom": i["z_bot"], "snapshot": j["data"], "views": {}}
                  for j, i in group}
+        # The camera is horizontal, so spinning it about the vertical axis
+        # leaves the height->row mapping unchanged: calibrate once and share
+        # it so every view sits on the same height axis.
+        set_view(views[0])
+        scale, offset = calibrate(*max(group, key=lambda ji: ji[1]["h_top"]))
+        vis_h = H / scale
         for angle in views:
             set_view(angle)
-            scale, offset = calibrate(*max(group, key=lambda ji: ji[1]["h_top"]))
-            vis_h = H / scale
             for job, i in group:
                 p.source.load(job["data"], atom_style="charge")
                 render(i["z_bot"] + h_center - offset, view_png(job, angle))

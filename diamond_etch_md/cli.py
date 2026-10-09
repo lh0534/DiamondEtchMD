@@ -344,12 +344,14 @@ def plot_main():
             cache_path = sim_dir / _CACHE_NAME
             cna_records = update_cna_cache(
                 cache_path, data_dir, stride=stride, verbose=True,
+                orientation=getattr(spec, 'orientation', None),
             )
             print(f"  CNA ready — {len(cna_records)} snapshots total.")
         else:
             stride = args.cna_stride if args.cna_stride > 0 else ml
             print(f"Computing CNA from {data_dir} (stride={stride}) ...")
-            cna_records = load_cna_series(data_dir, stride=stride, verbose=True)
+            cna_records = load_cna_series(data_dir, stride=stride, verbose=True,
+                                          orientation=getattr(spec, 'orientation', None))
             print(f"  Done — {len(cna_records)} snapshots analyzed.")
     elif not args.no_cna:
         print("impact_snaps/ (or data_files/) not found — skipping CNA analysis.")

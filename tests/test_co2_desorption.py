@@ -198,3 +198,75 @@ create_atoms 3 single  5.8 5.0 7.30
     assert n_remaining == 2, (
         f"Anchor C and bridge O should both survive (2 atoms), got {n_remaining}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tests 4-6: run the real co2_desorption.lmp template via `include`
+# ---------------------------------------------------------------------------
+from pathlib import Path
+
+_TEMPLATE = (Path(__file__).resolve().parents[1]
+             / "diamond_etch_md" / "lammps" / "templates" / "co2_desorption.lmp")
+
+# Names head.lmp defines that the template relies on: loop counters c/cn, the
+# desorption fraction, and the thermo_style columns it restores when done.
+_HEAD_STUBS = """\
+variable     c equal 7
+variable     cn equal 3
+variable     co2_desorb_fraction equal {fraction}
+variable     ninject equal 0
+variable     ate equal 0
+variable     one_clust equal 0
+compute      ike all ke
+compute      nclusts all ke
+"""
+
+_GAS_O_RADICAL = "create_atoms 3 single 15.0 15.0 15.0\n"   # isolated O, coord_c = 0
+
+
+def _run_template(tmp_path, monkeypatch, setup, fraction=1.0):
+    """Build `setup`, include the real template, then `run 0` so the thermo_style
+    it restores is exercised. Returns (natoms, {output filename: text})."""
+    monkeypatch.chdir(tmp_path)
+    L = _lmp(tmp_path / "log.lammps")
+    try:
+        L.commands_string(setup)
+        L.commands_string(_HEAD_STUBS.format(fraction=fraction))
+        L.command(f"include {_TEMPLATE}")
+        L.command("run 0 post no")
+        natoms = L.get_natoms()
+    finally:
+        L.close()
+    outputs = {p.name: p.read_text() for p in tmp_path.iterdir()
+               if p.name in ("co2_desorption.txt", "etch_products.txt")}
+    return natoms, outputs
+
+
+def test_template_desorbs_co2_site(tmp_path, monkeypatch):
+    """Real template, fraction=1.0: the CO2* C and its two exclusive Os are removed,
+    the anchor C survives, and both log files record 1 C + 2 O at (c, cn) = (7, 3)."""
+    natoms, out = _run_template(tmp_path, monkeypatch, _SETUP_CO2_SITE)
+
+    assert natoms == 1, f"Only the anchor C should remain, got {natoms} atoms"
+    assert out.get("co2_desorption.txt", "").split() == ["7", "3", "1", "2"]
+    assert out.get("etch_products.txt", "").split() == ["7", "3", "1", "0", "2", "0", "0.0"]
+
+
+def test_template_spares_gas_phase_o_radical(tmp_path, monkeypatch):
+    """A free O radical has coord_c == 0 after desorption, like the orphaned Os, but it
+    was never in the pre-deletion exclusive-O snapshot, so it must survive."""
+    natoms, out = _run_template(tmp_path, monkeypatch, _SETUP_CO2_SITE + _GAS_O_RADICAL)
+
+    assert natoms == 2, f"Anchor C and the gas-phase O should remain, got {natoms} atoms"
+    assert out.get("co2_desorption.txt", "").split() == ["7", "3", "1", "2"]
+
+
+def test_template_no_site_is_noop(tmp_path, monkeypatch):
+    """With no CO2* site (just a lone C and a gas-phase O), nothing is deleted and
+    nothing is logged."""
+    setup = _SETUP_CO2_SITE.split("create_atoms")[0] + (
+        "create_atoms 1 single  5.0 5.0 5.00\n" + _GAS_O_RADICAL)
+    natoms, out = _run_template(tmp_path, monkeypatch, setup)
+
+    assert natoms == 2, f"No atoms should be deleted, got {natoms}"
+    assert out == {}, f"Nothing should be logged, got {sorted(out)}"

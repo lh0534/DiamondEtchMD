@@ -5,10 +5,12 @@ log therm.log # don't output all this thermostat setting to normal log. too much
 timestep 	0.25
 
 label setuploop
-variable dz equal ceil(($(zhi)-$(zlo))/16) #16 groups max to prevent going over 36 total
+# Slabs span the carbon, not the box: zlo can run far below the atoms (an atom
+# escaping downward drags the shrink-wrapped boundary with it), and the old
+# bottom*lat_a/sqrt(2) start drifted above the true bottom as the box grew.
+variable dz equal ceil(($(bound(carbon,zmax))-$(bound(carbon,zmin)))/16) #16 groups max to prevent going over 36 total
 if "${dz}<5" then "variable dz equal 5" # minimum lat_a
-variable zbottom equal ceil(${bottom}*${lat_a}/sqrt(2)) # for 001
-# variable zbottom equal ceil(${bottom}*${lat_a}*sqrt(3)) # for 111
+variable zbottom equal $(floor(bound(carbon,zmin)))
 variable zbottom0 equal $(v_zbottom)
 # =============================== begin thermostat setting loop ==========
 label set_loop_start 
@@ -48,6 +50,8 @@ if "$(step) < ${end_step}" then "jump SELF continue_thermo" # if interrupted, ke
 log therm.log append # again don't log this normally
 
 variable zbottom equal ${zbottom0}
+# no thermostat was set if the first slab had no mobile carbon
+if "${zbottom_final} == ${zbottom0}" then "jump SELF unset_loop_done"
 # =============================== begin thermostat UNsetting loop ========
 label unset_loop_start
 if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
@@ -55,6 +59,7 @@ unfix t${zname}
 group g${zname} delete
 variable zbottom equal ${zbottom}+${dz}
 if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+label unset_loop_done
 # ================================= end UNthermostat setting loop ========
 log ${log_file} append 
 

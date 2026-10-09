@@ -108,14 +108,16 @@ def read_snapshot(path):
     return (xhi - xlo) * (yhi - ylo), rows[:, 5], rows[:, 1].astype(int)
 
 
-def density_profile(z, types, area_A2, lat_a, h_max=None):
-    """Return (h, rho_C, rho_O): Gaussian-KDE densities (sigma = a/8, see
-    _common.kde_density) normalized to bulk diamond, vs height in Å above the
-    lowest C atom."""
+def density_profile(z, types, area_A2, lat_a, h_max=None, orientation=None):
+    """Return (h, rho_C, rho_O): Gaussian-KDE densities (orientation-dependent
+    sigma, see _common.kde_density) normalized to bulk diamond, vs height in Å
+    above the lowest C atom."""
     h = z - z[types == C_TYPE].min()
     top = h_max if h_max is not None else h.max() + 1.0
-    grid, rc = kde_density(h[types == C_TYPE], area_A2, lat_a, top)
-    _, ro = kde_density(h[types == O_TYPE], area_A2, lat_a, top)
+    grid, rc = kde_density(h[types == C_TYPE], area_A2, lat_a, top,
+                           orientation=orientation)
+    _, ro = kde_density(h[types == O_TYPE], area_A2, lat_a, top,
+                        orientation=orientation, continue_lattice=False)
     return grid, rc, ro
 
 
@@ -165,11 +167,12 @@ def _phase_colors(spec):
     return [_phase_index_color(i) for i in range(len(spec.phases) if spec and spec.phases else 0)]
 
 
-def _load_profiles(snaps, lat_a):
+def _load_profiles(snaps, lat_a, orientation=None):
     profs = {}
     for cyc, pi, dose, path in snaps:
         area, z, t = read_snapshot(path)
-        profs[(cyc, pi)] = (dose, *density_profile(z, t, area, lat_a))
+        profs[(cyc, pi)] = (dose, *density_profile(z, t, area, lat_a,
+                                                   orientation=orientation))
     return profs
 
 
@@ -257,7 +260,7 @@ def plot_phase_end_density(sim_dir, spec, ml, lat_a, spec_summary=None):
     snaps = phase_end_snapshots(sim_dir, spec, ml)
     if not snaps:
         return None
-    profs = _load_profiles(snaps, lat_a)
+    profs = _load_profiles(snaps, lat_a, getattr(spec, 'orientation', None))
     n_rows = max(c for c, _, _, _ in snaps) + 1
     fig, axes = _grid_axes(n_rows, len(spec.phases), 3.2, 3.6)
     for (cyc, pi), (dose, h, rc, ro) in profs.items():
@@ -321,7 +324,9 @@ def animate_density(sim_dir, spec, ml, lat_a, fps=10, out_stem='density_vs_fluen
     if len(frames) < 2:
         return []
     h_top = max((z - z[t == C_TYPE].min()).max() for _, _, z, t in frames) + 1.0
-    profs = [(k, *density_profile(z, t, a, lat_a, h_max=h_top)) for k, a, z, t in frames]
+    orient = getattr(spec, 'orientation', None)
+    profs = [(k, *density_profile(z, t, a, lat_a, h_max=h_top, orientation=orient))
+             for k, a, z, t in frames]
     colors = _phase_colors(spec)
 
     fig, ax = plt.subplots(figsize=(5, 6.5))
@@ -361,18 +366,18 @@ def _frame_stem(impact):
 def _trajectory_axes(ax, sim_dir, spec, ml, lat_a, cna_records):
     """Draw the etch_trajectory.png plot into ax (same inputs as make_plots);
     return the Line2D artists to reveal progressively."""
-    from .plot import (plot_etch, _parse_nc, _parse_ep, _parse_ml_dump,
-                       _ml_density_label)
+    from .plot import plot_etch, _parse_nc, _parse_ep, _parse_ml_dump, _ml_areal_factor
     sim_dir = Path(sim_dir)
     nc, _ = _parse_nc(sim_dir / 'ncarbon.txt')
     ep = [r for r in _parse_ep(sim_dir / 'etch_products.txt') if r['n_C'] > 0]
     amorphous_rho = None
     if not cna_records and (sim_dir / 'ML_impacts.dump').exists():
-        amorphous_rho = _parse_ml_dump(sim_dir / 'ML_impacts.dump', lat_a=lat_a) or None
+        amorphous_rho = _parse_ml_dump(sim_dir / 'ML_impacts.dump', lat_a=lat_a,
+                                       orientation=getattr(spec, 'orientation', None)) or None
     before = set(ax.figure.axes)
     plot_etch(nc, ml, spec=spec if spec and spec.phases else None, ep_records=ep,
               cna_records=cna_records, amorphous_rho=amorphous_rho, lat_a=lat_a,
-              ml_density_str=_ml_density_label(sim_dir, ml), ax=ax)
+              areal=_ml_areal_factor(sim_dir, ml), ax=ax)
     axes = [ax] + [a for a in ax.figure.axes if a not in before]
     return [ln for a in axes for ln in a.get_lines()]
 
@@ -397,7 +402,8 @@ def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
             continue
         area, z, t = read_snapshot(_snap_path(sim_dir, imp))
         frames.append((imp, [v[1] for v in views], views,
-                       density_profile(z, t, area, lat_a)))
+                       density_profile(z, t, area, lat_a,
+                                       orientation=getattr(spec, 'orientation', None))))
     if len(frames) < 2:
         return []
     views0 = frames[0][2]
@@ -440,6 +446,8 @@ def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
     ax_p.legend(frameon=False, loc='upper right')
 
     reveal = _trajectory_axes(ax_t, sim_dir, spec, ml, lat_a, cna_records)
+    from .plot import _ml_areal_factor
+    u = _ml_areal_factor(sim_dir, ml) or 1.0     # trajectory x-axis units per ML
     x0 = ax_t.get_xlim()[0]
     clip_tf = blended_transform_factory(ax_t.transData, ax_t.transAxes)
 
@@ -449,7 +457,7 @@ def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
         for ln in reveal:
             ln.set_clip_path(clip)
 
-    reveal_to(frames[0][0] / ml)
+    reveal_to(frames[0][0] / ml * u)
     cursor = ax_t.axvline(0, color='0.3', lw=1.0, zorder=5)
 
     banner = fig.text(0.07, 0.86, '', ha='left', va='bottom', fontsize=12,
@@ -461,7 +469,7 @@ def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
             im.set_data(np.asarray(Image.open(png))[:, c0:c1])
         line_c.set_data(rc, h)
         line_o.set_data(ro, h)
-        dose = imp / ml
+        dose = imp / ml * u
         reveal_to(dose)
         cursor.set_xdata([dose, dose])
         text, color = _banner(spec, ml, imp, colors)
@@ -515,7 +523,8 @@ def plot_phase_end_render_density(sim_dir, spec, ml, lat_a, spec_summary=None):
             ax_img.imshow(a, extent=[0, w, lo, hi], aspect='auto')
             _style_img_axes(ax_img, angle if n_img > 1 else None)
         area, z, t = read_snapshot(path)
-        h, rc, ro = density_profile(z, t, area, lat_a)
+        h, rc, ro = density_profile(z, t, area, lat_a,
+                                    orientation=getattr(spec, 'orientation', None))
         ax_p = axes[cyc][per * pi + n_img]
         _draw_profile(ax_p, h, rc, ro)
         ax_p.text(0.97, 0.97, f"{dose:g} ML", transform=ax_p.transAxes,

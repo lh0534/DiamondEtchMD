@@ -225,3 +225,22 @@ def test_expected_skip_fraction_matches_analytic():
     gas = expected_skip_fraction({"T": 518, "dist": "gas", "threshold": 0.1, "on": "total", "cosine": True})
     assert abs(flux - (1 - (1 + x) * np.exp(-x))) < 0.005
     assert abs(gas - gammainc(1.5, x)) < 0.005
+
+
+def test_radical_log_keeps_last_copy_after_restart(tmp_path):
+    from diamond_etch_md.analysis._common import read_radical_log
+    (tmp_path / "radical_log.txt").write_text(
+        "5 1 0.05 10 20 0\n5 2 0.20 10 20 1\n"      # interrupted impact 5
+        "5 1 0.30 11 21 1\n5 2 0.07 12 22 0\n6 1 0.15 13 23 1\n")
+    log = read_radical_log(tmp_path / "radical_log.txt")
+    assert list(zip(log["impact"], log["cn"])) == [(5, 1), (5, 2), (6, 1)]
+    assert list(log["energy"]) == [0.30, 0.07, 0.15]
+
+
+def test_skipped_radicals_empty_for_burst_runs(tmp_path):
+    import json
+    from diamond_etch_md.analysis._common import skipped_radicals
+    (tmp_path / "radical_log.txt").write_text("5 1 0.05 10 20 0\n")
+    assert skipped_radicals(tmp_path) == {(5, 1)}
+    (tmp_path / "spec.json").write_text(json.dumps({"radical_burst": True}))
+    assert skipped_radicals(tmp_path) == set()

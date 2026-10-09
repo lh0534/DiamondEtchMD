@@ -25,10 +25,10 @@ sampling (_cycle_radical_velocity_block), which also logs radical_log.txt and
 skips draws below a phase's radical_energy_threshold.
 """
 
-from ..orientations import ORIENT
+from ..orientations import ORIENT, restart_bottom_lines
 from ..species import SPECIES
 from ..spec import SimSpec, CyclePhase
-from .head import RADICAL_SKIP_TAIL
+from .head import RADICAL_SKIP_TAIL, _CO2_DESORB
 
 
 def _phase_needs_zbl(p: CyclePhase) -> bool:
@@ -504,7 +504,8 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
     if not burst_phases:
         return ""
 
-    from ..lammps.config import _DEPOSIT_REGION_BUG_FACTOR
+    from ..spec import burst_chunks
+    from .head import _burst_atom_draw, _burst_chunk_deposit
 
     dm = spec.dump_mode
     dump_cols = "id type x y z vx vy vz fx fy fz q"
@@ -522,23 +523,18 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
     lines.append('jump        SELF burst_dispatch_done\n\n')
 
     for phase_i, p in burst_phases:
-        chunk_size = p.radical_burst_chunk if p.radical_burst_chunk > 0 else max(1, round(0.5 * ml))
-        total = max(1, round(p.flux_ratio))
-        n_full = total // chunk_size
-        remainder = total % chunk_size
-        chunks = [chunk_size] * n_full + ([remainder] if remainder > 0 else [])
-        attempt = p.radical_burst_attempt
+        chunks = burst_chunks(spec, p.flux_ratio, p.radical_burst_chunk, p.radical_burst_near)
+        chunk_size = chunks[0]
+        use_thresh = p.radical_energy_threshold is not None
 
         lines.append(f"label       burst_phase_{phase_i}\n")
         lines.append(
-            f"# burst: {len(chunks)} chunk(s) × ≤{chunk_size} atoms = {total} O• total\n"
-            f"# Fixed velocity from current_radical_energy / current_rad_angl / current_rad_azimuth\n"
-            f"variable    vel_chem_burst equal "
-            f"sqrt(2*${{current_radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
-            f"variable    vx_burst equal v_vel_chem_burst*sin(${{current_rad_angl}}*PI/180)*cos(${{current_rad_azimuth}}*PI/180)\n"
-            f"variable    vy_burst equal v_vel_chem_burst*sin(${{current_rad_angl}}*PI/180)*sin(${{current_rad_azimuth}}*PI/180)\n"
-            f"variable    vz_burst equal -v_vel_chem_burst*cos(${{current_rad_angl}}*PI/180)\n"
+            f"# burst: {len(chunks)} chunk(s) × ≤{chunk_size} atoms = {sum(chunks)} O• total\n"
+            f"# cn = 1 while the burst runs: its etch products log as (c, 1), like its ncarbon row\n"
+            f"variable    cn equal 1\n"
             f"timestep    1e-10\n"
+            f"variable    n_burst_sim equal 0\n"
+            f"variable    n_burst_fail equal 0\n"
             f"\n"
         )
 
@@ -562,7 +558,10 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
                     + _first_guard
                     + f"dump        current_dump_burst all custom 100 {chunk_dump_file} {dump_cols}\n"
                 )
+                # run 0 refreshes c_nclusts: co2_desorption.lmp ends on a run 0 with
+                # its own thermo_style, which leaves c_nclusts stale
                 chunk_etch_event = (
+                    f"run         0 post no\n"
                     f'if "$(c_nclusts) > ${{burst_nclusts0}}" then "variable keep_dump_burst equal 1"\n'
                 )
                 chunk_dump_close = (
@@ -570,59 +569,33 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
                     f"undump      current_dump_burst\n"
                 )
 
+            tag = f"{phase_i}_{ci}"
+            draw = _burst_atom_draw(
+                kT=f"v_phase_{phase_i}_kT_rad" if p.radical_temperature is not None else None,
+                dist=p.radical_energy_dist, cosine=p.radical_angle_distribution,
+                energy="v_current_radical_energy", angl="v_current_rad_angl",
+                azim="v_current_rad_azimuth",
+                thresh=f"${{phase_{phase_i}_radical_e_thresh}}" if use_thresh else None,
+                thresh_normal=p.radical_threshold_on == "normal",
+                skip_label=f"burst_next_{tag}",
+            )
             lines.append(
                 f"# --- Burst chunk {ci+1}/{len(chunks)}: {csize} atoms (deposit) ---\n"
                 f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
                 f"\"change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box\" "
                 f"\"region bbox delete\" "
                 f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\"\n"
-                f"variable    z_ins{phase_i}_{ci} equal bound(all,zmax)+${{radical_i_above}}\n"
-                f"region      bzone{phase_i}_{ci} block EDGE EDGE EDGE EDGE "
-                f"$(v_z_ins{phase_i}_{ci} - 0.1) $(v_z_ins{phase_i}_{ci} + 0.1) units box\n"
-                f"group       insert clear\n"
-                f"group       mobile subtract all anchor\n"
-                f"variable    burst_seed{phase_i}_{ci}_1 equal "
-                f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+{ci+1}))\n"
-                f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{phase_i}_{ci}_1}} "
-                f"attempt {attempt} "
-                f"vx ${{vx_burst}} ${{vx_burst}} "
-                f"vy ${{vy_burst}} ${{vy_burst}} "
-                f"vz ${{vz_burst}} ${{vz_burst}} "
-                f"region bzone{phase_i}_{ci} near 2.0\n"
-                f"fix         2 mobile nve\n"
-                f"fix         3 insert nve\n"
-                f"run         1 post no\n"
-                f"run         0\n"
-                f"{nonargon_refresh}"
-                f"unfix       burst_depo\n"
-                f"unfix       2\n"
-                f"unfix       3\n"
+                f"variable    z_ins{tag} equal bound(all,zmax)+${{radical_i_above}}\n"
+                f"region      bzone{tag} block EDGE EDGE EDGE EDGE "
+                f"$(v_z_ins{tag} - 0.1) $(v_z_ins{tag} + 0.1) units box\n"
+                f"variable    n_sim_pre{tag} equal ${{n_burst_sim}}\n"
+                + _burst_chunk_deposit(tag, csize, ci * chunk_size, draw, f"bzone{tag}",
+                                       p.radical_burst_near, p.radical_burst_attempt,
+                                       nonargon_refresh)
+                + (f'if "${{n_burst_sim}} == ${{n_sim_pre{tag}}}" then '
+                   f'"region bzone{tag} delete" "jump SELF burst_chunk_done_{tag}"\n'
+                   if use_thresh else "")
             )
-            if csize > 1:
-                lines.append(
-                    f"variable    burst_lp{phase_i}_{ci} loop {csize - 1}\n"
-                    f"label       burst_dep_{phase_i}_{ci}\n"
-                    f"group       insert clear\n"
-                    f"group       mobile subtract all anchor\n"
-                    f"variable    burst_seed{phase_i}_{ci} equal "
-                    f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+v_burst_lp{phase_i}_{ci}))\n"
-                    f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{phase_i}_{ci}}} "
-                    f"attempt {attempt} "
-                    f"vx ${{vx_burst}} ${{vx_burst}} "
-                    f"vy ${{vy_burst}} ${{vy_burst}} "
-                    f"vz ${{vz_burst}} ${{vz_burst}} "
-                    f"region bzone{phase_i}_{ci} near 2.0\n"
-                    f"fix         2 mobile nve\n"
-                    f"fix         3 insert nve\n"
-                    f"run         1 post no\n"
-                    f"run         0\n"
-                    f"{nonargon_refresh}"
-                    f"unfix       burst_depo\n"
-                    f"unfix       2\n"
-                    f"unfix       3\n"
-                    f"next        burst_lp{phase_i}_{ci}\n"
-                    f"jump        SELF burst_dep_{phase_i}_{ci}\n\n"
-                )
             # Dynamics phase: c_nclusts is current after the last run 0 above
             lines.append(
                 f"region      bzone{phase_i}_{ci} delete\n"
@@ -631,10 +604,12 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
                 f"variable    burst_nclusts0 equal $(c_nclusts)\n"
                 f"fix         2 mobile nve\n"
                 f"include     thermalize.lmp\n"
-                f"unfix       2\n"
+                + _CO2_DESORB
+                + f"unfix       2\n"
                 f"{chunk_etch_event}"
                 f"{chunk_dump_close}"
-                f"\n"
+                + (f"label       burst_chunk_done_{phase_i}_{ci}\n" if use_thresh else "")
+                + f"\n"
             )
 
         lines.append(
@@ -644,6 +619,8 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
             f"variable    ncarbon_b equal count(carbon)\n"
             f"variable    nhydrogen_b equal count(hydrogen)\n"
             f"variable    noxygen_b equal count(oxygen)\n"
+            f'if "${{n_burst_fail}} > 0" then "print \'c=${{c}} placed=$(v_n_burst_sim-v_n_burst_fail) '
+            f'expected=${{n_burst_sim}} shortfall=${{n_burst_fail}}\' append BURST_INCOMPLETE"\n'
             f'print       "Burst complete (${{c}} impacts done)"\n'
             f'print       "${{c}} 1 ${{ncarbon_b}} ${{nhydrogen_b}} ${{noxygen_b}}" append ncarbon.txt\n'
             f"write_data  impact_snaps/${{c}}_1.data nofix nocoeff\n"
@@ -865,7 +842,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"\n"
         f"variable    lp equal $(v_end_fluence*v_ML)-${{n_complete}} # impacts left\n"
         f"variable    a loop ${{lp}}\n"
-        f"variable    bottom equal {bottom_expr}\n"
+        + restart_bottom_lines(spec.orientation) +
         f"print       'BOTTOM ${{bottom}}'\n"
         f"print       'N_LAT_0 ${{n_lat_0}}'\n"
         f"\n"
@@ -981,6 +958,9 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             f'"variable neutral_lp loop ${{target_flux}}"\n'
             f"\n"
             f"label       neutral_loop\n"
+            f"# Refresh bbox: runs shrink-wrap zhi (boundary p p m); a stale region fails fix deposit\n"
+            f"region bbox delete\n"
+            f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
             f"variable    cn equal ${{cn}}+1\n"
             f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{cn}}))\n"
             f"group       insert clear\n"
@@ -1046,6 +1026,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
                 if spec.skip_radical_thermalization else
                 f"# Thermalize after each radical\n"
                 f"include     thermalize.lmp\n"
+                + _CO2_DESORB
             ) +
             f"unfix       2\n"
             f"unfix       3\n"
@@ -1062,7 +1043,11 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
             if (has_any_radicals or has_any_burst) else ""
         ) +
         f"# Final thermalize before ion impact\n"
-        f"include     thermalize.lmp\n"
+        + _CO2_DESORB
+        + f"include     thermalize.lmp\n"
+        f"# Refresh bbox: thermalize may shrink zhi; a stale region fails fix deposit\n"
+        f"region bbox delete\n"
+        f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
         f"\n"
         f"# Increment ion impact counter\n"
         f"variable    c equal ${{c}}+1\n"
@@ -1113,7 +1098,8 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
         f"\n"
         f"# Thermalize\n"
-        f"include     thermalize.lmp\n"
+        + _CO2_DESORB
+        + f"include     thermalize.lmp\n"
         f"\n"
         f"unfix       2\n"
         f"unfix       3\n"
@@ -1346,6 +1332,9 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
             f'"variable neutral_lp loop ${{target_flux}}"\n'
             f"\n"
             f"label       neutral_loop\n"
+            f"# Refresh bbox: runs shrink-wrap zhi (boundary p p m); a stale region fails fix deposit\n"
+            f"region bbox delete\n"
+            f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
             f"variable    cn equal ${{cn}}+1\n"
             f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{cn}}))\n"
             f"group       insert clear\n"
@@ -1418,6 +1407,9 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
             if has_any_radicals else ""
         ) +
         f"include     thermalize.lmp\n"
+        f"# Refresh bbox: thermalize may shrink zhi; a stale region fails fix deposit\n"
+        f"region bbox delete\n"
+        f"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\n"
         f"\n"
         f"variable    c equal ${{c}}+1\n"
         f"variable    deposeed equal floor(random(1,72099+${{seed_adjust}},${{c}}))\n"

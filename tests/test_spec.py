@@ -552,15 +552,46 @@ def test_legacy_spec_json_loads_gas_distribution():
     assert SimSpec.from_dict({"radical_energy_dist": "flux"}).radical_energy_dist == "flux"
 
 
-def test_threshold_requires_boltzmann_and_no_burst():
+def test_threshold_requires_boltzmann_and_works_with_burst():
     from diamond_etch_md.spec import validate
     base = dict(orientation="100", surface="1x1", species="O", energy=20.0,
                 ml=81, name="t", flux_ratio=5)
     with pytest.raises(SystemExit):
         validate(SimSpec(radical_energy_threshold=0.1, **base))
-    with pytest.raises(SystemExit):
-        validate(SimSpec(radical_energy_threshold=0.1, radical_temperature=518,
-                         radical_burst=True, **base))
+    validate(SimSpec(radical_energy_threshold=0.1, radical_temperature=518,
+                     radical_angle_distribution=True, radical_burst=True, **base))
     with pytest.raises(SystemExit):
         validate(SimSpec(radical_temperature=518, radical_energy_dist="bogus", **base))
     validate(SimSpec(radical_energy_threshold=0.1, radical_temperature=518, **base))
+
+
+def test_burst_chunks_auto_and_fit_check():
+    from diamond_etch_md.spec import burst_chunks, burst_max_chunk
+    spec = SimSpec(orientation="100", surface="2x1", box_x=6, box_y=6, ml=36, species="O",
+                   energy=20.0, flux_ratio=33, radical_burst=True)
+    assert burst_max_chunk(spec, 3.5) >= 10          # 10 fit in one layer at 3.5 Å
+    assert burst_max_chunk(spec, 5.04) < 10          # ...but not at the old 5.04 Å
+    assert burst_chunks(spec, 33, 10, 3.5) == [10, 10, 10, 3]
+    auto = burst_chunks(spec, 33, 0, 3.5)
+    assert max(auto) <= burst_max_chunk(spec, 3.5) and sum(auto) == 33
+    validate(SimSpec(**{**spec.__dict__, "radical_burst_chunk": 10}))
+    with pytest.raises(SystemExit):
+        validate(SimSpec(**{**spec.__dict__, "radical_burst_chunk": 10, "radical_burst_near": 5.04}))
+
+
+def test_cycle_phase_burst_allows_sampling():
+    spec = SimSpec(orientation="100", surface="2x1", box_x=6, box_y=6, ml=36, phases=[
+        CyclePhase(species="Ar", energy=165, fluence_ml=1),
+        CyclePhase(species="O", energy=15, fluence_ml=1, flux_ratio=33, radical_burst=True,
+                   radical_burst_chunk=10, radical_temperature=518,
+                   radical_angle_distribution=True, radical_energy_threshold=0.1)])
+    validate(spec)
+
+
+def test_legacy_burst_spec_keeps_old_spacing():
+    spec = SimSpec.from_dict({"radical_burst": True, "flux_ratio": 4,
+                              "phases": [{"species": "O", "energy": 20, "fluence_ml": 5,
+                                          "flux_ratio": 4, "radical_burst": True}]})
+    assert spec.radical_burst_near == 5.04
+    assert spec.phases[0].radical_burst_near == 5.04
+    assert SimSpec().radical_burst_near == 3.5

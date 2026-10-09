@@ -317,25 +317,29 @@ Expected skip fraction at 0.1 eV (total energy): 66% at 518 K and 32% at 1000 K 
 
 Bookkeeping: every draw is logged in `radical_log.txt` with a 6th column (1 = simulated, 0 = skipped), and skipped radicals get an unchanged `ncarbon.txt` row, so `cn` stays contiguous and mid-loop restarts work. In `summary.txt` the radical sticking coefficient counts skipped radicals as reflected; the sticking of simulated radicals only, and the measured vs expected skip fraction, are reported alongside. The `RADS_REFLECTING` check uses simulated radicals only.
 
-Caveats: skipped radicals are assumed not to react. In 518 K runs on C(100) at steady state, sub-0.1 eV radicals reflect ~75% of the time but still account for about two-thirds of all O sticking events, so validate with a full-distribution run of the same condition (same `seed_adjust` gives both runs identical radical draws). Skipping also removes that radical's simulated surface time. Not compatible with `radical_burst`.
+Caveats: skipped radicals are assumed not to react. In 518 K runs on C(100) at steady state, sub-0.1 eV radicals reflect ~75% of the time but still account for about two-thirds of all O sticking events, so validate with a full-distribution run of the same condition (same `seed_adjust` gives both runs identical radical draws). Skipping also removes that radical's simulated surface time. With `radical_burst`, skipped draws are simply not inserted.
 
 ### Burst radical injection
 
-Set `radical_burst=True` to deposit all `flux_ratio` radicals as a burst before each ion impact, instead of one at a time. The burst is split into chunks of `radical_burst_chunk` atoms (default: 0.5 ML); after each chunk, dynamics run for `inter_neutral_time` fs before the next chunk is deposited.
+Set `radical_burst=True` to deposit all `flux_ratio` radicals as a burst before each ion impact, instead of one at a time. The burst is split into chunks of `radical_burst_chunk` atoms; after each chunk, dynamics run for `inter_neutral_time` fs (RIE) or a thermalization (cycling) before the next chunk is deposited.
 
-All atoms in a chunk land at the same z height: `bound(all,zmax) + radical_i_above` (evaluated once at the start of each chunk). This uses a narrow LAMMPS region (±0.1 Å) rather than `fix deposit global`, so the simulation box never grows during deposition and all atoms in a chunk start at the same height above the surface.
+All atoms in a chunk are inserted into one ±0.1 Å layer at `bound(all,zmax) + radical_i_above` (fixed at the start of the chunk), at least `radical_burst_near` Å from any atom, one atom per 1e-10 fs insertion step, so the whole chunk starts at the same height and time and never stacks up the cell. Validation rejects a chunk that cannot fit in one layer (more than ~45% coverage of the box area by disks of diameter `radical_burst_near`); the auto chunk is the smaller of 0.5 ML and that limit. An insertion that still finds no room is counted and logged to `BURST_INCOMPLETE` (RIE then tops up at a new layer).
+
+Each atom gets its own draw with the same options as one-by-one radicals: fixed `radical_energy`/`radical_angle`, or `radical_temperature` (`radical_energy_dist` flux/gas), `radical_angle_distribution`, and `radical_energy_threshold` (draws below it are logged as skipped and not inserted). Every draw is logged to `radical_log.txt`, where `cn` is the atom's index within the burst (1..R). Because a chunk's radicals react together, per-radical sticking is not defined for bursts; compare O uptake and etch yield instead.
+
+Burst deposits use `fix deposit ... units box`. Bursts generated before this change omitted it, so LAMMPS applied its default lattice units: velocities were scaled by the lattice spacings (×12.71 in energy along z on C(100); the old "12.713× Kokkos bug" correction exactly cancelled this for normal incidence only) and `near 2.0` meant 5.04 Å. A `spec.json` without `radical_burst_near` loads with 5.04 Å to reproduce that spacing.
 
 Key parameters:
 
 | Parameter | Default | Meaning |
 |---|---|---|
 | `radical_burst` | `False` | Enable burst mode |
-| `radical_burst_chunk` | `0` (auto = 0.5 ML) | Atoms deposited per chunk |
-| `radical_burst_attempt` | `200` | Placement attempts per atom in burst deposit; increase if packing failures occur |
+| `radical_burst_chunk` | `0` (auto = min(0.5 ML, what fits in one layer)) | Atoms deposited per chunk |
+| `radical_burst_attempt` | `5000` | Placement attempts per atom in burst deposit (cheap; 200 left ~2% of 10-atom chunks unplaced in a 6×6 C(100) cell) |
+| `radical_burst_near` | `3.5` | Å; minimum distance of an inserted burst atom from any atom |
 | `radical_i_above` | `6.0` | Å above current surface top to inject |
 | `skip_radical_thermalization` | `False` | Skip thermalize.lmp between chunks |
 
-Only valid for mono-energetic fixed-angle mode (no `radical_temperature`, no `radical_angle_distribution`).
 
 ### Carbon-etch mode (arbitrary starting structures)
 

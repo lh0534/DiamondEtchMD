@@ -85,9 +85,10 @@ class CyclePhase:
     radical_angle_distribution:     bool  = False  # cosine (Lambert) angle distribution for O• radicals
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
     radical_i_above:        float = 6.0    # Å above surface to inject O• radical
-    radical_burst:          bool  = False  # inject flux_ratio O• as a burst before the ion; fixed-angle mono-energetic only
-    radical_burst_chunk:    int   = 0      # atoms per burst chunk; 0 = auto (0.5 ML)
-    radical_burst_attempt:  int   = 200    # placement attempts per atom in burst mode
+    radical_burst:          bool  = False  # inject flux_ratio O• as a burst before the ion (same sampling options as one-by-one)
+    radical_burst_chunk:    int   = 0      # atoms per burst chunk; 0 = auto (min(0.5 ML, what fits in one layer))
+    radical_burst_attempt:  int   = 5000   # placement attempts per atom (cheap; 200 dropped ~2% of 10-atom chunks in a 6x6 cell)
+    radical_burst_near:     float = 3.5    # Å; minimum distance of a burst atom from any atom at insertion
     ion_mix:                Optional[List["IonComponent"]] = None  # stochastic multi-ion mix for this phase
 
     def __post_init__(self):
@@ -139,9 +140,10 @@ class SimSpec:
     max_inter_neutral_time: float = 5000.0 # fs; cap on per-radical halt time in stochastic mode
     radical_i_above:        float = 6.0    # Å above surface to inject O• radical
     skip_radical_thermalization: bool = False  # omit thermalize.lmp between successive radicals
-    radical_burst:          bool  = False  # inject flux_ratio O• as a burst instead of one-by-one; mono-energetic fixed-angle only
-    radical_burst_chunk:    int   = 0      # max atoms deposited before running dynamics; 0 = auto (0.5 ML)
-    radical_burst_attempt:  int   = 200    # placement attempts per atom in burst deposit; increase if packing failures occur
+    radical_burst:          bool  = False  # inject flux_ratio O• as a burst instead of one-by-one (same sampling options)
+    radical_burst_chunk:    int   = 0      # max atoms deposited before running dynamics; 0 = auto (min(0.5 ML, what fits in one layer))
+    radical_burst_attempt:  int   = 5000   # placement attempts per atom (cheap; 200 dropped ~2% of 10-atom chunks in a 6x6 cell)
+    radical_burst_near:     float = 3.5    # Å; minimum distance of a burst atom from any atom at insertion
     dump_mode:              str   = "all"  # "all" | "etch_only" | "none"
     above_surf_eject:       bool  = True   # require ejected cluster CoM above surface before counting
     dump_first_impact:      bool  = True   # in etch_only mode, always keep dump for 1st ion + 1st radical
@@ -209,9 +211,14 @@ class SimSpec:
         # Specs written before radical_energy_dist existed used the gas-phase
         # draw; keep that so regenerating/re-analysing a mid-run sim is consistent.
         d.setdefault("radical_energy_dist", "gas")
+        # Bursts written before radical_burst_near existed used fix deposit's
+        # default lattice units: "near 2.0" was 2.0 * xlattice = 5.04 Å on C(100).
+        d.setdefault("radical_burst_near", _LEGACY_BURST_NEAR)
         # nested dataclasses
         if "phases" in d and d["phases"] is not None:
-            d["phases"] = [CyclePhase(**{"radical_energy_dist": "gas", **p}) for p in d["phases"]]
+            d["phases"] = [CyclePhase(**{"radical_energy_dist": "gas",
+                                         "radical_burst_near": _LEGACY_BURST_NEAR, **p})
+                           for p in d["phases"]]
         if "ion_mix" in d and d["ion_mix"] is not None:
             d["ion_mix"] = [IonComponent(**c) for c in d["ion_mix"]]
         return cls(**{k: v for k, v in d.items() if k in valid})
@@ -223,6 +230,35 @@ def compute_ml(orientation: str, box_x: int, box_y: int) -> int:
     Formula: ML = ml_factor * box_x * box_y
     """
     return ORIENT[orientation]["ml_factor"] * box_x * box_y
+
+
+_LEGACY_BURST_NEAR = 5.04   # Å; old "near 2.0" in lattice units on C(100)
+_LAT_A = 3.5654             # Å, diamond
+# Surface area per ML atom, in units of lat_a^2 (lattice-cell area / ml_factor)
+_AREA_PER_ML_ATOM = {"100": 0.5, "110": 0.3536, "111": 0.4330, "113": 0.4146}
+# Random sequential placement of disks jams at ~55% coverage; stay below it so
+# every atom of a chunk lands in its single insertion layer.
+_BURST_MAX_COVERAGE = 0.45
+
+
+def burst_max_chunk(spec: "SimSpec", near: float) -> int:
+    """Largest burst chunk that fits in one insertion layer at spacing `near` (Å)."""
+    if spec.initial_config_file is not None:
+        area = spec.ml * 10.0                       # Langmuir ML: A = 10 Å^2 per atom
+    else:
+        area = spec.ml * _AREA_PER_ML_ATOM[spec.orientation] * _LAT_A ** 2
+    return max(1, int(_BURST_MAX_COVERAGE * area / (3.141592653589793 * near * near / 4)))
+
+
+def burst_chunks(spec: "SimSpec", flux_ratio: float, chunk: int, near: float) -> List[int]:
+    """Chunk sizes for one burst of round(flux_ratio) radicals.
+
+    chunk = 0 picks min(0.5 ML, burst_max_chunk); all atoms of a chunk are
+    inserted in one layer before any dynamics run.
+    """
+    size = chunk if chunk > 0 else min(max(1, round(0.5 * spec.ml)), burst_max_chunk(spec, near))
+    total = max(1, round(flux_ratio))
+    return [size] * (total // size) + ([total % size] if total % size else [])
 
 
 def parse_data_file_box(path: str) -> Tuple[float, float]:
@@ -294,8 +330,19 @@ def _validate_radical_sampling(obj, where: str) -> None:
             sys.exit(f"{where}radical_energy_threshold requires radical_temperature (Boltzmann radicals).")
         if obj.radical_energy_threshold < 0:
             sys.exit(f"{where}radical_energy_threshold must be >= 0 eV; got {obj.radical_energy_threshold}.")
-        if obj.radical_burst:
-            sys.exit(f"{where}radical_energy_threshold is incompatible with radical_burst.")
+
+
+def _validate_burst(spec: "SimSpec", obj, where: str) -> None:
+    """Burst insertion geometry (obj = SimSpec or CyclePhase with radical_burst set)."""
+    if obj.radical_burst_near <= 0:
+        sys.exit(f"{where}radical_burst_near must be > 0 Å; got {obj.radical_burst_near}.")
+    fit = burst_max_chunk(spec, obj.radical_burst_near)
+    if obj.radical_burst_chunk > fit:
+        sys.exit(
+            f"{where}radical_burst_chunk={obj.radical_burst_chunk} cannot be placed in one layer "
+            f"at radical_burst_near={obj.radical_burst_near} Å (at most {fit} fit in this "
+            f"{spec.ml}-atom-ML box); use a smaller chunk or spacing."
+        )
 
 
 def validate(spec: "SimSpec") -> None:
@@ -321,6 +368,7 @@ def validate(spec: "SimSpec") -> None:
                 f"radical_burst requires ml > 0 (got {spec.ml}). "
                 "Set ml explicitly when using burst mode."
             )
+        _validate_burst(spec, spec, "")
 
     if spec.nice < 1:
         sys.exit(f"nice must be >= 1, got {spec.nice}.")
@@ -398,11 +446,9 @@ def validate(spec: "SimSpec") -> None:
                 sys.exit(f"Phase {i}: radical_energy must be > 0 when flux_ratio > 0, got {p.radical_energy}.")
             if p.radical_temperature is not None and p.radical_temperature <= 0:
                 sys.exit(f"Phase {i}: radical_temperature must be > 0 K, got {p.radical_temperature}.")
-            if p.radical_burst and p.radical_temperature is not None:
-                sys.exit(f"Phase {i}: radical_burst is incompatible with radical_temperature.")
             _validate_radical_sampling(p, f"Phase {i}: ")
-            if p.radical_burst and p.radical_angle_distribution:
-                sys.exit(f"Phase {i}: radical_burst is incompatible with radical_angle_distribution.")
+            if p.radical_burst:
+                _validate_burst(spec, p, f"Phase {i}: ")
     elif spec.ion_mix is not None:
         # ── Multi-ion-mode validation ──────────────────────────────────────
         if len(spec.ion_mix) < 2:

@@ -1357,6 +1357,16 @@ def _cycle_spec(**phase_kw):
     )
 
 
+def test_cycle_burst_refreshes_nclusts_after_co2_desorption():
+    spec = _cycle_spec(radical_burst=True, radical_burst_chunk=4)
+    spec.co2_desorb_fraction = 0.5
+    spec.dump_mode = "etch_only"
+    lines = get_head_lmp_cycle_etch(spec).splitlines()
+    i = next(k for k, l in enumerate(lines) if l.startswith('if "$(c_nclusts) > ${burst_nclusts0}"'))
+    j = max(k for k in range(i) if "co2_desorption.lmp" in lines[k])
+    assert any(l.startswith("run ") for l in lines[j + 1:i])
+
+
 def test_cycle_fixed_energy_loop_unchanged_markers():
     head = get_head_lmp_cycle_etch(_cycle_spec(radical_energy=0.2))
     assert "rad_samp_done" not in head and "radical_log.txt" not in head
@@ -1389,3 +1399,110 @@ def test_cycle_mixed_fixed_and_gas_phases_emit_both_branches():
     head = get_head_lmp_cycle_etch(spec)
     assert "variable    rad_e_draw equal ${current_radical_energy}" in head
     assert "label       rad_samp_gas" in head and "rad_samp_flux" not in head
+
+
+def test_cycle_bbox_refreshed_before_every_deposit():
+    # boundary p p m shrink-wraps zhi during runs; fix deposit with a stale bbox
+    # region fails with "Deposition region extends outside simulation box".
+    for spec in (_cycle_spec(radical_energy=0.2),
+                 _cycle_spec(radical_temperature=518, radical_energy_threshold=0.1)):
+        head = get_head_lmp_cycle_etch(spec)
+        lines = head.splitlines()
+        deposits = [i for i, l in enumerate(lines)
+                    if "insert deposit" in l and "region bbox" in l]
+        assert deposits
+        for i in deposits:
+            last_refresh = max(j for j in range(i) if lines[j].strip().startswith("region bbox block"))
+            between = lines[last_refresh:i]
+            assert not any(l.strip().startswith(("run ", "include     thermalize"))
+                           for l in between), f"stale bbox before deposit at line {i}"
+
+
+def test_restart_bottom_snapped_to_lattice_grid():
+    # bottom must come from the lowest C atom snapped onto -5/8 - k/2, never from
+    # zlo (an atom below the slab at write time pushes zlo off-grid, and addfix
+    # then creates layers overlapping the lattice).
+    for head in (get_head_lmp(make_rie_spec()),
+                 get_head_lmp_cycle_etch(_cycle_spec(radical_energy=0.2))):
+        lines = head.splitlines()
+        i = next(k for k, l in enumerate(lines) if l.startswith("variable    bottom equal"))
+        assert "bound(carbon,zmin)" in lines[i] and "zlo" not in lines[i]
+        assert any(l.startswith("group       carbon type 1") for l in lines[:i])
+
+
+def test_thermalize_and_sweep_templates_guard_against_escaped_atoms():
+    from pathlib import Path
+    tdir = Path(__file__).parents[1] / "diamond_etch_md" / "lammps" / "templates"
+    therm = (tdir / "thermalize.lmp").read_text()
+    assert "variable zbottom equal $(floor(bound(carbon,zmin)))" in therm
+    assert 'jump SELF unset_loop_done' in therm and "label unset_loop_done" in therm
+    sweep = (tdir / "sweep.lmp").read_text()
+    assert "bound(anchor,zmin)-2.0" in sweep and "delete_atoms group escaped" in sweep
+
+
+# ─── burst mode: per-atom sampling, units box ─────────────────────────────────
+
+def _burst_rie_spec(**kw):
+    base = dict(orientation="100", surface="2x1", box_x=6, box_y=6, ml=36, species="O",
+                energy=20.0, flux_ratio=13, radical_burst=True, radical_burst_chunk=10,
+                dump_mode="etch_only")
+    return SimSpec(**{**base, **kw})
+
+
+def test_burst_deposits_use_box_units_and_near():
+    head = get_head_lmp(_burst_rie_spec(radical_burst_near=3.5))
+    deps = [l for l in head.splitlines() if l.startswith("fix         burst_depo")]
+    assert deps and all(l.endswith("near 3.5 units box") for l in deps)
+    assert "12.713" not in get_config_lmp(_burst_rie_spec())
+
+
+def test_burst_mono_logs_fixed_draws_without_threshold():
+    head = get_head_lmp(_burst_rie_spec())
+    assert "variable    rad_e_b equal $(v_radical_energy)" in head
+    assert "variable    cos_th_b equal $(cos(v_rad_angl*PI/180))" in head
+    assert "append radical_log.txt" in head
+    assert "burst_chunk_done_" not in head          # no threshold → chunks never skipped
+
+
+def test_burst_sampled_flux_cosine_threshold():
+    head = get_head_lmp(_burst_rie_spec(radical_temperature=518, radical_angle_distribution=True,
+                                        radical_energy_threshold=0.1))
+    assert "$(-v_kT_rad*ln(v_u1f_b*v_u2f_b))" in head
+    assert "variable    cos_th_b equal $(sqrt(v_u_th_b))" in head
+    assert 'if "$(v_rad_e_b) < ${radical_e_thresh}" then "variable rad_sim equal 0"' in head
+    assert 'if "${rad_sim} == 0" then "jump SELF burst_next_0"' in head
+    # every atom index 1..13 is drawn: chunk offsets 0 and 10
+    assert "$(0+v_burst_k0)" in head and "$(10+v_burst_k1)" in head
+    cfg = get_config_lmp(_burst_rie_spec(radical_temperature=518, radical_angle_distribution=True))
+    assert "variable    inter_neutral_time equal" in cfg   # burst chunks still run this long
+
+
+def test_cycle_burst_sampled_phase_uses_phase_vars():
+    spec = SimSpec(orientation="100", surface="2x1", box_x=6, box_y=6, ml=36, dump_mode="etch_only",
+                   phases=[CyclePhase(species="Ar", energy=165, fluence_ml=1),
+                           CyclePhase(species="O", energy=15, fluence_ml=1, flux_ratio=13,
+                                      radical_burst=True, radical_burst_chunk=10,
+                                      radical_temperature=518, radical_energy_dist="gas",
+                                      radical_energy_threshold=0.1, radical_threshold_on="normal")])
+    head = get_head_lmp_cycle_etch(spec)
+    assert "v_phase_1_kT_rad" in head and "sigma_b" in head
+    assert '$(v_rad_e_b*v_cos_th_b*v_cos_th_b) < ${phase_1_radical_e_thresh}' in head
+    assert "append BURST_INCOMPLETE" in head
+    deps = [l for l in head.splitlines() if l.startswith("fix         burst_depo")]
+    assert deps and all(l.endswith("units box") for l in deps)
+
+
+def test_burst_sets_cn_1_for_its_etch_products():
+    rie = get_head_lmp(_burst_rie_spec())
+    i = rie.index('then "jump SELF skip_burst"'); j = rie.index("label       skip_burst")
+    assert "variable    cn equal 1\n" in rie[i:j]
+    assert rie[j:].index("variable    cn equal 0") < rie[j:].index("include     thermalize.lmp")
+    spec = SimSpec(orientation="100", surface="2x1", box_x=6, box_y=6, ml=36,
+                   phases=[CyclePhase(species="Ar", energy=165, fluence_ml=1),
+                           CyclePhase(species="O", energy=15, fluence_ml=1, flux_ratio=13,
+                                      radical_burst=True, radical_burst_chunk=10)])
+    cyc = get_head_lmp_cycle_etch(spec)
+    i = cyc.index("label       burst_phase_1"); j = cyc.index("label       burst_dispatch_done")
+    assert "variable    cn equal 1\n" in cyc[i:j]
+    k = cyc.index("label       skip_chem")
+    assert "variable    cn equal 0" in cyc[k:k + 120]

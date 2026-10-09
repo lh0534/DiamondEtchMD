@@ -91,7 +91,7 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 | `radical_angle` | `float` | `0.0` | Degrees from surface normal for radicals in fixed-angle mode |
 | `radical_angle_distribution` | `bool` | `False` | Lambert cosine (3-D) angle distribution for O• radicals |
 | `radical_energy_dist` | `str` | `"flux"` | Boltzmann energy distribution: `"flux"` = E·e^(−E/kT) (striking flux, mean 2kT) \| `"gas"` = √E·e^(−E/kT) (gas-phase MB, mean 1.5kT). A `spec.json` without this key loads as `"gas"` |
-| `radical_energy_threshold` | `float\|None` | `None` | eV; Boltzmann draws below this are logged but skipped (no MD, treated as reflected). Requires `radical_temperature`; incompatible with `radical_burst` |
+| `radical_energy_threshold` | `float\|None` | `None` | eV; Boltzmann draws below this are logged but skipped (no MD, treated as reflected). Requires `radical_temperature`; with `radical_burst`, skipped draws are not inserted |
 | `radical_threshold_on` | `str` | `"total"` | Threshold compares `"total"` energy E or `"normal"` energy E·cos²θ |
 | `max_inter_neutral_time` | `float` | `5000.0` | fs; cap on per-radical halt time in stochastic mode |
 | `radical_i_above` | `float` | `6.0` | Å above surface to inject O• radical |
@@ -108,15 +108,16 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 - Sampled velocities are logged per-radical to `radical_log.txt` (columns: `impact cn energy_eV polar_deg azimuthal_deg [simulated]`) and visualised in `radical_distribution.png`.
 - Cycling phases support all of the above per phase; the cycling neutral loop switches to runtime sampling only when some phase uses Boltzmann energies or cosine angles, otherwise the generated script is unchanged.
 
-**Burst radical injection** (`radical_burst=True`): deposits all `flux_ratio` radicals at once instead of one at a time. Mono-energetic fixed-angle only (no `radical_temperature`, no `radical_angle_distribution`); requires `ml > 0`.
+**Burst radical injection** (`radical_burst=True`): deposits all `flux_ratio` radicals at once instead of one at a time, each with its own draw (same sampling options as one-by-one radicals, including the threshold); requires `ml > 0`.
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | `radical_burst` | `bool` | `False` | Enable burst mode |
-| `radical_burst_chunk` | `int` | `0` | Atoms deposited per chunk before running dynamics; `0` = auto (0.5 ML) |
-| `radical_burst_attempt` | `int` | `200` | Placement attempts per atom in burst deposit; increase if packing failures occur |
+| `radical_burst_chunk` | `int` | `0` | Atoms deposited per chunk before running dynamics; `0` = auto (min(0.5 ML, what fits in one layer)); validation rejects a chunk that cannot fit in one layer |
+| `radical_burst_attempt` | `int` | `5000` | Placement attempts per atom in burst deposit (cheap; 200 left ~2% of 10-atom chunks unplaced in a 6×6 C(100) cell) |
+| `radical_burst_near` | `float` | `3.5` | Å; minimum distance of an inserted atom from any atom (`fix deposit ... near X units box`). A `spec.json` without it loads as 5.04 Å, the spacing old lattice-unit bursts used |
 
-All atoms in a chunk land at the same z height (`bound(all,zmax) + radical_i_above`, evaluated once per chunk) via a narrow LAMMPS region, so the box never grows during a chunk's deposition.
+All atoms in a chunk are inserted into one ±0.1 Å layer (`bound(all,zmax) + radical_i_above`, fixed once per chunk) with no dynamics between insertions, so the chunk starts at one height and time and the box never grows during deposition. Draws go to `radical_log.txt` with `cn` = index within the burst; failed insertions are logged to `BURST_INCOMPLETE`. Burst deposits use `units box` (older generated scripts used lattice units, scaling velocities by the lattice spacings — the former "12.713× Kokkos bug" correction).
 
 ### Timing parameters
 
@@ -338,10 +339,14 @@ Used in `SimSpec.phases` for cycling simulations.
 | `radical_angle` | `float` | `0.0` | | Degrees from normal for radicals in fixed-angle mode |
 | `radical_angle_distribution` | `bool` | `False` | | Lambert cosine angle distribution for this phase's radicals |
 | `radical_energy_dist` | `str` | `"flux"` | `"flux"`\|`"gas"` | As on `SimSpec`; missing key in a saved `spec.json` → `"gas"` |
-| `radical_energy_threshold` | `float\|None` | `None` | `>= 0`; needs `radical_temperature`; not with `radical_burst` | eV; skip this phase's radical draws below it |
+| `radical_energy_threshold` | `float\|None` | `None` | `>= 0`; needs `radical_temperature` | eV; skip this phase's radical draws below it |
 | `radical_threshold_on` | `str` | `"total"` | `"total"`\|`"normal"` | Energy compared to the threshold |
 | `max_inter_neutral_time` | `float` | `5000.0` | | fs; per-radical halt time cap in stochastic mode |
 | `radical_i_above` | `float` | `12.0` | | Å above surface to inject O• radical |
+| `radical_burst` | `bool` | `False` | | Deposit this phase's radicals as a burst before each ion (any sampling options above) |
+| `radical_burst_chunk` | `int` | `0` | must fit in one layer | Atoms per chunk; `0` = auto (min(0.5 ML, what fits)) |
+| `radical_burst_attempt` | `int` | `5000` | | Placement attempts per atom |
+| `radical_burst_near` | `float` | `3.5` | `> 0` | Å; minimum distance of an inserted burst atom from any atom |
 
 ---
 

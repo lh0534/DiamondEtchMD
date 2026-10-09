@@ -31,7 +31,7 @@ Note: LAMMPS ${variable} syntax must be escaped as ${{variable}} in Python
 f-strings.  LAMMPS $(expression) uses parentheses and needs no escaping.
 """
 
-from ..orientations import ORIENT
+from ..orientations import ORIENT, restart_bottom_lines
 from ..species import SPECIES
 from ..spec import SimSpec, IonComponent
 
@@ -642,92 +642,126 @@ def _radical_loop_block(spec: SimSpec) -> str:
     return blk
 
 
-def _per_chunk_vel_block(ci: int, use_boltzmann: bool, use_cosine: bool,
-                         use_flux: bool = False) -> str:
-    """Return LAMMPS variable declarations for per-chunk burst velocity sampling.
+def _burst_atom_draw(*, kT, dist, cosine, energy, angl, azim, thresh, thresh_normal,
+                     skip_label) -> str:
+    """LAMMPS lines drawing one burst atom's velocity into vx/vy/vz_burst.
 
-    Uses frozen $() captures keyed on ${c}*1000000+ci so each impact×chunk gets
-    independent reproducible samples.  Overwrites vx_burst/vy_burst/vz_burst.
-    Seed offsets 1-6 for Boltzmann (gas) speed, 9-10 for flux-weighted
-    energy; 7-8 for cosine angle.
+    The atom's index within the burst is v_burst_ia (1..R).  Same seed layout as
+    the one-by-one radical loop (bms = c*100000 + index + seed_adjust*1000000;
+    offsets 1-6 gas, 7-8 angle, 9-10 flux).  Every draw is frozen with $() and
+    logged to radical_log.txt (c index energy polar azimuth simulated); a draw
+    below `thresh` jumps to `skip_label` without being deposited.
+    kT/energy/angl/azim are v_ references; thresh is a ${} reference or None.
     """
-    seed_base = f"${{c}}*1000000+{ci}*10000+${{seed_adjust}}*100000000"
-    blk = f"# Per-chunk velocity (chunk {ci})\n"
-    blk += f"variable    bms_b equal {seed_base}\n"
-
-    if use_flux:
+    blk = "variable    bms_b equal v_c*100000+v_burst_ia+${seed_adjust}*1000000\n"
+    if kT is not None and dist == "flux":
         blk += (
-            f"variable    u1f equal $(random(1e-10,1.0,v_bms_b+9))\n"
-            f"variable    u2f equal $(random(1e-10,1.0,v_bms_b+10))\n"
-            f"variable    rad_e_burst equal $(-v_kT_rad*ln(v_u1f*v_u2f))\n"
-            f"variable    rad_speed_burst equal sqrt(2*${{rad_e_burst}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
+            "variable    u1f_b equal $(random(1e-10,1.0,v_bms_b+9))\n"
+            "variable    u2f_b equal $(random(1e-10,1.0,v_bms_b+10))\n"
+            f"variable    rad_e_b equal $(-{kT}*ln(v_u1f_b*v_u2f_b))\n"
         )
-    elif use_boltzmann:
+    elif kT is not None:
+        # Gas-phase Maxwell-Boltzmann: three Box-Muller squares (cos^2 form keeps
+        # each random variable single-use, see _radical_loop_block)
+        blk += f"variable    sigma_b equal $(sqrt({kT}*6.02214129e7/v_M_O/6242)/1000)\n"
+        for k, ax in enumerate("xyz"):
+            blk += (f"variable    u1{ax}_b equal $(random(1e-10,1.0,v_bms_b+{2 * k + 1}))\n"
+                    f"variable    u2{ax}_b equal $(random(1e-10,1.0,v_bms_b+{2 * k + 2}))\n")
+        squares = "+".join(f"(-2*ln(v_u1{ax}_b))*(1+cos(4*PI*v_u2{ax}_b))/2" for ax in "xyz")
+        blk += (f"variable    rad_e_b equal $(({squares})*v_sigma_b*v_sigma_b"
+                f"*v_M_O*6242*500000/6.02214129e7)\n")
+    else:
+        blk += f"variable    rad_e_b equal $({energy})\n"
+    if cosine:
         blk += (
-            f"variable    u1a equal $(random(1e-10,1.0,v_bms_b+1))\n"
-            f"variable    u2a equal $(random(1e-10,1.0,v_bms_b+2))\n"
-            f"variable    u1b equal $(random(1e-10,1.0,v_bms_b+3))\n"
-            f"variable    u2b equal $(random(1e-10,1.0,v_bms_b+4))\n"
-            f"variable    u1c equal $(random(1e-10,1.0,v_bms_b+5))\n"
-            f"variable    u2c equal $(random(1e-10,1.0,v_bms_b+6))\n"
-            f"variable    gx_sq equal (-2*ln(v_u1a))*(1+cos(4*PI*v_u2a))/2*v_sigma_burst*v_sigma_burst\n"
-            f"variable    gy_sq equal (-2*ln(v_u1b))*(1+cos(4*PI*v_u2b))/2*v_sigma_burst*v_sigma_burst\n"
-            f"variable    gz_sq equal (-2*ln(v_u1c))*(1+cos(4*PI*v_u2c))/2*v_sigma_burst*v_sigma_burst\n"
-            f"variable    rad_speed_burst equal sqrt(v_gx_sq+v_gy_sq+v_gz_sq)\n"
+            "variable    u_th_b equal $(random(0.0,1.0,v_bms_b+7))\n"
+            "variable    u_ph_b equal $(random(0.0,1.0,v_bms_b+8))\n"
+            "variable    cos_th_b equal $(sqrt(v_u_th_b))\n"
+            "variable    phi_b equal $(2*PI*v_u_ph_b)\n"
         )
     else:
         blk += (
-            f"variable    vel_chem_burst equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
-            f"variable    rad_speed_burst equal v_vel_chem_burst\n"
+            f"variable    cos_th_b equal $(cos({angl}*PI/180))\n"
+            f"variable    phi_b equal $({azim}*PI/180)\n"
         )
-
-    if use_cosine:
-        ang_seed = "+7" if use_boltzmann else "+1"
-        ang_seed2 = "+8" if use_boltzmann else "+2"
-        blk += (
-            f"variable    u_th equal $(random(0.0,1.0,v_bms_b{ang_seed}))\n"
-            f"variable    u_ph equal $(random(0.0,1.0,v_bms_b{ang_seed2}))\n"
-            f"variable    cos_th_b equal sqrt(v_u_th)\n"
-            f"variable    sin_th_b equal sqrt(1.0-v_u_th)\n"
-            f"variable    phi_b equal 2*PI*v_u_ph\n"
-            f"variable    vx_burst equal v_rad_speed_burst*v_sin_th_b*cos(v_phi_b)\n"
-            f"variable    vy_burst equal v_rad_speed_burst*v_sin_th_b*sin(v_phi_b)\n"
-            f"variable    vz_burst equal -v_rad_speed_burst*v_cos_th_b\n"
-        )
-    else:
-        blk += (
-            f"variable    vx_burst equal v_rad_speed_burst*sin(${{rad_angl}}*PI/180)*cos(${{rad_azimuth}}*PI/180)\n"
-            f"variable    vy_burst equal v_rad_speed_burst*sin(${{rad_angl}}*PI/180)*sin(${{rad_azimuth}}*PI/180)\n"
-            f"variable    vz_burst equal -v_rad_speed_burst*cos(${{rad_angl}}*PI/180)\n"
-        )
+    blk += (
+        "variable    sin_th_b equal $(sqrt(1.0-v_cos_th_b*v_cos_th_b))\n"
+        "variable    spd_b equal $(sqrt(2*v_rad_e_b*6.02214129*1.0e+7/v_M_O/6242)/1000)\n"
+        "variable    vx_burst equal $(v_spd_b*v_sin_th_b*cos(v_phi_b))\n"
+        "variable    vy_burst equal $(v_spd_b*v_sin_th_b*sin(v_phi_b))\n"
+        "variable    vz_burst equal $(-v_spd_b*v_cos_th_b)\n"
+        "variable    rad_sim equal 1\n"
+    )
+    if thresh is not None:
+        e_test = "v_rad_e_b*v_cos_th_b*v_cos_th_b" if thresh_normal else "v_rad_e_b"
+        blk += f'if "$({e_test}) < {thresh}" then "variable rad_sim equal 0"\n'
+    blk += (
+        'print       "${c} ${burst_ia} ${rad_e_b} $(acos(v_cos_th_b)*180/PI) '
+        '$(v_phi_b*180/PI) ${rad_sim}" append radical_log.txt\n'
+    )
+    if thresh is not None:
+        blk += f'if "${{rad_sim}} == 0" then "jump SELF {skip_label}"\n'
     return blk
+
+
+def _burst_chunk_deposit(tag: str, csize: int, offset: int, draw: str, region: str,
+                         near: float, attempt: int, nonargon_refresh: str) -> str:
+    """Insert one burst chunk atom by atom into `region`, a fixed ±0.1 Å slab.
+
+    Each atom gets its own draw (see _burst_atom_draw) and a 1-step insertion run
+    at timestep 1e-10 fs, so the whole chunk lands at one height with no dynamics
+    in between.  "units box" makes the velocities and the near distance plain
+    Å/fs and Å (fix deposit's default lattice units would scale both).  Counts
+    n_burst_sim (atoms attempted) and n_burst_fail (no room found).
+    """
+    return (
+        f"variable    burst_k{tag} loop {csize}\n"
+        f"label       burst_dep_{tag}\n"
+        f"variable    burst_ia equal $({offset}+v_burst_k{tag})\n"
+        + draw
+        + f"group       insert clear\n"
+        f"group       mobile subtract all anchor\n"
+        f"variable    burst_seed equal floor(random(1,72099+${{seed_adjust}},${{c}}*100000+${{burst_ia}}))\n"
+        f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed}} attempt {attempt} "
+        f"vx ${{vx_burst}} ${{vx_burst}} vy ${{vy_burst}} ${{vy_burst}} vz ${{vz_burst}} ${{vz_burst}} "
+        f"region {region} near {near} units box\n"
+        f"fix         2 mobile nve\n"
+        f"fix         3 insert nve\n"
+        f"run         1 post no\n"
+        f"run         0\n"
+        f"{nonargon_refresh}"
+        f"unfix       burst_depo\n"
+        f"unfix       2\n"
+        f"unfix       3\n"
+        f'if "$(count(insert)) == 0" then "variable n_burst_fail equal ${{n_burst_fail}}+1"\n'
+        f"variable    n_burst_sim equal ${{n_burst_sim}}+1\n"
+        f"label       burst_next_{tag}\n"
+        f"next        burst_k{tag}\n"
+        f"jump        SELF burst_dep_{tag}\n"
+    )
 
 
 def _radical_burst_block(spec: SimSpec) -> str:
     """Return the LAMMPS burst O• injection block for burst-mode RIE.
 
-    Injects flux_ratio O• atoms in chunks of radical_burst_chunk before each ion
-    impact.  All atoms in a chunk are deposited at the same z height:
-    bound(all,zmax) + radical_i_above, evaluated once at the start of each chunk.
-    A narrow region (±0.1 Å) is used instead of 'global lo hi' so the box never
-    grows during deposition — atoms land inside the existing vacuum above the surface.
-    Only valid for mono-energetic fixed-angle mode (no Boltzmann, no cosine).
+    Injects flux_ratio O• atoms in chunks (spec.burst_chunks) before each ion
+    impact.  All atoms of a chunk are inserted into one ±0.1 Å slab at
+    bound(all,zmax) + radical_i_above, fixed at the start of the chunk, at least
+    radical_burst_near Å from any atom, with no dynamics between insertions; the
+    chunk then runs together for inter_neutral_time.  Each atom's energy and
+    angle are drawn like one-by-one radicals (fixed, Boltzmann gas/flux, cosine)
+    and logged to radical_log.txt; with radical_energy_threshold, draws below it
+    are logged as skipped and not inserted.
 
     Output: one ncarbon.txt entry (cn=1) per burst + one write_data snapshot.
     Restart: if cn_start >= 1 the burst is skipped (already complete for this impact).
     Per-chunk thermalization is controlled by skip_radical_thermalization.
     """
-    ml         = spec.ml
-    auto_chunk = max(1, round(0.5 * ml))
-    chunk_size = spec.radical_burst_chunk if spec.radical_burst_chunk > 0 else auto_chunk
-    total      = max(1, round(spec.flux_ratio))
-    n_full     = total // chunk_size
-    remainder  = total % chunk_size
-    chunks     = [chunk_size] * n_full + ([remainder] if remainder > 0 else [])
-
-    use_boltzmann = spec.radical_temperature is not None
-    use_cosine    = spec.radical_angle_distribution
-    use_stochastic = use_boltzmann or use_cosine
+    from ..spec import burst_chunks
+    chunks = burst_chunks(spec, spec.flux_ratio, spec.radical_burst_chunk,
+                          spec.radical_burst_near)
+    chunk_size = chunks[0]
+    use_thresh = spec.radical_energy_threshold is not None
 
     # ZBL (Ar ions) → must refresh nonargon group after each deposit
     if spec.ion_mix:
@@ -739,38 +773,16 @@ def _radical_burst_block(spec: SimSpec) -> str:
     dm        = spec.dump_mode
     dump_cols = "id type x y z vx vy vz fx fy fz q"
 
-    if use_stochastic:
-        # Per-chunk stochastic: vx/vy/vz_burst are set inside the chunk loop.
-        # Sigma variable defined once; seed base formula uses ${c} so each impact differs.
-        _sigma_decl = (
-            f"variable    sigma_burst equal sqrt(${{kT_rad}}*6.02214129e7/${{M_O}}/6242)/1000\n"
-            if use_boltzmann else ""
-        )
-        _fixed_vel_block = (
-            f"# Stochastic burst mode: per-chunk velocity set inside chunk loop\n"
-            + _sigma_decl
-        )
-    else:
-        _fixed_vel_block = (
-            f"# Fixed velocity for all burst atoms\n"
-            f"variable    vel_chem_burst equal sqrt(2*${{radical_energy}}*6.02214129*1.0e+7/${{M_O}}/6242)/1000\n"
-            f"variable    vx_burst equal v_vel_chem_burst*sin(${{rad_angl}}*PI/180)*cos(${{rad_azimuth}}*PI/180)\n"
-            f"variable    vy_burst equal v_vel_chem_burst*sin(${{rad_angl}}*PI/180)*sin(${{rad_azimuth}}*PI/180)\n"
-            f"variable    vz_burst equal -v_vel_chem_burst*cos(${{rad_angl}}*PI/180)\n"
-        )
-
     blk = (
         f"# ========= Begin radical burst deposition"
-        f" ({len(chunks)} chunk(s) × ≤{chunk_size} atoms = {total} total) =========\n"
+        f" ({len(chunks)} chunk(s) × ≤{chunk_size} atoms = {sum(chunks)} total) =========\n"
         f'if "${{cn_start}} >= 1" then "jump SELF skip_burst"\n'
         f"\n"
-        + _fixed_vel_block
-        + f"timestep    1e-10\n"
-        f"\n"
-        f"# Record pre-burst O count to detect incomplete placement\n"
-        f"group       oxygen_pre_burst type 3\n"
-        f"variable    n_oxy_pre equal $(count(oxygen_pre_burst))\n"
-        f"group       oxygen_pre_burst delete\n"
+        f"# cn = 1 while the burst runs: its etch products log as (c, 1), like its ncarbon row\n"
+        f"variable    cn equal 1\n"
+        f"timestep    1e-10\n"
+        f"variable    n_burst_sim equal 0\n"
+        f"variable    n_burst_fail equal 0\n"
         f"\n"
     )
 
@@ -815,11 +827,18 @@ def _radical_burst_block(spec: SimSpec) -> str:
                 f'"variable burst_nclusts0 equal $(c_nclusts)"\n'
             )
 
-        # ── All atoms in chunk: narrow z-region at bound(all,zmax)+radical_i_above ──
-        # z_ins{ci} is captured once per chunk; all csize atoms land at the same z.
+        # ── Deposit phase: one z slab per chunk ──────────────────────────────────
         # Unlike 'global', 'region' placement requires the region to already be inside
         # the simulation box.  With p p m shrink-wrap, zhi ≈ zmax + skin, so bzone
         # (at zmax + radical_i_above) can sit above zhi.  Expand the box first if needed.
+        draw = _burst_atom_draw(
+            kT="v_kT_rad" if spec.radical_temperature is not None else None,
+            dist=spec.radical_energy_dist, cosine=spec.radical_angle_distribution,
+            energy="v_radical_energy", angl="v_rad_angl", azim="v_rad_azimuth",
+            thresh="${radical_e_thresh}" if use_thresh else None,
+            thresh_normal=spec.radical_threshold_on == "normal",
+            skip_label=f"burst_next_{ci}",
+        )
         blk += (
             f"# --- Burst chunk {ci+1}/{len(chunks)}: {csize} atoms (deposit phase) ---\n"
             f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
@@ -830,58 +849,18 @@ def _radical_burst_block(spec: SimSpec) -> str:
             + f"\n"
             f"variable    z_ins{ci} equal bound(all,zmax)+${{radical_i_above}}\n"
             + _bzone_def(spec, f"bzone{ci}", f"$(v_z_ins{ci} - 0.1)", f"$(v_z_ins{ci} + 0.1)")
-            + f"group       insert clear\n"
-            f"group       mobile subtract all anchor\n"
-            + (_per_chunk_vel_block(ci, use_boltzmann, use_cosine,
-                                    use_boltzmann and spec.radical_energy_dist == "flux")
-               if use_stochastic else "")
-            + f"variable    burst_seed{ci}_1 equal "
-            f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+{ci+1}))\n"
-            f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{ci}_1}} "
-            f"attempt {spec.radical_burst_attempt} "
-            f"vx ${{vx_burst}} ${{vx_burst}} "
-            f"vy ${{vy_burst}} ${{vy_burst}} "
-            f"vz ${{vz_burst}} ${{vz_burst}} "
-            f"region bzone{ci} near 2.0\n"
-            f"fix         2 mobile nve\n"
-            f"fix         3 insert nve\n"
-            f"run         1 post no\n"
-            f"run         0\n"
-            f"{nonargon_refresh}"
-            f"unfix       burst_depo\n"
-            f"unfix       2\n"
-            f"unfix       3\n"
+            + f"variable    n_sim_pre{ci} equal ${{n_burst_sim}}\n"
+            + _burst_chunk_deposit(str(ci), csize, ci * chunk_size, draw, f"bzone{ci}",
+                                   spec.radical_burst_near, spec.radical_burst_attempt,
+                                   nonargon_refresh)
         )
-        # ── Atoms 2..csize: same bzone region, same z ─────────────────────────────
-        if csize > 1:
-            blk += (
-                f"variable    burst_lp{ci} loop {csize - 1}\n"
-                f"label       burst_dep_{ci}\n"
-                f"group       insert clear\n"
-                f"group       mobile subtract all anchor\n"
-                f"variable    burst_seed{ci} equal "
-                f"floor(random(1,72099+${{seed_adjust}},${{c}}*100000+{ci}*10000+v_burst_lp{ci}))\n"
-                f"fix         burst_depo insert deposit 1 3 1 ${{burst_seed{ci}}} "
-                f"attempt {spec.radical_burst_attempt} "
-                f"vx ${{vx_burst}} ${{vx_burst}} "
-                f"vy ${{vy_burst}} ${{vy_burst}} "
-                f"vz ${{vz_burst}} ${{vz_burst}} "
-                f"region bzone{ci} near 2.0\n"
-                f"fix         2 mobile nve\n"
-                f"fix         3 insert nve\n"
-                f"run         1 post no\n"
-                f"run         0\n"
-                f"{nonargon_refresh}"
-                f"unfix       burst_depo\n"
-                f"unfix       2\n"
-                f"unfix       3\n"
-                f"next        burst_lp{ci}\n"
-                f"jump        SELF burst_dep_{ci}\n"
-            )
         blk += (
             _bzone_cleanup(spec, f"bzone{ci}")
             + f"variable    z_ins{ci} delete\n"
         )
+        if use_thresh:
+            blk += (f'if "${{n_burst_sim}} == ${{n_sim_pre{ci}}}" then '
+                    f'"jump SELF burst_chunk_done_{ci}"\n')
         # ── Dynamics phase ───────────────────────────────────────────────────────
         blk += (
             f"\n"
@@ -917,7 +896,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
             f"unfix       2\n"
             f"unfix       3\n"
             f"timestep    1e-10\n"
-            f"\n"
+            + (f"label       burst_chunk_done_{ci}\n" if use_thresh else "")
+            + f"\n"
         )
 
     # ── Post-chunk: shortfall check + optional top-up ────────────────────────
@@ -930,14 +910,14 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"variable    nhydrogen equal count(hydrogen)\n"
         f"variable    noxygen equal count(oxygen)\n"
         f"\n"
-        f"# Shortfall check: how many O atoms were actually placed?\n"
-        f"variable    n_placed_burst equal count(oxygen)-v_n_oxy_pre\n"
-        f"variable    shortfall_burst equal {total}-v_n_placed_burst\n"
+        f"# Shortfall check: insertions that found no room (etching can remove O, so\n"
+        f"# counting O atoms would overstate it)\n"
+        f"variable    shortfall_burst equal ${{n_burst_fail}}\n"
         f'if "${{shortfall_burst}} == 0" then "jump SELF burst_topup_done"\n'
         f"\n"
         f"# Record incomplete burst (atom count, not halting)\n"
-        f'print       "c=${{c}} placed=$(v_n_placed_burst) expected={total} shortfall=$(v_shortfall_burst)" '
-        f"append BURST_INCOMPLETE\n"
+        f'print       "c=${{c}} placed=$(v_n_burst_sim-v_n_burst_fail) expected=${{n_burst_sim}} '
+        f'shortfall=${{shortfall_burst}}" append BURST_INCOMPLETE\n'
         f"\n"
         f"# Top-up: deposit missing atoms with higher attempt count\n"
         f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
@@ -948,7 +928,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
         + f"\n"
         f"variable    z_topup equal bound(all,zmax)+${{radical_i_above}}\n"
         + _bzone_def(spec, "bzone_topup", "$(v_z_topup - 0.1)", "$(v_z_topup + 0.1)")
-        + f"variable    topup_lp loop $(v_shortfall_burst)\n"
+        + f"variable    topup_lp loop ${{shortfall_burst}}\n"
         f"label       burst_topup_loop\n"
         f"group       insert clear\n"
         f"group       mobile subtract all anchor\n"
@@ -959,7 +939,7 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f"vx ${{vx_burst}} ${{vx_burst}} "
         f"vy ${{vy_burst}} ${{vy_burst}} "
         f"vz ${{vz_burst}} ${{vz_burst}} "
-        f"region bzone_topup near 2.0\n"
+        f"region bzone_topup near {spec.radical_burst_near} units box\n"
         f"fix         2 mobile nve\n"
         f"fix         3 insert nve\n"
         f"run         1 post no\n"
@@ -1226,7 +1206,7 @@ def get_head_lmp(spec: SimSpec) -> str:
         f"\n"
         f"variable \tlp equal $(v_end_fluence*v_ML)-${{n_complete}} # impacts left\n"
         f"variable    a loop ${{lp}}\n"
-        f"variable    bottom equal {bottom_expr}\n"
+        + restart_bottom_lines(spec.orientation) +
         f"print       'BOTTOM ${{bottom}}'\n"
         f"print       'N_LAT_0 ${{n_lat_0}}'\n"
         f"\n"
@@ -1562,7 +1542,7 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         f"\n"
         f"variable \tlp equal $(v_end_fluence*v_ML)-${{n_complete}}\n"
         f"variable    a loop ${{lp}}\n"
-        f"variable    bottom equal {bottom_expr}\n"
+        + restart_bottom_lines(spec.orientation) +
         f"print       'BOTTOM ${{bottom}}'\n"
         f"print       'N_LAT_0 ${{n_lat_0}}'\n"
         f"\n"

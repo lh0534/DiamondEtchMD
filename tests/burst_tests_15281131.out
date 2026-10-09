@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.8, pytest-7.4.3, pluggy-1.3.0 -- /home/lh0534/.conda/envs/myenv/bin/python
+cachedir: .pytest_cache
+rootdir: /scratch/gpfs/DGRAVES/lh0534/jack_reax/DiamondEtchMD
+configfile: pyproject.toml
+plugins: anyio-4.2.0
+collecting ... collected 5 items / 2 deselected / 3 selected
+
+tests/test_burst_sampling.py::test_burst_mono_off_normal_energy_and_angle ============================= test session starts ==============================
+platform linux -- Python 3.11.8, pytest-7.4.3, pluggy-1.3.0 -- /home/lh0534/.conda/envs/myenv/bin/python
+cachedir: .pytest_cache
+rootdir: /scratch/gpfs/DGRAVES/lh0534/jack_reax/DiamondEtchMD
+configfile: pyproject.toml
+plugins: anyio-4.2.0
+collecting ... collected 5 items / 3 deselected / 2 selected
+
+tests/test_burst_sampling.py::test_e2e_rie_burst_sampled 

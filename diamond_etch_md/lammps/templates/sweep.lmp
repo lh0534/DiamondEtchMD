@@ -1,3 +1,23 @@
+# Delete atoms that left through the bottom of the slab (> 2 Å below the fixed
+# anchor atoms; works in every mode, unlike the lattice-unit bottom).  The z
+# boundary is shrink-wrapped, so an escaped atom drags zlo down with it (to
+# -2000 Å in one case), which breaks thermalize.lmp and restarts; pull zlo back.
+variable    z_escape equal -1e19   # disabled: empty region (INF = -1e20)
+if "$(count(anchor)) > 0" then "variable z_escape equal $(bound(anchor,zmin)-2.0)"
+region      escaped block INF INF INF INF INF ${z_escape} units box
+group       escaped region escaped
+variable    n_escaped equal count(escaped)
+if "${n_escaped} > 0" then &
+"print '${c} ${cn}: deleted ${n_escaped} atom(s) below the slab bottom' append ESCAPED_ATOMS" &
+"delete_atoms group escaped" &
+"change_box      all z final $(bound(all,zmin)-3.0) $(zhi) units box" &
+"region          bbox delete" &
+"region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE"
+group       escaped delete
+region      escaped delete
+variable    n_escaped delete
+variable    z_escape delete
+
 # Identify and remove ejected clusters.
 # A cluster is an etch product only if its CoM z is above all confirmed-surface
 # atoms (anchor cluster + prior non-leaving clusters) and it has a positive z velocity.

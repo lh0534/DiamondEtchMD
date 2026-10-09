@@ -18,7 +18,7 @@ thermalized.data already exists on restart so the init_thermalization guard is s
 
 from ..spec import SimSpec
 from ..species import SPECIES
-from ..orientations import ORIENT
+from ..orientations import ORIENT, restart_bottom_lines
 from .head import (
     _potential_block,
     _deposit_line,
@@ -204,7 +204,7 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
             f"create_box  4 dummy_region\n"
             f"read_data   ${{data_file}} add merge\n"
             f"\n"
-            f"variable    bottom equal {bottom_expr}\n"
+            + restart_bottom_lines(spec.orientation) +
             f"print       'BOTTOM ${{bottom}}'\n"
             f"print       'N_LAT_0 ${{n_lat_0}}'\n"
             f"\n"

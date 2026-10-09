@@ -58,7 +58,7 @@ REFLECT_THRESH = 1.0   # Å — below this → reflected even if in final frame
 CAGE_THRESH    = 4.0   # Å — cage zone 1 upper bound / 1st_interlayer lower bound
 CAGE2_THRESH   = 11.9   # Å — 1st_interlayer upper bound / cage zone 2 lower bound
 CHANNEL_THRESH = 12.0  # Å — cage zone 2 upper bound / 2nd_interlayer lower bound
-_NC_VMAX       = 25.0  # Å — fixed colorbar/ylim ceiling for --noclass plots
+_NC_VMAX       = 30.0  # Å — fixed colorbar/ylim ceiling for --noclass plots
 
 # gradient bands: reflected | cage1 | 1st_int | cage2 | 2nd_int
 # cage zones share the same colour so the gradient visually groups them

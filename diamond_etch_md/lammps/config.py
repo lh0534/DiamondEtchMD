@@ -13,17 +13,9 @@ import math
 
 _kB = 8.617333262e-5  # eV/K
 
-# LAMMPS 23 Jun 2022 Kokkos GPU: fix deposit with "region ... near X" (single-atom)
-# applies ~12.713x too much kinetic energy to deposited atoms.  The "mol" (molecular)
-# insertion path is unaffected.  Burst-mode O• radicals use the region/near path, so
-# radical_energy is divided by this factor as a workaround.
-#
-# IMPORTANT: verify this bug is still present in your LAMMPS build before running
-# burst simulations.  In a short test run, check c_ike (compute ike insert ke) at the
-# first radical deposit step in the log.  You should see:
-#   c_ike ≈ radical_energy_target × 23.06 kcal/mol   (bug absent — remove correction)
-#   c_ike ≈ radical_energy_target × 23.06 × 12.713   (bug present — keep correction)
-_DEPOSIT_REGION_BUG_FACTOR = 12.713
+# Burst O• deposits use "units box": fix deposit's default lattice units scaled the
+# velocities by the lattice spacing (KE x12.71 along z on C(100), the old "12.713x
+# Kokkos bug" workaround) and "near" by xlattice.
 
 # Default bilayer removal depth per orientation (Å). Covers the two atom planes
 # of one bilayer with a small margin.  Tune by inspection if the step cuts wrong.
@@ -55,7 +47,7 @@ def _radical_config_block(
     radical_i_above: float,
     inter_neutral_time: float,
     prefix: str = "",            # e.g. "phase_0_" for cycling per-phase vars
-    burst_correction: bool = False,  # divide radical_energy by _DEPOSIT_REGION_BUG_FACTOR
+    burst: bool = False,         # burst dynamics run for inter_neutral_time per chunk
     radical_energy_dist: str = "gas",
     radical_energy_threshold=None,   # Optional[float], eV
     radical_threshold_on: str = "total",
@@ -92,15 +84,6 @@ def _radical_config_block(
                 f"  # eV; {'normal' if radical_threshold_on == 'normal' else 'total'}-energy "
                 f"draws below this are skipped\n"
             )
-    elif burst_correction:
-        corrected = radical_energy / _DEPOSIT_REGION_BUG_FACTOR
-        lines += (
-            f"# LAMMPS 23Jun2022 Kokkos GPU bug: fix deposit (region/near) gives {_DEPOSIT_REGION_BUG_FACTOR}x too much KE.\n"
-            f"# radical_energy set to target/{_DEPOSIT_REGION_BUG_FACTOR} = {radical_energy}/{_DEPOSIT_REGION_BUG_FACTOR} eV.\n"
-            f"# VERIFY: check c_ike at first radical deposit; should be {radical_energy * 23.06:.4f} kcal/mol.\n"
-            f"# If c_ike = {corrected * 23.06:.4f} kcal/mol instead, the bug is fixed — remove correction.\n"
-            f"variable    {prefix}radical_energy equal {corrected:.10g}  # target: {radical_energy} eV\n"
-        )
     else:
         lines += f"variable    {prefix}radical_energy equal {radical_energy}\n"
 
@@ -110,7 +93,7 @@ def _radical_config_block(
         lines += (
             f"variable    {prefix}max_inter_neutral_time equal {max_inter_neutral_time}\n"
         )
-    else:
+    if burst or not use_stochastic:
         lines += f"variable    {prefix}inter_neutral_time equal {inter_neutral_time}\n"
 
     if not use_cosine:
@@ -243,7 +226,7 @@ def get_config_lmp(spec: SimSpec) -> str:
                 max_inter_neutral_time=spec.max_inter_neutral_time,
                 radical_i_above=spec.radical_i_above,
                 inter_neutral_time=spec.inter_neutral_time,
-                burst_correction=spec.radical_burst,
+                burst=spec.radical_burst,
             )
         )
 
@@ -328,7 +311,7 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
                 max_inter_neutral_time=spec.max_inter_neutral_time,
                 radical_i_above=spec.radical_i_above,
                 inter_neutral_time=spec.inter_neutral_time,
-                burst_correction=spec.radical_burst,
+                burst=spec.radical_burst,
             )
         )
 
@@ -381,7 +364,7 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
                 radical_i_above=p.radical_i_above,
                 inter_neutral_time=spec.inter_neutral_time,
                 prefix=f"phase_{i}_",
-                burst_correction=p.radical_burst,
+                burst=p.radical_burst,
             )
         else:
             phase_vars += f"variable    phase_{i}_flux_ratio equal 0\n"
@@ -538,7 +521,7 @@ def get_config_lmp_single_impact(spec: SimSpec) -> str:
                 max_inter_neutral_time=spec.max_inter_neutral_time,
                 radical_i_above=spec.radical_i_above,
                 inter_neutral_time=spec.inter_neutral_time,
-                burst_correction=spec.radical_burst,
+                burst=spec.radical_burst,
             )
         )
 
@@ -670,7 +653,7 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     max_inter_neutral_time=spec.max_inter_neutral_time,
                     radical_i_above=spec.radical_i_above,
                     inter_neutral_time=spec.inter_neutral_time,
-                    burst_correction=spec.radical_burst,
+                    burst=spec.radical_burst,
                 )
             )
         return cfg + _step_config_block(spec) + _mask_config_block(spec)
@@ -704,7 +687,7 @@ def get_config_lmp_carbon_etch(spec: SimSpec) -> str:
                     max_inter_neutral_time=spec.max_inter_neutral_time,
                     radical_i_above=spec.radical_i_above,
                     inter_neutral_time=spec.inter_neutral_time,
-                    burst_correction=spec.radical_burst,
+                    burst=spec.radical_burst,
                 )
             )
         return cfg + _step_config_block(spec) + _mask_config_block(spec)

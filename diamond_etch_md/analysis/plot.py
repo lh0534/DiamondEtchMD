@@ -4,6 +4,7 @@ analysis/plot.py — analysis plots for DiamondEtchMD simulations.
 Main entry point: make_plots(sim_dir, spec=None)
 
 Produces PNGs in sim_dir:
+  (dose and amount axes are in 10^15 #/cm², from the lateral box area)
   etch_trajectory.png    — etched C + O uptake vs ion dose; amorphous C layer
   product_grid.png       — bubble chart: n_C vs n_O per ejected cluster
   product_trajectory.png — cumulative yield per product species vs dose, phase-shaded
@@ -139,27 +140,28 @@ def _apply_style():
     })
 
 
-def _add_phase_shading(ax, spec):
+def _add_phase_shading(ax, spec, u=1.0):
     """Fill background with per-phase colour bands; return one legend patch per phase."""
     if spec is None or spec.phases is None:
         return []
     n_phases = len(spec.phases)
     phase_colors = [_phase_index_color(i) for i in range(n_phases)]
     for fi, (x0, x1, _) in enumerate(_phase_spans(spec)):
-        ax.axvspan(x0, x1, color=phase_colors[fi % n_phases],
+        ax.axvspan(x0 * u, x1 * u, color=phase_colors[fi % n_phases],
                    alpha=0.12, lw=0, zorder=0)
     return [mpatches.Patch(color=phase_colors[i], alpha=0.6,
                            label=f"Phase {i + 1}")
             for i in range(n_phases)]
 
 
-def _cycle_xlim(max_x_ml, spec):
-    """Return (0, right) snapped to an integer number of cycles."""
+def _cycle_xlim(max_x, spec, u=1.0):
+    """Return (0, right) snapped to an integer number of cycles; max_x and the
+    result are in dose units (ML × u)."""
     if spec and spec.phases:
-        cycle_ml = sum(p.fluence_ml for p in spec.phases)
+        cycle = sum(p.fluence_ml for p in spec.phases) * u
         import math
-        n_complete = math.ceil(max_x_ml / cycle_ml)
-        return 0, max(1, n_complete) * cycle_ml
+        n_complete = math.ceil(max_x / cycle - 1e-9)
+        return 0, max(1, n_complete) * cycle
     return 0, None
 
 
@@ -346,19 +348,46 @@ def _parse_lammps_data_box(path):
     return xlo, xhi, ylo, yhi
 
 
-def _ml_density_label(sim_dir, ml) -> str:
-    """'1 ML ≡ X.XX × 10^N #/cm²' from box dims in the *0K.dat* data file."""
+AREAL_UNIT = r"$10^{15}$ cm$^{-2}$"
+
+
+def _box_area_cm2(sim_dir):
+    """Lateral box area (cm²) from the starting snapshot (impact_snaps/0.data,
+    or data_files/0.data in older sims) or a minimized configuration
+    (*0K.dat*, *min*.dat*).  x/y never change during a run."""
     sim_dir = Path(sim_dir)
-    candidates = (list(sim_dir.glob('*0K.dat*')) +
-                  list(sim_dir.glob('*0K.data')))
-    if not candidates:
-        return ""
-    bounds = _parse_lammps_data_box(candidates[0])
-    if bounds is None:
-        return ""
-    xlo, xhi, ylo, yhi = bounds
-    area_cm2 = (xhi - xlo) * (yhi - ylo) * 1e-16   # Å² → cm²
-    if area_cm2 <= 0:
+    candidates = ([sim_dir / 'impact_snaps' / '0.data', sim_dir / 'data_files' / '0.data']
+                  + sorted(sim_dir.glob('*0K.dat*')) + sorted(sim_dir.glob('*0K.data'))
+                  + sorted(sim_dir.glob('*min*.dat*')) + sorted(sim_dir.glob('*min*.data')))
+    for c in candidates:
+        if c.exists():
+            bounds = _parse_lammps_data_box(c)
+            if bounds is not None:
+                xlo, xhi, ylo, yhi = bounds
+                area = (xhi - xlo) * (yhi - ylo) * 1e-16   # Å² → cm²
+                if area > 0:
+                    return area
+    return None
+
+
+def _ml_areal_factor(sim_dir, ml):
+    """Areal density of 1 ML in units of 10^15 cm⁻² (None if the box is unknown).
+    Multiplying an ML-valued dose or amount by this gives 10^15 #/cm²."""
+    area = _box_area_cm2(sim_dir)
+    return ml / area / 1e15 if (area and ml > 0) else None
+
+
+def _dose_units(areal):
+    """(factor, dose-axis label, amount unit) for plotting in 10^15 cm⁻² or ML."""
+    if areal:
+        return areal, f"Dose ({AREAL_UNIT})", AREAL_UNIT
+    return 1.0, "Ion dose (ML)", "ML"
+
+
+def _ml_density_label(sim_dir, ml) -> str:
+    """'1 ML ≡ X.XX × 10^N #/cm²' from the lateral box area."""
+    area_cm2 = _box_area_cm2(sim_dir)
+    if not area_cm2:
         return ""
     dens = ml / area_cm2
     exp = int(np.floor(np.log10(max(dens, 1e-30))))
@@ -366,18 +395,18 @@ def _ml_density_label(sim_dir, ml) -> str:
     return f"1 ML ≡ {mantissa:.2f} × 10$^{{{exp}}}$ #/cm²"
 
 
-def _amorphous_thickness_from_atoms(z_c, area_A2, lat_a=DIAMOND_LAT_A):
+def _amorphous_thickness_from_atoms(z_c, area_A2, lat_a=DIAMOND_LAT_A, orientation=None):
     """Amorphous layer thickness in Å from z-positions of C atoms.
 
-    Gaussian-KDE depth profile (sigma = a/8, normalized to bulk diamond,
-    _common.kde_density).  Thickness = distance between the highest point
+    Gaussian-KDE depth profile (orientation-dependent sigma, normalized to
+    bulk diamond, _common.kde_density).  Thickness = distance between the highest point
     above 10% of bulk density (surface) and the highest point above 90%
     (top of the dense layer).
     """
     if len(z_c) < 10 or area_A2 <= 0:
         return 0.0
     h = np.asarray(z_c) - np.min(z_c)
-    grid, rho = kde_density(h, area_A2, lat_a, h.max() + 2.0)
+    grid, rho = kde_density(h, area_A2, lat_a, h.max() + 2.0, orientation=orientation)
     i10 = np.where(rho > 0.10)[0]
     i90 = np.where(rho > 0.90)[0]
     if not len(i10) or not len(i90) or i90[-1] >= i10[-1]:
@@ -385,7 +414,7 @@ def _amorphous_thickness_from_atoms(z_c, area_A2, lat_a=DIAMOND_LAT_A):
     return float(grid[i10[-1]] - grid[i90[-1]])
 
 
-def _parse_ml_dump(dump_path, lat_a=None):
+def _parse_ml_dump(dump_path, lat_a=None, orientation=None):
     """Parse ML_impacts.dump; return [(dose_ml, amorphous_thickness_A), ...].
 
     Each snapshot in the dump corresponds to one ML of fluence (written by
@@ -420,7 +449,7 @@ def _parse_ml_dump(dump_path, lat_a=None):
                     if int(parts[type_col]) == 1:
                         z_c.append(float(parts[z_col]))
             thickness = _amorphous_thickness_from_atoms(
-                np.array(z_c), area_A2, lat_a or DIAMOND_LAT_A
+                np.array(z_c), area_A2, lat_a or DIAMOND_LAT_A, orientation
             )
             results.append((snap, thickness))
             snap += 1
@@ -431,8 +460,12 @@ def _parse_ml_dump(dump_path, lat_a=None):
 
 def plot_etch(nc_records, ml, spec=None, ep_records=None,
              cna_records=None, amorphous_rho=None,
-             lat_a=None, spec_summary=None, ml_density_str=None, ax=None):
-    """Etched C (ML) and O uptake (ML) vs ion dose, with amorphous C layer.
+             lat_a=None, spec_summary=None, ml_density_str=None, ax=None,
+             areal=None):
+    """Etched C and O uptake vs ion dose, with amorphous C layer.
+
+    Amounts and dose are in 10^15 cm⁻² when `areal` (10^15 cm⁻² per ML, see
+    _ml_areal_factor) is given, else in ML.
 
     Amorphous C is shown as a step function on a twin right y-axis (red),
     labelled in Å but scaled proportionally to the left ML axis so that every
@@ -457,11 +490,12 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
     # Decide amorphous source (never both)
     use_cna = bool(cna_records)
     use_rho = bool(amorphous_rho) and not use_cna
+    u, dose_label, unit = _dose_units(areal)
 
     # O uptake from ncarbon (ion-impact rows only; skip impact=0 initial-structure entry)
     ion_recs = [r for r in nc_records if r['cn'] == 0 and r['impact'] > 0]
-    nc_x = np.array([r['impact'] for r in ion_recs]) / ml
-    o_ml = np.array([r['n_oxygen'] / ml for r in ion_recs])
+    nc_x = np.array([r['impact'] for r in ion_recs]) / ml * u
+    o_ml = np.array([r['n_oxygen'] / ml for r in ion_recs]) * u
 
     # Etched C from etch products
     carbon_ep = [r for r in (ep_records or []) if r['n_C'] > 0]
@@ -471,13 +505,13 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
         cumC    = np.zeros(max_imp + 1)
         for r in carbon_ep:
             cumC[r['impact']] += r['n_C']
-        depth_y = np.cumsum(cumC) / ml
-        depth_x = np.arange(len(depth_y)) / ml
+        depth_y = np.cumsum(cumC) / ml * u
+        depth_x = np.arange(len(depth_y)) / ml * u
     else:
         depth_x = nc_x
         depth_y = np.zeros(len(nc_x))
 
-    phase_patches = _add_phase_shading(ax, spec)
+    phase_patches = _add_phase_shading(ax, spec, u)
 
     ax.step(depth_x, depth_y, where='post', lw=3, alpha=0.7, color='k', label='Etched C')
     ax.plot(nc_x, o_ml, lw=3, alpha=0.7, color=_TRAJ_O_COLOR,
@@ -509,16 +543,21 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
             ax.plot(depth_x, slope * depth_x + intercept,
                     ls='--', lw=1.5, color='0.45', alpha=0.8, label=lbl)
 
-    ax.set_xlabel('Ion dose (ML)')
-    ax.set_ylabel(f"Monolayers (MLs)\n{ml_density_str}" if ml_density_str else "Monolayers (MLs)",
-                  labelpad=15)
+    ax.set_xlabel(dose_label)
+    if areal:
+        ax.set_ylabel(f"Areal density ({AREAL_UNIT})", labelpad=15)
+    else:
+        ax.set_ylabel(f"Monolayers (MLs)\n{ml_density_str}" if ml_density_str else "Monolayers (MLs)",
+                      labelpad=15)
     max_x = max(
         depth_x[-1] if len(depth_x) else 0,
         nc_x[-1]    if len(nc_x)    else 0,
     )
-    xleft, xright = _cycle_xlim(max_x, spec)
+    xleft, xright = _cycle_xlim(max_x, spec, u)
     ax.set_xlim(xleft, xright)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
+    # Å per left-axis unit: one (100) layer (a/4) per ML of C
+    A_per_unit = (lat_a / 4) / u if lat_a else None
 
     # Amorphous C — twin right y-axis in Å, scaled proportionally to left ML axis
     am_handle = None
@@ -527,17 +566,17 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
         ax2 = ax.twinx()
 
         if use_rho:
-            am_x   = np.array([d for d, _ in amorphous_rho], dtype=float)
+            am_x   = np.array([d for d, _ in amorphous_rho], dtype=float) * u
             am_y_A = np.array([t for _, t in amorphous_rho], dtype=float)  # Å
             am_label  = r'Amorphous C ($\rho$)'
             am_ylabel = 'Amorphous layer thickness (Å)'
         else:
             # CNA data is in ML; store as Å if lat_a known, else keep as ML
-            am_x  = np.array([r['impact'] for r in cna_records]) / ml
+            am_x  = np.array([r['impact'] for r in cna_records]) / ml * u
             am_ml = np.array([r['n_amorphous'] / ml for r in cna_records])
-            am_y_A    = am_ml * (lat_a / 4) if lat_a else am_ml
+            am_y_A    = am_ml * (lat_a / 4) if lat_a else am_ml * u
             am_label  = 'Amorphous C (CNA)'
-            am_ylabel = 'Amorphous layer thickness (Å)' if lat_a else 'Amorphous C (ML)'
+            am_ylabel = 'Amorphous layer thickness (Å)' if lat_a else f'Amorphous C ({unit})'
 
         am_line, = ax2.plot(am_x, am_y_A, ls='--', lw=3, color=_TRAJ_AMORPH_COLOR,
                             label=am_label, zorder=3)
@@ -556,21 +595,21 @@ def plot_etch(nc_records, ml, spec=None, ep_records=None,
         float(np.max(o_ml)) if len(o_ml)    else 0.0,
     )
     if am_y_A is not None and len(am_y_A):
-        am_top_ml = float(np.max(am_y_A)) / (lat_a / 4) if lat_a else float(np.max(am_y_A))
+        am_top_ml = float(np.max(am_y_A)) / A_per_unit if lat_a else float(np.max(am_y_A))
         ylim_top_ml = max(left_top, am_top_ml) * 1.1
     else:
         ylim_top_ml = left_top * 1.1
-    ylim_top_ml = max(ylim_top_ml, 0.1)
+    ylim_top_ml = max(ylim_top_ml, 0.1 * u)
 
     ax.set_ylim(0, ylim_top_ml)
 
     if use_rho or use_cna:
         # Lock right axis: same ML scale, labelled in Å
-        ax2.set_ylim(0, ylim_top_ml * (lat_a / 4) if lat_a else ylim_top_ml)
+        ax2.set_ylim(0, ylim_top_ml * A_per_unit if lat_a else ylim_top_ml)
     elif lat_a:
         # No amorphous data — show Å depth on right axis
         ax.spines['right'].set_visible(True)
-        scale = lat_a / 4
+        scale = A_per_unit
         sec = ax.secondary_yaxis(
             'right',
             functions=(lambda y, s=scale: y * s, lambda a, s=scale: a / s),
@@ -805,16 +844,19 @@ def plot_product_grid(ep_records, spec=None, ml=0, ax=None,
     return fig
 
 
-def plot_product_trajectory(ep_records, ml, spec=None, ax=None, spec_summary=None):
-    """Cumulative yield (ML) per product species vs dose (ML), phase-shaded."""
+def plot_product_trajectory(ep_records, ml, spec=None, ax=None, spec_summary=None,
+                            areal=None):
+    """Cumulative yield per product species vs dose, phase-shaded (10^15 cm⁻²
+    when `areal` is given, else ML)."""
     _need_mpl()
     if not ep_records:
         return None
     own = ax is None
     if own:
         fig, ax = plt.subplots(figsize=(8, 5))
+    u, dose_label, unit = _dose_units(areal)
 
-    phase_patches = _add_phase_shading(ax, spec)
+    phase_patches = _add_phase_shading(ax, spec, u)
 
     by_product = defaultdict(list)
     for r in ep_records:
@@ -822,7 +864,7 @@ def plot_product_trajectory(ep_records, ml, spec=None, ax=None, spec_summary=Non
 
     products    = sorted(by_product.items(), key=lambda kv: -len(kv[1]))
     max_impact  = max(r['impact'] for r in ep_records)
-    x           = np.arange(1, max_impact + 1) / ml
+    x           = np.arange(1, max_impact + 1) / ml * u
 
     cmap = plt.get_cmap('tab10')
     for idx, ((nc, nh, no), imp_list) in enumerate(products[:10]):
@@ -830,13 +872,13 @@ def plot_product_trajectory(ep_records, ml, spec=None, ax=None, spec_summary=Non
         for imp in imp_list:
             if 1 <= imp <= max_impact:
                 counts[imp - 1] += 1
-        cumulative = np.cumsum(counts) / ml
+        cumulative = np.cumsum(counts) / ml * u
         ax.plot(x, cumulative, lw=1.5, label=_product_label(nc, nh, no),
                 color=cmap(idx % 10))
 
-    ax.set_xlabel('Ion dose (ML)')
-    ax.set_ylabel('Cumulative yield (ML)')
-    xleft, xright = _cycle_xlim(max_impact / ml, spec)
+    ax.set_xlabel(dose_label)
+    ax.set_ylabel(f'Cumulative yield ({unit})')
+    xleft, xright = _cycle_xlim(max_impact / ml * u, spec, u)
     ax.set_xlim(xleft, xright)
     ax.set_ylim(bottom=0)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
@@ -859,8 +901,9 @@ def _gaussian_kde(events_ml, x_grid, bw):
 
 
 def plot_co_emission(ep_records, ml, spec=None, bandwidth_ml=None,
-                     ax=None, spec_summary=None):
-    """CO and CO₂ emission rate (KDE, events/ML) vs ion dose, phase-shaded.
+                     ax=None, spec_summary=None, areal=None):
+    """CO and CO₂ emission rate (KDE) vs ion dose, phase-shaded; per 10^15 cm⁻²
+    of dose when `areal` is given, else per ML.  The KDE runs in ML.
 
     bandwidth_ml : Gaussian KDE bandwidth in ML. Defaults to Scott's rule
                    (1.06 * σ * n^-0.2) with a 0.5 ML floor.
@@ -876,6 +919,7 @@ def plot_co_emission(ep_records, ml, spec=None, bandwidth_ml=None,
     own = ax is None
     if own:
         fig, ax = plt.subplots(figsize=(8, 5))
+    u, dose_label, unit = _dose_units(areal)
 
     max_impact = max(r['impact'] for r in ep_records)
     total_ml   = max_impact / ml
@@ -892,20 +936,21 @@ def plot_co_emission(ep_records, ml, spec=None, bandwidth_ml=None,
 
     if len(co_impacts):
         bw  = _bw(co_impacts)
-        kde = _gaussian_kde(co_impacts / ml, x_grid, bw)
-        ax.fill_between(x_grid, kde, alpha=0.35, color=cmap(1))
-        ax.plot(x_grid, kde, lw=1.5, color=cmap(1), label='CO')
+        kde = _gaussian_kde(co_impacts / ml, x_grid, bw) / u
+        ax.fill_between(x_grid * u, kde, alpha=0.35, color=cmap(1))
+        ax.plot(x_grid * u, kde, lw=1.5, color=cmap(1), label='CO')
 
     if len(co2_impacts):
         bw  = _bw(co2_impacts)
-        kde = _gaussian_kde(co2_impacts / ml, x_grid, bw)
-        ax.fill_between(x_grid, kde, alpha=0.35, color=cmap(2))
-        ax.plot(x_grid, kde, lw=1.5, color=cmap(2), label='CO₂')
+        kde = _gaussian_kde(co2_impacts / ml, x_grid, bw) / u
+        ax.fill_between(x_grid * u, kde, alpha=0.35, color=cmap(2))
+        ax.plot(x_grid * u, kde, lw=1.5, color=cmap(2), label='CO₂')
 
-    phase_patches = _add_phase_shading(ax, spec)
-    ax.set_xlabel('Ion dose (ML)')
-    ax.set_ylabel('Emission rate (events / ML)')
-    xleft, xright = _cycle_xlim(total_ml, spec)
+    phase_patches = _add_phase_shading(ax, spec, u)
+    ax.set_xlabel(dose_label)
+    ax.set_ylabel(f'Emission rate (events per {unit} dose)' if areal
+                  else 'Emission rate (events / ML)')
+    xleft, xright = _cycle_xlim(total_ml * u, spec, u)
     ax.set_xlim(xleft, xright)
     ax.set_ylim(bottom=0)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
@@ -921,7 +966,7 @@ def plot_co_emission(ep_records, ml, spec=None, bandwidth_ml=None,
 
 
 def plot_ey_vs_fluence(ep_records, nc_records, ml, spec=None, sigma_ml=1.0,
-                       spec_summary=None):
+                       spec_summary=None, areal=None):
     """Etch yield vs dose: per-ML etched C (points) and its Gaussian-smoothed
     derivative (line, sigma = sigma_ml), phase-shaded."""
     _need_mpl()
@@ -940,20 +985,23 @@ def plot_ey_vs_fluence(ep_records, nc_records, ml, spec=None, sigma_ml=1.0,
     kern = np.exp(-0.5 * (np.arange(-half, half + 1) / sig) ** 2)
     smooth = (np.convolve(per_imp, kern, mode='same')
               / np.convolve(np.ones_like(per_imp), kern, mode='same'))
-    x_imp = np.arange(1, max_imp + 1) / ml
+    u, dose_label, unit = _dose_units(areal)
+    x_imp = np.arange(1, max_imp + 1) / ml * u
 
     n_bins = max_imp // ml
     per_ml = per_imp[:n_bins * ml].reshape(n_bins, ml).mean(axis=1)
-    x_ml = np.arange(n_bins) + 0.5
+    x_ml = (np.arange(n_bins) + 0.5) * u
 
     fig, ax = plt.subplots(figsize=(9, 4.5))
-    phase_patches = _add_phase_shading(ax, spec)
-    ax.plot(x_ml, per_ml, 'o', ms=3.5, color='0.55', alpha=0.6, label='per ML')
+    phase_patches = _add_phase_shading(ax, spec, u)
+    ax.plot(x_ml, per_ml, 'o', ms=3.5, color='0.55', alpha=0.6,
+            label=f'binned ({u:.3g} × {unit})' if areal else 'per ML')
     ax.plot(x_imp, smooth, color='k', lw=2,
-            label=f'smoothed ($\\sigma$ = {sigma_ml:g} ML)')
-    ax.set_xlim(*_cycle_xlim(max_imp / ml, spec))
+            label=(f'smoothed ($\\sigma$ = {sigma_ml * u:.3g} × {unit})' if areal
+                   else f'smoothed ($\\sigma$ = {sigma_ml:g} ML)'))
+    ax.set_xlim(*_cycle_xlim(max_imp / ml * u, spec, u))
     ax.set_ylim(bottom=0)
-    ax.set_xlabel('Dose (ML)')
+    ax.set_xlabel(dose_label)
     ax.set_ylabel('Etch yield (C/impact)')
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
     h, l = ax.get_legend_handles_labels()
@@ -1015,8 +1063,10 @@ def plot_amorphous_thickness(cna_records, ml, ax=None):
     return ax
 
 
-def plot_etch_per_cycle(nc_records, spec, ml, ep_records=None, lat_a=None, ax=None):
-    """Etch per cycle (ML) vs cycle number — scatter + mean line."""
+def plot_etch_per_cycle(nc_records, spec, ml, ep_records=None, lat_a=None, ax=None,
+                        areal=None):
+    """Etch per cycle vs cycle number — scatter + mean line (10^15 cm⁻² when
+    `areal` is given, else ML)."""
     _need_mpl()
     if spec is None or spec.phases is None:
         return None
@@ -1053,22 +1103,25 @@ def plot_etch_per_cycle(nc_records, spec, ml, ep_records=None, lat_a=None, ax=No
         if own:
             plt.close(fig)
         return None
+    u, _, unit = _dose_units(areal)
+    cycle_etch = [v * u for v in cycle_etch]
 
     xs = np.arange(1, len(cycle_etch) + 1)
     ax.scatter(xs, cycle_etch, color='#4e9be6', s=40, zorder=3)
     ax.plot(xs, cycle_etch, lw=1.0, color='#4e9be6', alpha=0.5, zorder=2)
     mean_etch = np.mean(cycle_etch)
     ax.axhline(mean_etch, ls='--', lw=1.5, color='k', alpha=0.7,
-               label=f'Mean: {mean_etch:.3g} ML/cycle')
+               label=f'Mean: {mean_etch:.3g} × {unit} per cycle' if areal
+               else f'Mean: {mean_etch:.3g} ML/cycle')
 
     ax.set_xlabel('Cycle #')
-    ax.set_ylabel('Etch per cycle (ML)')
+    ax.set_ylabel(f'Etch per cycle ({unit})')
     ax.set_xlim(0.5, len(cycle_etch) + 0.5)
     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     # Include negative values (net C deposition cycles) and the mean line
     data_min = min(min(cycle_etch), mean_etch)
     data_max = max(max(cycle_etch), mean_etch)
-    pad = max((data_max - data_min) * 0.12, 0.05)
+    pad = max((data_max - data_min) * 0.12, 0.05 * u)
     ax.set_ylim(data_min - pad, data_max + pad)
     ax.axhline(0, lw=0.7, color='0.5', zorder=0)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
@@ -1076,7 +1129,7 @@ def plot_etch_per_cycle(nc_records, spec, ml, ep_records=None, lat_a=None, ax=No
 
     if lat_a:
         ax.spines['right'].set_visible(True)
-        scale = lat_a / 4
+        scale = (lat_a / 4) / u
         sec = ax.secondary_yaxis(
             'right',
             functions=(lambda y, s=scale: y * s, lambda a, s=scale: a / s),
@@ -1153,7 +1206,7 @@ def plot_per_phase_yield(nc_records, spec, ml, ep_records=None, ax=None, spec_su
     return ax
 
 
-def plot_o_per_cycle(nc_records, spec, ml, ax=None, spec_summary=None):
+def plot_o_per_cycle(nc_records, spec, ml, ax=None, spec_summary=None, areal=None):
     """Phase-end O uptake per cycle — same x-axis style as etch_per_cycle."""
     _need_mpl()
     if spec is None or spec.phases is None:
@@ -1163,6 +1216,7 @@ def plot_o_per_cycle(nc_records, spec, ml, ax=None, spec_summary=None):
         fig, ax = plt.subplots(figsize=(7, 4))
 
     total_cycle_ml = sum(p.fluence_ml for p in spec.phases) * ml
+    u, _, unit = _dose_units(areal)
     ion_recs = [r for r in nc_records if r['cn'] == 0]
     max_impact = max((r['impact'] for r in ion_recs), default=0)
 
@@ -1177,7 +1231,7 @@ def plot_o_per_cycle(nc_records, spec, ml, ax=None, spec_summary=None):
                 break
             recs = [r for r in ion_recs if lo < r['impact'] <= hi]
             if recs:
-                o_end.append(recs[-1]['n_oxygen'] / ml)
+                o_end.append(recs[-1]['n_oxygen'] / ml * u)
         if o_end:
             xs = np.arange(1, len(o_end) + 1)
             col = _phase_index_color(pi)
@@ -1187,7 +1241,7 @@ def plot_o_per_cycle(nc_records, spec, ml, ax=None, spec_summary=None):
 
     n_cycles = spec.cycles
     ax.set_xlabel('Cycle #')
-    ax.set_ylabel('Phase-End O Uptake (ML)')
+    ax.set_ylabel(f'Phase-End O Uptake ({unit})')
     ax.set_xlim(0.5, n_cycles + 0.5)
     ax.set_ylim(bottom=0)
     ax.yaxis.grid(True, color='0.88', lw=0.5, zorder=0)
@@ -1327,8 +1381,9 @@ def make_plots(
     # Spec summary for figure titles
     summary = _spec_summary_str(spec)
 
-    # ML surface density label from initial data file
-    ml_dens = _ml_density_label(sim_dir, ml)
+    # Dose / amount axes in 10^15 cm^-2 (ML × areal); ML labels if the box is unknown
+    areal = _ml_areal_factor(sim_dir, ml)
+    ml_dens = None if areal else _ml_density_label(sim_dir, ml)
 
     # Density-based amorphous C (default when CNA not available)
     amorphous_rho = None
@@ -1336,7 +1391,9 @@ def make_plots(
         dump_path = sim_dir / 'ML_impacts.dump'
         if dump_path.exists():
             try:
-                amorphous_rho = _parse_ml_dump(dump_path, lat_a=lat_a) or None
+                amorphous_rho = _parse_ml_dump(
+                    dump_path, lat_a=lat_a,
+                    orientation=getattr(spec, 'orientation', None)) or None
             except Exception:
                 amorphous_rho = None
 
@@ -1352,7 +1409,8 @@ def make_plots(
 
     fig = plot_etch(nc, ml, spec=plot_spec, ep_records=ep_carbon,
                    cna_records=cna_records, amorphous_rho=amorphous_rho,
-                   lat_a=lat_a, spec_summary=summary, ml_density_str=ml_dens)
+                   lat_a=lat_a, spec_summary=summary, ml_density_str=ml_dens,
+                   areal=areal)
     if fig:
         _save(fig, 'etch_trajectory')
 
@@ -1383,17 +1441,18 @@ def make_plots(
                 _save(fig, 'product_grid')
 
         fig = plot_product_trajectory(ep_carbon, ml, spec=plot_spec,
-                                      spec_summary=summary)
+                                      spec_summary=summary, areal=areal)
         if fig:
             _save(fig, 'product_trajectory')
 
         fig = plot_co_emission(ep_carbon, ml, spec=plot_spec,
-                               spec_summary=summary)
+                               spec_summary=summary, areal=areal)
         if fig:
             _save(fig, 'co_emission')
 
     if is_cyc and spec and spec.phases:
-        fig = plot_etch_per_cycle(nc, spec, ml, ep_records=ep_carbon, lat_a=lat_a)
+        fig = plot_etch_per_cycle(nc, spec, ml, ep_records=ep_carbon, lat_a=lat_a,
+                                  areal=areal)
         if fig:
             _save(fig, 'etch_per_cycle')
 
@@ -1401,11 +1460,12 @@ def make_plots(
         if fig:
             _save(fig, 'per_phase_yield')
 
-        fig = plot_o_per_cycle(nc, spec, ml, spec_summary=summary)
+        fig = plot_o_per_cycle(nc, spec, ml, spec_summary=summary, areal=areal)
         if fig:
             _save(fig, 'o_per_cycle')
 
-        fig = plot_ey_vs_fluence(ep_carbon, nc, ml, spec=spec, spec_summary=summary)
+        fig = plot_ey_vs_fluence(ep_carbon, nc, ml, spec=spec, spec_summary=summary,
+                                 areal=areal)
         if fig:
             _save(fig, 'EY_vs_fluence')
 

@@ -84,7 +84,8 @@ def _load_deps(sim_dir: Path):
     dump_path = sim_dir / "ML_impacts.dump"
     if dump_path.exists():
         try:
-            amorphous_rho = _parse_ml_dump(dump_path) or None
+            amorphous_rho = _parse_ml_dump(
+                dump_path, orientation=getattr(spec, 'orientation', None)) or None
         except Exception:
             pass
 
@@ -268,7 +269,12 @@ def main():
         from diamond_etch_md.analysis.cna import load_cna_series
         data_dir = sim_dir / "impact_snaps"
         print(f"Computing CNA (stride={args.cna_stride}) on {data_dir} …")
-        cna_records = load_cna_series(data_dir, stride=args.cna_stride, verbose=True)
+        import json
+        spec_path = sim_dir / "spec.json"
+        orientation = (json.loads(spec_path.read_text()).get("orientation")
+                       if spec_path.exists() else None)
+        cna_records = load_cna_series(data_dir, stride=args.cna_stride, verbose=True,
+                                      orientation=orientation)
         print(f"CNA done: {len(cna_records)} records.")
 
     print(f"Rendering frames (step={args.step}) into {frames_dir} …")
