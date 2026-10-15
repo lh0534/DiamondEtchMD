@@ -334,10 +334,19 @@ def _make_sim_carbon_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
         print(f"  wall time:   {spec.wall_hours} h  account={spec.account}")
 
 
+def _copy_make_surf(spec: SimSpec, outdir: Path) -> None:
+    """make_surf.lmp from the package template; vicinal orientations also get their
+    unrelaxed stepped slab (vicinal_surface.data), which that template reads."""
+    shutil.copy(get_make_surf_source(spec), outdir / "make_surf.lmp")
+    from .vicinal import VICINAL, write_surface_data
+    if spec.orientation in VICINAL:
+        write_surface_data(spec, outdir / "vicinal_surface.data")
+
+
 def _make_sim_diamond_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
     """Build a diamond-etch simulation directory (generated diamond surface)."""
     # make_surf.lmp — copied from the package template for this surface
-    shutil.copy(get_make_surf_source(spec), outdir / "make_surf.lmp")
+    _copy_make_surf(spec, outdir)
 
     # Copy simulation-control scripts (not symlinked so template edits don't affect running jobs)
     for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp", "surface_top.lmp"):
@@ -463,7 +472,7 @@ def _make_sim_single_impact(spec: SimSpec, outdir: Path, is_carbon: bool) -> Non
         _patch_data_file_for_carbon_etch(spec.initial_config_file, dst_data)
     else:
         lx = ly = None
-        shutil.copy(get_make_surf_source(spec), outdir / "make_surf.lmp")
+        _copy_make_surf(spec, outdir)
 
     if is_carbon:
         # Carbon path: standalone thermalize_surface.lmp called from submit before head.lmp

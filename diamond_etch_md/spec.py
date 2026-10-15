@@ -227,9 +227,9 @@ class SimSpec:
 def compute_ml(orientation: str, box_x: int, box_y: int) -> int:
     """Return the atoms-per-monolayer count for a given orientation and box size.
 
-    Formula: ML = ml_factor * box_x * box_y
+    Formula: ML = ml_factor * box_x * box_y (rounded: vicinal ml_factors are not whole numbers)
     """
-    return ORIENT[orientation]["ml_factor"] * box_x * box_y
+    return int(round(ORIENT[orientation]["ml_factor"] * box_x * box_y))
 
 
 _LEGACY_BURST_NEAR = 5.04   # Å; old "near 2.0" in lattice units on C(100)
@@ -237,7 +237,9 @@ _LAT_A = 3.5654             # Å, diamond
 # Surface area per ML atom, in units of lat_a^2 (lattice-cell area / ml_factor)
 _AREA_PER_ML_ATOM = {"100": 0.5, "110": 0.3536, "111": 0.4330, "113": 0.4146,
                      # hexagonal diamond (ideal lonsdaleite): cell area / ml_factor
-                     "hex0001": 0.4330, "hex1120": 0.3536, "hex1010": 0.4082}
+                     "hex0001": 0.4330, "hex1120": 0.3536, "hex1010": 0.4082,
+                     # vicinal: per atom of the (001) / (111) terrace plane
+                     "119": 0.5, "557": 0.4330, "775": 0.4330}
 # Random sequential placement of disks jams at ~55% coverage; stay below it so
 # every atom of a chunk lands in its single insertion layer.
 _BURST_MAX_COVERAGE = 0.45

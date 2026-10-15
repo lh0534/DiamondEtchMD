@@ -23,7 +23,9 @@ DIAMOND_LAT_A = 3.5653871687699   # Å, default when lat_a.txt is unavailable
 # bilayers like (111) (a/4 → ±4%), hex1120 planes 1.26 Å apart (a/5 → ±2%),
 # hex1010 plane pairs every 2.18 Å (a/4 → ±5%).
 KDE_SIGMA_FRAC = {"100": 1 / 8, "110": 1 / 6, "111": 1 / 4, "113": 1 / 8,
-                  "hex0001": 1 / 4, "hex1120": 1 / 5, "hex1010": 1 / 4}
+                  "hex0001": 1 / 4, "hex1120": 1 / 5, "hex1010": 1 / 4,
+                  # vicinal: atomic planes only ~0.3 Å apart along the normal
+                  "119": 1 / 8, "557": 1 / 8, "775": 1 / 8}
 
 
 def kde_sigma(lat_a, orientation=None):

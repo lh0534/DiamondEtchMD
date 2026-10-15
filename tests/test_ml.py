@@ -47,11 +47,12 @@ def test_compute_ml(orientation, box_x, box_y, expected):
 
 
 def test_ml_factor_matches_orient_registry():
-    """compute_ml must use exactly the ml_factor stored in the ORIENT registry."""
+    """compute_ml must use exactly the ml_factor stored in the ORIENT registry
+    (rounded: vicinal factors are not whole numbers)."""
     for orientation, cfg in ORIENT.items():
         factor = cfg["ml_factor"]
         for box_x, box_y in [(9, 9), (5, 3), (1, 1)]:
-            expected = factor * box_x * box_y
+            expected = round(factor * box_x * box_y)
             assert compute_ml(orientation, box_x, box_y) == expected
 
 
@@ -62,11 +63,12 @@ def test_ml_commutative_except_for_anisotropy():
 
 
 def test_ml_scales_linearly_with_box():
-    """Doubling box_x should double ML."""
+    """Doubling box_x should double ML (to within rounding for non-integer vicinal factors)."""
     for orientation in ORIENT:
         ml_base = compute_ml(orientation, 5, 5)
         ml_2x   = compute_ml(orientation, 10, 5)
-        assert ml_2x == 2 * ml_base
+        tol = 0 if float(ORIENT[orientation]["ml_factor"]).is_integer() else 1
+        assert abs(ml_2x - 2 * ml_base) <= tol
 
 
 @pytest.mark.parametrize("orientation", list(ORIENT.keys()))

@@ -23,6 +23,7 @@ ML factors (analytically derived, empirically verified):
   111: ml_factor = 2   (verified: 5×9 → 90)
   113: ml_factor = 4   (verified: 9×3 → 108)
   hex0001 / hex1120 / hex1010 (hexagonal diamond): 2 / 4 / 2 (hexagonal.py)
+  119 / 557 / 775 (vicinal): 9.11 / 11.49 / 12.81 per cell, rounded (vicinal.py)
 
 Surface keys:
   100: 1x1, 2x1, 2x1_O, O_ether
@@ -30,6 +31,7 @@ Surface keys:
   111: 1x1, 2x1_single, 2x1_pandey, 1x1_O, 2x1_single_O, 2x1_pandey_O
   113: (empty string), O
   hex0001, hex1120, hex1010: 1x1 (bulk-terminated, one dangling bond per surface C)
+  119: 2x1_DA, 2x1_DB (double steps); 557, 775: 1x1
 """
 
 ORIENT = {
@@ -140,6 +142,36 @@ def _hex_entry(default_box, ml_factor):
 ORIENT["hex0001"] = _hex_entry((8, 5, 4), 2)   # cell 2.52 x 4.37, z unit c = 4.12 Å
 ORIENT["hex1120"] = _hex_entry((5, 5, 7), 4)   # cell 4.37 x 4.12, z unit a = 2.52 Å
 ORIENT["hex1010"] = _hex_entry((5, 8, 4), 2)   # cell 4.12 x 2.52, z unit sqrt3 a = 4.37 Å
+
+
+def _vicinal_entry(o):
+    """Miscut (vicinal) orientation; geometry and the stepped top in vicinal.py.
+
+    config.lmp defines vic_lattice (lattice arguments) and vic_zu (Å per lattice z
+    unit); make_sim writes the unrelaxed stepped slab to vicinal_surface.data, which
+    make_surf_vicinal.lmp reads.  box_x counts step periods (the steps connect through
+    the x boundary), box_y a/sqrt2 cells along the step edges.  ML = atoms of one
+    terrace plane over the box's xy area (not a whole number per cell; compute_ml rounds).
+    """
+    from .vicinal import geometry, surfaces
+    g = geometry(o)
+    return {
+        "lattice_cmd": "lattice    ${vic_lattice}",
+        "bottom_expr": "$(-5/8-0.5*ceil(2*(-5/8-bound(carbon,zmin)/(v_vic_zu))-1e-9))",
+        "z_unit":      "v_vic_zu",
+        "default_box": (1, 6, 4),
+        "ml_factor":   g["ml_per_cell"],
+        "surfaces": {
+            surf: {"template": "package:lammps/templates/make_surf_vicinal.lmp",
+                   "reconstruct": False, "O_terminate": False, "O_ether": False}
+            for surf in surfaces(o)
+        },
+    }
+
+
+# 119: 8.93° off (001) toward [110]; 557 / 775: 9.45° / 8.47° off (111), B- / A-type steps
+for _o in ("119", "557", "775"):
+    ORIENT[_o] = _vicinal_entry(_o)
 
 
 def restart_bottom_lines(orientation: str) -> str:

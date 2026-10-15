@@ -754,6 +754,7 @@ diamond_etch_md/
   species.py       SPECIES registry — atom types, injection heights, ZBL/molecule flags
   builder.py       make_sim(), make_ale()
   hexagonal.py     hexagonal-diamond (lonsdaleite) lattices: HEX_LATTICE, oriented_cell(), lattice_args()
+  vicinal.py       miscut surfaces 119/557/775: geometry(), build_surface(), write_surface_data()
   cli.py           diamond-etch-md, diamond-etch-md-plot entry points
   lammps/
     config.py         get_config_lmp(), get_config_lmp_cycle_etch()
@@ -763,6 +764,7 @@ diamond_etch_md/
     templates/
       make_surf_100.lmp, make_surf_110.lmp, make_surf_111_*.lmp, make_surf_113.lmp,
       make_surf_hex.lmp (hexagonal diamond, all three orientations)
+      make_surf_vicinal.lmp (vicinal surfaces; reads vicinal_surface.data)
       O2.molecule, ffield.reax, lat_a.txt
       sweep.lmp, thermalize.lmp, addfix.lmp, surface_top.lmp, lmp_env.sh
       auto-plot.py, make_impact_dump.py
@@ -805,6 +807,15 @@ tools/
 | `hex1010` | `1x1` | Hexagonal diamond m-plane, bulk-terminated |
 
 Hexagonal diamond uses a custom orthohexagonal LAMMPS lattice built by `hexagonal.py` from the ReaxFF-relaxed a, c and u (`tools/relax_lonsdaleite.py`); each surface is cut through single bonds (one dangling bond per surface C). The CNA counts it as crystalline. `tools/build_hex_surfaces.py` builds all three surfaces for inspection.
+
+| Orientation | Surface key | Description |
+|---|---|---|
+| `119` | `2x1_DA` | 8.93° vicinal (001), double-layer steps, every terrace's dimer rows parallel to the step edge (Chadi D_A) |
+| `119` | `2x1_DB` | 8.93° vicinal (001), double-layer steps, dimer rows perpendicular to the step edge (D_B) |
+| `557` | `1x1` | 9.45° vicinal (111), B-type bilayer steps (descending toward [-1-12]) |
+| `775` | `1x1` | 8.47° vicinal (111), A-type bilayer steps (descending toward [11-2]) |
+
+Vicinal (miscut) surfaces rotate the cubic lattice so z is the vicinal normal, x the downhill direction and y along the step edges: `119` is 8.93° off (001) toward [110] (double-layer steps, two per period; every terrace exposes the same layer parity, so all steps are identical — single-layer steps on (001) necessarily alternate S_A/S_B because the dimer direction turns 90° each layer, and are not provided), `557` 9.45° off (111) toward [-1-12] and `775` 8.47° off (111) toward [11-2] (bilayer steps; edge atoms with 2 and 1 dangling bonds). `box_x` counts step periods (22.97 / 25.08 / 27.96 Å; each drops 4 (001) layers or 2 (111) bilayers, so the steps connect through the x boundary) and `box_y` counts a/√2 cells along the edges. `vicinal.py` builds the stepped top from the same lattice points LAMMPS generates; `make_sim` writes it to `vicinal_surface.data`, which `make_surf_vicinal.lmp` reads, minimizes and thermalizes. The z lattice unit is ~4 Å (a whole number of atomic-plane spacings) and the lattice origin is shifted so every addfix grid line falls between atomic planes, so bottom replenishment works as for the other orientations. Dimers are pre-formed (1.6 Å) and relaxed by the minimization; an odd dimer row leaves its unpaired atom at the foot of a step (1 dangling bond). ML is the atom count of one terrace plane over the box's xy area (9.11 / 11.49 / 12.81 per period × cell for 119 / 557 / 775, rounded).
 
 ### Ion species
 
@@ -888,10 +899,12 @@ pytest -m lammps # real-LAMMPS tests (needs the LAMMPS Python module with REAXFF
 The real-LAMMPS tests drive LAMMPS from Python on one CPU core: burst insertion and sampling
 (`tests/test_burst_sampling.py`: energies and angles of inserted atoms, chunk geometry,
 end-to-end RIE/cycling bursts, the gas-buildup regression) and hexagonal diamond
-(`tests/test_hex_lammps.py`: lattices, addfix replenishment, end-to-end ion impacts). The
+(`tests/test_hex_lammps.py`: lattices, addfix replenishment, end-to-end ion impacts) and vicinal
+surfaces (`tests/test_vicinal_lammps.py`: LAMMPS lattice = the Python slab's lattice, addfix under
+the stepped slab, end-to-end ion impacts). The
 end-to-end runs need the 23 Jun 2022 build that production uses (`sweep.lmp`'s atom-style
-formulas are rejected by newer builds). On Della, submit `tests/run_burst_tests.sbatch` or
-`tests/run_hex_tests.sbatch`; they clear the `SLURM_*`/`PMI*` variables for the Python process
+formulas are rejected by newer builds). On Della, submit `tests/run_burst_tests.sbatch`,
+`tests/run_hex_tests.sbatch` or `tests/run_vicinal_tests.sbatch`; they clear the `SLURM_*`/`PMI*` variables for the Python process
 because the conda OpenMPI has no Slurm PMI support and aborts in `MPI_Init` otherwise.
 
 ---

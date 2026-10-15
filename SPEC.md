@@ -38,7 +38,7 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 
 | Field | Type | Default | Valid values / notes |
 |-------|------|---------|----------------------|
-| `orientation` | `str` | `"100"` | `"100"`, `"110"`, `"111"`, `"113"`; hexagonal diamond `"hex0001"`, `"hex1120"`, `"hex1010"` |
+| `orientation` | `str` | `"100"` | `"100"`, `"110"`, `"111"`, `"113"`; hexagonal diamond `"hex0001"`, `"hex1120"`, `"hex1010"`; vicinal (miscut) `"119"`, `"557"`, `"775"` |
 | `surface` | `str` | `"1x1"` | See table below; depends on orientation |
 | `box_x` | `int` | `9` | Lattice units along x |
 | `box_y` | `int` | `9` | Lattice units along y |
@@ -54,6 +54,8 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 | `111` | `1x1`, `2x1_single`, `2x1_pandey`, `1x1_O`, `2x1_single_O`, `2x1_pandey_O` | |
 | `113` | `""` (bare), `O` | |
 | `hex0001`, `hex1120`, `hex1010` | `1x1` | Hexagonal diamond, bulk-terminated (one dangling bond per surface C) |
+| `119` | `2x1_DA`, `2x1_DB` | Vicinal (001), double-layer steps: D_A (dimer rows parallel to the edges) / D_B (perpendicular) |
+| `557`, `775` | `1x1` | Vicinal (111), B- / A-type bilayer steps |
 
 **ML factors** (atoms per monolayer = `ml_factor × box_x × box_y`):
 
@@ -66,8 +68,13 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 | `hex0001` | 2 | 8×5 → 80 |
 | `hex1120` | 4 | 5×5 → 100 |
 | `hex1010` | 2 | 5×8 → 80 |
+| `119` | 9.110 | 1×6 → 55 (rounded) |
+| `557` | 11.489 | 1×6 → 69 (rounded) |
+| `775` | 12.806 | 1×6 → 77 (rounded) |
 
 **Hexagonal diamond (lonsdaleite).** LAMMPS has no hexagonal-diamond lattice style, so `hexagonal.py` builds an orthohexagonal `lattice custom` cell (8 atoms, a × √3a × c) with its axes permuted so the surface normal is z: `hex0001` (basal, z unit c), `hex1120` (a-plane, z unit a), `hex1010` (m-plane, z unit √3a). The basis is shifted along z so the slab top (integer lattice z) and the addfix grid (−5/8 − k/2) both fall in the gap that cuts one bond per surface atom; the atomic planes repeat every half cell, so every replenished layer is identical. `config.lmp` carries the lattice as `hex_lattice` (custom-lattice arguments) and `hex_zu` (Å per lattice z unit); `make_surf_hex.lmp` serves all three. a, c and u (vertical bond / c) are the ReaxFF zero-pressure values in `hexagonal.HEX_LATTICE` (`tools/relax_lonsdaleite.py`). CNA counts hexagonal diamond as crystalline (second-neighbour shell 6 × 421 + 6 × 422, vs 12 × 421 for cubic).
+
+**Vicinal (miscut) surfaces.** Vicinal (miscut) surfaces rotate the cubic lattice so z is the vicinal normal, x the downhill direction and y along the step edges: `119` is 8.93° off (001) toward [110] (double-layer steps, two per period; every terrace exposes the same layer parity, so all steps are identical — single-layer steps on (001) necessarily alternate S_A/S_B because the dimer direction turns 90° each layer, and are not provided), `557` 9.45° off (111) toward [-1-12] and `775` 8.47° off (111) toward [11-2] (bilayer steps; edge atoms with 2 and 1 dangling bonds). `box_x` counts step periods (22.97 / 25.08 / 27.96 Å; each drops 4 (001) layers or 2 (111) bilayers, so the steps connect through the x boundary) and `box_y` counts a/√2 cells along the edges. `vicinal.py` builds the stepped top from the same lattice points LAMMPS generates; `make_sim` writes it to `vicinal_surface.data`, which `make_surf_vicinal.lmp` reads, minimizes and thermalizes. The z lattice unit is ~4 Å (a whole number of atomic-plane spacings) and the lattice origin is shifted so every addfix grid line falls between atomic planes, so bottom replenishment works as for the other orientations. Default box `(1, 6, 4)`: one period, 15.1 Å along the edges, top near 4 lattice z units (~16 Å). For `2x1_DA`/`2x1_DB` the top follows the (001) layers (two double steps per period) instead of a flat cut, so every terrace exposes the same layer parity; the (111) vicinals use a flat cut, placed where it leaves the fewest dangling bonds. ML = (atoms per area of one terrace plane: 2/a² for (001), 4/(√3a²) for (111)) × box area, rounded — `compute_ml` rounds every orientation's `ml_factor × box_x × box_y`.
 
 ### Ion parameters (single-species / multi-ion modes)
 
@@ -301,7 +308,7 @@ freely with mask or freeze-mask options.
 | `step_angle` | `float` | `0.0` | Angle (degrees) of the step edge measured from the x-axis. `0°` → edge runs parallel to y; lower terrace is the `−x` half. `90°` → edge runs parallel to x; lower terrace is the `−y` half. For C(111), `0°` gives a (0°) step and `90°` gives a (30°) step in crystal coordinates. |
 | `step_position` | `float` | `0.5` | Fractional position of the step edge along the box (0–1, exclusive). `0.5` places the edge at the centre of the box. |
 | `step_invert` | `bool` | `False` | Flip which half is removed. Default (`False`) removes the half the normal vector points toward; `True` removes the opposite half. |
-| `step_depth` | `float\|None` | `None` | Thickness (Å) of the bilayer to remove. `None` uses the orientation-specific default: 2.0 Å for C(100) and C(113), 2.5 Å for C(110), 2.2 Å for C(111); hexagonal diamond 2.0 Å (hex0001), 1.2 Å (hex1120), 2.1 Å (hex1010). Must be `> 0` if set. |
+| `step_depth` | `float\|None` | `None` | Thickness (Å) of the bilayer to remove. `None` uses the orientation-specific default: 2.0 Å for C(100) and C(113), 2.5 Å for C(110), 2.2 Å for C(111); hexagonal diamond 2.0 Å (hex0001), 1.2 Å (hex1120), 2.1 Å (hex1010); vicinal 2.0 Å. Must be `> 0` if set. |
 
 **Implementation:** a LAMMPS `region plane` half-space is intersected with a `block`
 z-slab covering the top `step_depth_ang` Å of the surface. All atoms inside the

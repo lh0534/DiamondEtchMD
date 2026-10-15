@@ -27,11 +27,22 @@ _STEP_DEPTH_DEFAULT = {
     "hex0001": 2.0,   # lonsdaleite basal bilayer: period c/2 = 2.06 Å
     "hex1120": 1.2,   # one plane: period a/2 = 1.26 Å
     "hex1010": 2.1,   # plane pair: period sqrt(3)a/2 = 2.18 Å
+    "119": 2.0, "557": 2.0, "775": 2.0,   # vicinal: one terrace layer/bilayer and its step edge
 }
 
 
 def _orientation_vars(spec: SimSpec) -> str:
-    """config.lmp lines an orientation needs beyond lat_a (hexagonal diamond only)."""
+    """config.lmp lines an orientation needs beyond lat_a (hexagonal diamond, vicinal)."""
+    from ..vicinal import VICINAL
+    if spec.orientation in VICINAL:
+        from ..vicinal import geometry
+        g = geometry(spec.orientation)
+        return (
+            f"\n# Vicinal C({spec.orientation}), {g['miscut']:.2f} deg miscut: rotated lattice; the stepped\n"
+            f"# top is read from vicinal_surface.data (diamond_etch_md.vicinal)\n"
+            f'variable    vic_lattice string "{g["lattice_args"]}"\n'
+            f"variable    vic_zu equal {g['s']:.8f}   # Å per lattice z unit\n"
+        )
     if not spec.orientation.startswith("hex"):
         return ""
     from ..hexagonal import lattice_args, oriented_cell
