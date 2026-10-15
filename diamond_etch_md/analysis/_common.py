@@ -19,8 +19,11 @@ DIAMOND_LAT_A = 3.5653871687699   # Å, default when lat_a.txt is unavailable
 # layers are a/4 apart, so a/8 already flattens the bulk (~1% ripple).  (111)
 # stacks layers in pairs (a√3/12 apart) repeating every a/√3 = 2.06 Å, which
 # a/8 leaves as ±56% spikes; a/4 brings that to ~±4%.  (110) layers are
-# a√2/4 = 1.26 Å apart (a/8 → ~±17%, a/6 → ~±2%).
-KDE_SIGMA_FRAC = {"100": 1 / 8, "110": 1 / 6, "111": 1 / 4, "113": 1 / 8}
+# a√2/4 = 1.26 Å apart (a/8 → ~±17%, a/6 → ~±2%).  Hexagonal diamond: hex0001
+# bilayers like (111) (a/4 → ±4%), hex1120 planes 1.26 Å apart (a/5 → ±2%),
+# hex1010 plane pairs every 2.18 Å (a/4 → ±5%).
+KDE_SIGMA_FRAC = {"100": 1 / 8, "110": 1 / 6, "111": 1 / 4, "113": 1 / 8,
+                  "hex0001": 1 / 4, "hex1120": 1 / 5, "hex1010": 1 / 4}
 
 
 def kde_sigma(lat_a, orientation=None):

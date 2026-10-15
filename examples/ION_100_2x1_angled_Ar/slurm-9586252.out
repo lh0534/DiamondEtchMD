@@ -1,0 +1,12 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+Found 1144 data files → all_impacts.dump
+  200/1144 frames written
+  400/1144 frames written
+  600/1144 frames written
+  800/1144 frames written
+  1000/1144 frames written
+Done.
+Simulation complete: 1280 / 1280 impacts.
+Running final analysis plots ...

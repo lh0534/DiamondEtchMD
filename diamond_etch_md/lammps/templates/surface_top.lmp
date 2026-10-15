@@ -1,0 +1,20 @@
+# Top of the slab: the highest atom of the cluster that contains the anchor
+# (the same 3.0 Å cluster/atom compute sweep.lmp uses).  Burst radicals are
+# inserted relative to this, so detached gas above the surface (reflected or
+# recombined radicals still in flight) cannot raise the insertion height.
+# Sets z_surf_top (Å).
+compute     st_surf anchor reduce min c_clusts
+thermo_style custom step c_st_surf
+run 0 post no
+variable    st_in atom "c_clusts == c_st_surf"
+group       st_surf variable st_in
+variable    z_surf_top equal $(bound(st_surf,zmax))
+group       st_surf delete
+variable    st_in delete
+uncompute   st_surf
+
+# reset thermo_style and run 0 to reinitialize everything (as in sweep.lmp)
+thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts
+thermo_modify   temp mtemp
+thermo_modify   lost warn flush yes
+run 0 post no

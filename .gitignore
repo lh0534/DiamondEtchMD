@@ -10,4 +10,10 @@ log*.lammps
 *.dump
 *.data
 impact_*.txt
-slurm*.out
+slurm*.out.burst_test_tmp/
+.hex_test_tmp/
+tests/*_tests_*.out
+tests/burst_fast_*.out
+tools/*.out
+tools/relax_*.log
+tools/*.json

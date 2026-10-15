@@ -1,0 +1,6 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+srun: Job step aborted: Waiting up to 47 seconds for job step to finish.
+[2026-08-11T14:59:23.157] error: *** JOB 12253562 ON della-l05g5 CANCELLED AT 2026-08-11T14:59:23 DUE to SIGNAL Terminated ***
+[2026-08-11T14:59:23.171] error: *** STEP 12253562.0 ON della-l05g5 CANCELLED AT 2026-08-11T14:59:23 DUE to SIGNAL Terminated ***

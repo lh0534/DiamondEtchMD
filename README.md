@@ -321,9 +321,11 @@ Caveats: skipped radicals are assumed not to react. In 518 K runs on C(100) at s
 
 ### Burst radical injection
 
-Set `radical_burst=True` to deposit all `flux_ratio` radicals as a burst before each ion impact, instead of one at a time. The burst is split into chunks of `radical_burst_chunk` atoms; after each chunk, dynamics run for `inter_neutral_time` fs (RIE) or a thermalization (cycling) before the next chunk is deposited.
+Set `radical_burst=True` to deposit all `flux_ratio` radicals as a burst before each ion impact, instead of one at a time. The burst is split into chunks of `radical_burst_chunk` atoms; after each chunk, dynamics run for `inter_neutral_time` fs (sweeping ejected clusters as they leave) so every radical lands or leaves before the next chunk, followed by a thermalization unless `skip_radical_thermalization` is set. RIE and cycling bursts behave the same way.
 
-All atoms in a chunk are inserted into one ±0.1 Å layer at `bound(all,zmax) + radical_i_above` (fixed at the start of the chunk), at least `radical_burst_near` Å from any atom, one atom per 1e-10 fs insertion step, so the whole chunk starts at the same height and time and never stacks up the cell. Validation rejects a chunk that cannot fit in one layer (more than ~45% coverage of the box area by disks of diameter `radical_burst_near`); the auto chunk is the smaller of 0.5 ML and that limit. An insertion that still finds no room is counted and logged to `BURST_INCOMPLETE` (RIE then tops up at a new layer).
+All atoms in a chunk are inserted into one ±0.1 Å layer at `z_surf_top + radical_i_above` (fixed at the start of the chunk), at least `radical_burst_near` Å from any atom, one atom per 1e-10 fs insertion step, so the whole chunk starts at the same height and time. `z_surf_top` (`surface_top.lmp`) is the top of the slab cluster — the atoms connected to the anchor — so detached gas above the surface cannot lift the insertion height. Validation rejects a chunk that cannot fit in one layer (more than ~45% coverage of the box area by disks of diameter `radical_burst_near`); the auto chunk is the smaller of 0.5 ML and that limit. An insertion that still finds no room is counted and logged to `BURST_INCOMPLETE` (RIE then tops up at a new layer).
+
+After the last chunk, every detached atom or cluster still above the surface (radicals that bounced but have not left, recombined O₂, …) is removed and logged to `etch_products.txt` (`sweep.lmp` with `sweep_any_vz = 1`, i.e. without the upward-velocity condition). While a burst runs `cn = 1`, so its etch products are logged as `(c, 1)`, matching the burst's row in `ncarbon.txt`. Without these, slow radicals in large chunks used to pile up into a gas column over many bursts (insertion was relative to the highest atom, and cycling chunks only got a short thermalization).
 
 Each atom gets its own draw with the same options as one-by-one radicals: fixed `radical_energy`/`radical_angle`, or `radical_temperature` (`radical_energy_dist` flux/gas), `radical_angle_distribution`, and `radical_energy_threshold` (draws below it are logged as skipped and not inserted). Every draw is logged to `radical_log.txt`, where `cn` is the atom's index within the burst (1..R). Because a chunk's radicals react together, per-radical sticking is not defined for bursts; compare O uptake and etch yield instead.
 
@@ -338,7 +340,7 @@ Key parameters:
 | `radical_burst_attempt` | `5000` | Placement attempts per atom in burst deposit (cheap; 200 left ~2% of 10-atom chunks unplaced in a 6×6 C(100) cell) |
 | `radical_burst_near` | `3.5` | Å; minimum distance of an inserted burst atom from any atom |
 | `radical_i_above` | `6.0` | Å above current surface top to inject |
-| `skip_radical_thermalization` | `False` | Skip thermalize.lmp between chunks |
+| `skip_radical_thermalization` | `False` | Skip thermalize.lmp after each chunk (RIE and cycling) |
 
 
 ### Carbon-etch mode (arbitrary starting structures)
@@ -751,6 +753,7 @@ diamond_etch_md/
   orientations.py  ORIENT registry — lattice commands, ML factors, surface definitions
   species.py       SPECIES registry — atom types, injection heights, ZBL/molecule flags
   builder.py       make_sim(), make_ale()
+  hexagonal.py     hexagonal-diamond (lonsdaleite) lattices: HEX_LATTICE, oriented_cell(), lattice_args()
   cli.py           diamond-etch-md, diamond-etch-md-plot entry points
   lammps/
     config.py         get_config_lmp(), get_config_lmp_cycle_etch()
@@ -758,9 +761,10 @@ diamond_etch_md/
     head_cycling.py   get_head_lmp_cycle_etch() — cycle-etch multi-phase driver
     submit.py         get_submit_script(), get_submit_script_cycle_etch()
     templates/
-      make_surf_100.lmp, make_surf_110.lmp, make_surf_111_*.lmp, make_surf_113.lmp
+      make_surf_100.lmp, make_surf_110.lmp, make_surf_111_*.lmp, make_surf_113.lmp,
+      make_surf_hex.lmp (hexagonal diamond, all three orientations)
       O2.molecule, ffield.reax, lat_a.txt
-      sweep.lmp, thermalize.lmp, addfix.lmp, lmp_env.sh
+      sweep.lmp, thermalize.lmp, addfix.lmp, surface_top.lmp, lmp_env.sh
       auto-plot.py, make_impact_dump.py
   analysis/
     etch_products.py  parse_etch_products(), etch_yield()
@@ -768,6 +772,10 @@ diamond_etch_md/
     cna.py            load_cna_series(), sp3_mask(), amorphous_thickness_angstrom()
     plot.py           make_plots()
     summary.py        analyze_run(), write_summary()
+tools/
+  relax_lonsdaleite.py    ReaxFF zero-pressure a, c, u of lonsdaleite (and cubic a as a check)
+  build_hex_surfaces.py   builds the three hexagonal-diamond surfaces with make_surf.lmp for inspection
+  run_*.sbatch            one-core batch jobs for the two scripts
 ```
 
 ---
@@ -792,6 +800,11 @@ diamond_etch_md/
 | `111` | `2x1_pandey_O` | 2×1 Pandey chain + O |
 | `113` | `""` | Unterminated |
 | `113` | `O` | O-terminated |
+| `hex0001` | `1x1` | Hexagonal diamond (lonsdaleite) basal plane, bulk-terminated |
+| `hex1120` | `1x1` | Hexagonal diamond a-plane, bulk-terminated |
+| `hex1010` | `1x1` | Hexagonal diamond m-plane, bulk-terminated |
+
+Hexagonal diamond uses a custom orthohexagonal LAMMPS lattice built by `hexagonal.py` from the ReaxFF-relaxed a, c and u (`tools/relax_lonsdaleite.py`); each surface is cut through single bonds (one dangling bond per surface C). The CNA counts it as crystalline. `tools/build_hex_surfaces.py` builds all three surfaces for inspection.
 
 ### Ion species
 
@@ -869,7 +882,17 @@ See [`SPEC.md`](SPEC.md) for the exact column layout of `ncarbon.txt`, `etch_pro
 ```bash
 pytest           # unit + integration tests (no cluster required)
 pytest -m slurm  # also submit a real SLURM job (requires Della)
+pytest -m lammps # real-LAMMPS tests (needs the LAMMPS Python module with REAXFF)
 ```
+
+The real-LAMMPS tests drive LAMMPS from Python on one CPU core: burst insertion and sampling
+(`tests/test_burst_sampling.py`: energies and angles of inserted atoms, chunk geometry,
+end-to-end RIE/cycling bursts, the gas-buildup regression) and hexagonal diamond
+(`tests/test_hex_lammps.py`: lattices, addfix replenishment, end-to-end ion impacts). The
+end-to-end runs need the 23 Jun 2022 build that production uses (`sweep.lmp`'s atom-style
+formulas are rejected by newer builds). On Della, submit `tests/run_burst_tests.sbatch` or
+`tests/run_hex_tests.sbatch`; they clear the `SLURM_*`/`PMI*` variables for the Python process
+because the conda OpenMPI has no Slurm PMI support and aborts in `MPI_Init` otherwise.
 
 ---
 

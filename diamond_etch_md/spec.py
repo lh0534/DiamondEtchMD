@@ -235,7 +235,9 @@ def compute_ml(orientation: str, box_x: int, box_y: int) -> int:
 _LEGACY_BURST_NEAR = 5.04   # Å; old "near 2.0" in lattice units on C(100)
 _LAT_A = 3.5654             # Å, diamond
 # Surface area per ML atom, in units of lat_a^2 (lattice-cell area / ml_factor)
-_AREA_PER_ML_ATOM = {"100": 0.5, "110": 0.3536, "111": 0.4330, "113": 0.4146}
+_AREA_PER_ML_ATOM = {"100": 0.5, "110": 0.3536, "111": 0.4330, "113": 0.4146,
+                     # hexagonal diamond (ideal lonsdaleite): cell area / ml_factor
+                     "hex0001": 0.4330, "hex1120": 0.3536, "hex1010": 0.4082}
 # Random sequential placement of disks jams at ~55% coverage; stay below it so
 # every atom of a chunk lands in its single insertion layer.
 _BURST_MAX_COVERAGE = 0.45

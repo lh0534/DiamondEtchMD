@@ -24,7 +24,23 @@ _STEP_DEPTH_DEFAULT = {
     "110": 2.5,   # diamond(110) bilayer
     "111": 2.2,   # diamond(111): two planes ≈ 0.52 + 1.03 Å apart
     "113": 2.0,   # diamond(113) bilayer
+    "hex0001": 2.0,   # lonsdaleite basal bilayer: period c/2 = 2.06 Å
+    "hex1120": 1.2,   # one plane: period a/2 = 1.26 Å
+    "hex1010": 2.1,   # plane pair: period sqrt(3)a/2 = 2.18 Å
 }
+
+
+def _orientation_vars(spec: SimSpec) -> str:
+    """config.lmp lines an orientation needs beyond lat_a (hexagonal diamond only)."""
+    if not spec.orientation.startswith("hex"):
+        return ""
+    from ..hexagonal import lattice_args, oriented_cell
+    cell = oriented_cell(spec.orientation)
+    return (
+        f"\n# Hexagonal diamond (lonsdaleite) {spec.orientation}: custom orthohexagonal lattice\n"
+        f'variable    hex_lattice string "{lattice_args(spec.orientation)}"\n'
+        f"variable    hex_zu equal {cell['cell'][2]:.8f}   # Å per lattice z unit (cell along the normal)\n"
+    )
 
 
 def _zbl_mass_vars(species_iter) -> str:
@@ -190,6 +206,7 @@ def get_config_lmp(spec: SimSpec) -> str:
         f"variable    y equal {spec.box_y}\n"
         f"variable    lat_top equal {spec.box_depth}\n"
         f"variable    z equal ${{lat_top}}+5\n"
+        f"{_orientation_vars(spec)}"
         f"\n"
         f"variable    reconstruct equal {recon_flag}\n"
         f"variable    O_terminate equal {o_flag}\n"
@@ -276,6 +293,7 @@ def get_config_lmp_multi_ion(spec: SimSpec) -> str:
         f"variable    y equal {spec.box_y}\n"
         f"variable    lat_top equal {spec.box_depth}\n"
         f"variable    z equal ${{lat_top}}+5\n"
+        f"{_orientation_vars(spec)}"
         f"\n"
         f"variable    reconstruct equal {recon_flag}\n"
         f"variable    O_terminate equal {o_flag}\n"
@@ -403,6 +421,7 @@ def get_config_lmp_cycle_etch(spec: SimSpec) -> str:
         f"variable    y equal {spec.box_y}\n"
         f"variable    lat_top equal {spec.box_depth}\n"
         f"variable    z equal ${{lat_top}}+5\n"
+        f"{_orientation_vars(spec)}"
         f"\n"
         f"variable    reconstruct equal {recon_flag}\n"
         f"variable    O_terminate equal {o_flag}\n"
@@ -497,6 +516,7 @@ def get_config_lmp_single_impact(spec: SimSpec) -> str:
             f"variable    y equal {spec.box_y}\n"
             f"variable    lat_top equal {spec.box_depth}\n"
             f"variable    z equal ${{lat_top}}+5\n"
+            f"{_orientation_vars(spec)}"
             f"\n"
             f"variable    reconstruct equal {recon_flag}\n"
             f"variable    O_terminate equal {o_flag}\n"

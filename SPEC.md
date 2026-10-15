@@ -38,7 +38,7 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 
 | Field | Type | Default | Valid values / notes |
 |-------|------|---------|----------------------|
-| `orientation` | `str` | `"100"` | `"100"`, `"110"`, `"111"`, `"113"` |
+| `orientation` | `str` | `"100"` | `"100"`, `"110"`, `"111"`, `"113"`; hexagonal diamond `"hex0001"`, `"hex1120"`, `"hex1010"` |
 | `surface` | `str` | `"1x1"` | See table below; depends on orientation |
 | `box_x` | `int` | `9` | Lattice units along x |
 | `box_y` | `int` | `9` | Lattice units along y |
@@ -53,6 +53,7 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 | `110` | `""` (bare), `O` | |
 | `111` | `1x1`, `2x1_single`, `2x1_pandey`, `1x1_O`, `2x1_single_O`, `2x1_pandey_O` | |
 | `113` | `""` (bare), `O` | |
+| `hex0001`, `hex1120`, `hex1010` | `1x1` | Hexagonal diamond, bulk-terminated (one dangling bond per surface C) |
 
 **ML factors** (atoms per monolayer = `ml_factor × box_x × box_y`):
 
@@ -62,6 +63,11 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 | `110` | 4 | 4×6 → 96 |
 | `111` | 2 | 5×9 → 90 |
 | `113` | 4 | 9×3 → 108 |
+| `hex0001` | 2 | 8×5 → 80 |
+| `hex1120` | 4 | 5×5 → 100 |
+| `hex1010` | 2 | 5×8 → 80 |
+
+**Hexagonal diamond (lonsdaleite).** LAMMPS has no hexagonal-diamond lattice style, so `hexagonal.py` builds an orthohexagonal `lattice custom` cell (8 atoms, a × √3a × c) with its axes permuted so the surface normal is z: `hex0001` (basal, z unit c), `hex1120` (a-plane, z unit a), `hex1010` (m-plane, z unit √3a). The basis is shifted along z so the slab top (integer lattice z) and the addfix grid (−5/8 − k/2) both fall in the gap that cuts one bond per surface atom; the atomic planes repeat every half cell, so every replenished layer is identical. `config.lmp` carries the lattice as `hex_lattice` (custom-lattice arguments) and `hex_zu` (Å per lattice z unit); `make_surf_hex.lmp` serves all three. a, c and u (vertical bond / c) are the ReaxFF zero-pressure values in `hexagonal.HEX_LATTICE` (`tools/relax_lonsdaleite.py`). CNA counts hexagonal diamond as crystalline (second-neighbour shell 6 × 421 + 6 × 422, vs 12 × 421 for cubic).
 
 ### Ion parameters (single-species / multi-ion modes)
 
@@ -117,7 +123,7 @@ Not supported for `cycle-etch` (explicitly rejected by `validate()`).
 | `radical_burst_attempt` | `int` | `5000` | Placement attempts per atom in burst deposit (cheap; 200 left ~2% of 10-atom chunks unplaced in a 6×6 C(100) cell) |
 | `radical_burst_near` | `float` | `3.5` | Å; minimum distance of an inserted atom from any atom (`fix deposit ... near X units box`). A `spec.json` without it loads as 5.04 Å, the spacing old lattice-unit bursts used |
 
-All atoms in a chunk are inserted into one ±0.1 Å layer (`bound(all,zmax) + radical_i_above`, fixed once per chunk) with no dynamics between insertions, so the chunk starts at one height and time and the box never grows during deposition. Draws go to `radical_log.txt` with `cn` = index within the burst; failed insertions are logged to `BURST_INCOMPLETE`. Burst deposits use `units box` (older generated scripts used lattice units, scaling velocities by the lattice spacings — the former "12.713× Kokkos bug" correction).
+All atoms in a chunk are inserted into one ±0.1 Å layer (`z_surf_top + radical_i_above`, fixed once per chunk; `surface_top.lmp` sets `z_surf_top` to the top of the anchor-connected slab cluster, so detached gas cannot lift it) with no dynamics between insertions, so the chunk starts at one height and time and the box never grows during deposition. Each chunk then runs for `inter_neutral_time` with cluster sweeps, then thermalizes unless `skip_radical_thermalization` (RIE and cycling alike). After the last chunk, `sweep.lmp` runs with `sweep_any_vz = 1` and removes every detached atom/cluster above the surface regardless of its velocity, logging each to `etch_products.txt`. During the burst `cn = 1`. Draws go to `radical_log.txt` with `cn` = index within the burst; failed insertions are logged to `BURST_INCOMPLETE`. Burst deposits use `units box` (older generated scripts used lattice units, scaling velocities by the lattice spacings — the former "12.713× Kokkos bug" correction).
 
 ### Timing parameters
 
@@ -295,7 +301,7 @@ freely with mask or freeze-mask options.
 | `step_angle` | `float` | `0.0` | Angle (degrees) of the step edge measured from the x-axis. `0°` → edge runs parallel to y; lower terrace is the `−x` half. `90°` → edge runs parallel to x; lower terrace is the `−y` half. For C(111), `0°` gives a (0°) step and `90°` gives a (30°) step in crystal coordinates. |
 | `step_position` | `float` | `0.5` | Fractional position of the step edge along the box (0–1, exclusive). `0.5` places the edge at the centre of the box. |
 | `step_invert` | `bool` | `False` | Flip which half is removed. Default (`False`) removes the half the normal vector points toward; `True` removes the opposite half. |
-| `step_depth` | `float\|None` | `None` | Thickness (Å) of the bilayer to remove. `None` uses the orientation-specific default: 2.0 Å for C(100) and C(113), 2.5 Å for C(110), 2.2 Å for C(111). Must be `> 0` if set. |
+| `step_depth` | `float\|None` | `None` | Thickness (Å) of the bilayer to remove. `None` uses the orientation-specific default: 2.0 Å for C(100) and C(113), 2.5 Å for C(110), 2.2 Å for C(111); hexagonal diamond 2.0 Å (hex0001), 1.2 Å (hex1120), 2.1 Å (hex1010). Must be `> 0` if set. |
 
 **Implementation:** a LAMMPS `region plane` half-space is intersected with a `block`
 z-slab covering the top `step_depth_ang` Å of the surface. All atoms inside the
@@ -372,12 +378,13 @@ Written once per ejection event (each time a cluster leaves the box or a channel
 
 | Column | Index | Description |
 |--------|-------|-------------|
-| `impact` | 0 | Impact number when this event occurred |
-| `cn` | 1 | Sequential ejection event counter (`event_count`) |
+| `impact` | 0 | Impact counter `c` when this event occurred |
+| `cn` | 1 | Window it happened in: `0` = ion impact (and the thermalization before the next ion), `k` = the k-th one-by-one radical after ion `c`, `1` = the radical burst after ion `c` |
 | `C` | 2 | Number of C atoms in the ejected cluster |
 | `H` | 3 | Number of H atoms in the ejected cluster |
 | `O` | 4 | Number of O atoms in the ejected cluster |
 | `Ar` | 5 | Number of Ar atoms in the ejected cluster |
+| `vcm_z` | 6 | Centre-of-mass z velocity (Å/fs); `0.0` marks forced CO₂ desorption |
 
 ### Dump files (`etch_event_trajs/`)
 

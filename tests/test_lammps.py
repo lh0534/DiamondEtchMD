@@ -1506,3 +1506,44 @@ def test_burst_sets_cn_1_for_its_etch_products():
     assert "variable    cn equal 1\n" in cyc[i:j]
     k = cyc.index("label       skip_chem")
     assert "variable    cn equal 0" in cyc[k:k + 120]
+
+
+def test_burst_inserts_above_surface_cluster_and_cleans_up():
+    rie = get_head_lmp(_burst_rie_spec())
+    assert "bound(all,zmax)+${radical_i_above}" not in rie
+    assert rie.count("include     surface_top.lmp") == 3          # 2 chunks + top-up
+    assert "variable    z_ins0 equal ${z_surf_top}+${radical_i_above}" in rie
+    i = rie.index("variable    sweep_any_vz index 1"); j = rie.index('print       "Burst complete"')
+    assert i < j and "include     sweep.lmp" in rie[i:j]
+    spec = SimSpec(orientation="100", surface="2x1", box_x=6, box_y=6, ml=36,
+                   phases=[CyclePhase(species="Ar", energy=165, fluence_ml=1),
+                           CyclePhase(species="O", energy=15, fluence_ml=1, flux_ratio=13,
+                                      radical_burst=True, radical_burst_chunk=10)])
+    cyc = get_head_lmp_cycle_etch(spec)
+    assert "bound(all,zmax)+${radical_i_above}" not in cyc
+    assert cyc.count("include     surface_top.lmp") == 2
+    # each chunk runs the phase's inter_neutral_time with sweeps before thermalizing
+    assert cyc.count("v_burst_elapsed > ${phase_1_inter_neutral_time}") == 2
+    k = cyc.index("label       burst_inner_1_0")
+    assert cyc.index('then "include sweep.lmp"', k) < cyc.index("include     thermalize.lmp", k)
+    i = cyc.index("variable    sweep_any_vz index 1"); j = cyc.index('print       "Burst complete')
+    assert i < j
+
+
+def test_sweep_any_vz_defaults_off():
+    s = (Path(__file__).resolve().parents[1] / "diamond_etch_md/lammps/templates/sweep.lmp").read_text()
+    assert "variable    sweep_any_vz index 0" in s
+    assert "($(vcm(small_clust,z) > 0) || ${sweep_any_vz})" in s
+
+
+def test_cycle_burst_respects_skip_radical_thermalization():
+    def head(skip):
+        spec = SimSpec(orientation="100", surface="2x1", box_x=6, box_y=6, ml=36,
+                       skip_radical_thermalization=skip,
+                       phases=[CyclePhase(species="Ar", energy=165, fluence_ml=1),
+                               CyclePhase(species="O", energy=15, fluence_ml=1, flux_ratio=13,
+                                          radical_burst=True, radical_burst_chunk=10)])
+        h = get_head_lmp_cycle_etch(spec)
+        return h[h.index("label       burst_phase_1"):h.index("label       burst_dispatch_done")]
+    assert head(False).count("include     thermalize.lmp") == 2      # one per chunk
+    assert head(True).count("include     thermalize.lmp") == 0

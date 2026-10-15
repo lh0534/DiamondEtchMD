@@ -295,6 +295,20 @@ RADICAL_SKIP_TAIL = (
 )
 
 
+# End of a burst: remove detached atoms/clusters still above the surface, whatever
+# their velocity (radicals that bounced but have not left, recombined O2, ...).
+# sweep.lmp logs each to etch_products.txt (cn = 1, the burst) before deleting it;
+# without this they pile up over many bursts.
+BURST_CLEANUP = (
+    "# Remove detached atoms/clusters left above the surface after the burst\n"
+    "variable    sweep_any_vz delete\n"
+    "variable    sweep_any_vz index 1\n"
+    "include     sweep.lmp\n"
+    "variable    sweep_any_vz delete\n"
+    "variable    sweep_any_vz index 0\n"
+)
+
+
 def _radical_loop_block(spec: SimSpec) -> str:
     """Return the LAMMPS radical pre-exposure loop for RIE-etch mode.
 
@@ -746,12 +760,16 @@ def _radical_burst_block(spec: SimSpec) -> str:
 
     Injects flux_ratio O• atoms in chunks (spec.burst_chunks) before each ion
     impact.  All atoms of a chunk are inserted into one ±0.1 Å slab at
-    bound(all,zmax) + radical_i_above, fixed at the start of the chunk, at least
+    z_surf_top + radical_i_above (surface_top.lmp: top of the anchor-connected
+    cluster, so gas above the surface does not lift it), fixed per chunk, at least
     radical_burst_near Å from any atom, with no dynamics between insertions; the
     chunk then runs together for inter_neutral_time.  Each atom's energy and
     angle are drawn like one-by-one radicals (fixed, Boltzmann gas/flux, cosine)
     and logged to radical_log.txt; with radical_energy_threshold, draws below it
     are logged as skipped and not inserted.
+
+    After the last chunk, BURST_CLEANUP removes every detached atom or cluster
+    left above the surface (logged to etch_products.txt as cn=1 products).
 
     Output: one ncarbon.txt entry (cn=1) per burst + one write_data snapshot.
     Restart: if cn_start >= 1 the burst is skipped (already complete for this impact).
@@ -841,13 +859,14 @@ def _radical_burst_block(spec: SimSpec) -> str:
         )
         blk += (
             f"# --- Burst chunk {ci+1}/{len(chunks)}: {csize} atoms (deposit phase) ---\n"
-            f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
-            f"\"change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box\" "
+            f"include     surface_top.lmp\n"
+            f"if \"$(v_z_surf_top+v_radical_i_above+2.0) > $(zhi)\" then "
+            f"\"change_box all z delta 0 $(v_z_surf_top+v_radical_i_above+2.0-zhi) units box\" "
             f"\"region bbox delete\" "
             f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\" "
             + _expose_zone_redef_if_cmds(spec)
             + f"\n"
-            f"variable    z_ins{ci} equal bound(all,zmax)+${{radical_i_above}}\n"
+            f"variable    z_ins{ci} equal ${{z_surf_top}}+${{radical_i_above}}\n"
             + _bzone_def(spec, f"bzone{ci}", f"$(v_z_ins{ci} - 0.1)", f"$(v_z_ins{ci} + 0.1)")
             + f"variable    n_sim_pre{ci} equal ${{n_burst_sim}}\n"
             + _burst_chunk_deposit(str(ci), csize, ci * chunk_size, draw, f"bzone{ci}",
@@ -900,7 +919,8 @@ def _radical_burst_block(spec: SimSpec) -> str:
             + f"\n"
         )
 
-    # ── Post-chunk: shortfall check + optional top-up ────────────────────────
+    # ── Post-chunk: remove leftover gas, shortfall check + optional top-up ──────
+    blk += BURST_CLEANUP
     blk += (
         f"\n"
         f"group       carbon type 1\n"
@@ -920,13 +940,14 @@ def _radical_burst_block(spec: SimSpec) -> str:
         f'shortfall=${{shortfall_burst}}" append BURST_INCOMPLETE\n'
         f"\n"
         f"# Top-up: deposit missing atoms with higher attempt count\n"
-        f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
-        f"\"change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box\" "
+        f"include     surface_top.lmp\n"
+        f"if \"$(v_z_surf_top+v_radical_i_above+2.0) > $(zhi)\" then "
+        f"\"change_box all z delta 0 $(v_z_surf_top+v_radical_i_above+2.0-zhi) units box\" "
         f"\"region bbox delete\" "
         f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\" "
         + _expose_zone_redef_if_cmds(spec)
         + f"\n"
-        f"variable    z_topup equal bound(all,zmax)+${{radical_i_above}}\n"
+        f"variable    z_topup equal ${{z_surf_top}}+${{radical_i_above}}\n"
         + _bzone_def(spec, "bzone_topup", "$(v_z_topup - 0.1)", "$(v_z_topup + 0.1)")
         + f"variable    topup_lp loop ${{shortfall_burst}}\n"
         f"label       burst_topup_loop\n"

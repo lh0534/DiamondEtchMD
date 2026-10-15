@@ -42,7 +42,7 @@
   "skip_radical_thermalization": true,
   "radical_burst": false,
   "radical_burst_chunk": 0,
-  "radical_burst_attempt": 200,
+  "radical_burst_attempt": 5000,
   "radical_burst_near": 3.5,
   "dump_mode": "none",
   "above_surf_eject": true,
@@ -67,7 +67,7 @@
       "radical_i_above": 6.0,
       "radical_burst": false,
       "radical_burst_chunk": 0,
-      "radical_burst_attempt": 200,
+      "radical_burst_attempt": 5000,
       "radical_burst_near": 3.5,
       "ion_mix": null
     },
@@ -90,7 +90,7 @@
       "radical_i_above": 6.0,
       "radical_burst": true,
       "radical_burst_chunk": 4,
-      "radical_burst_attempt": 200,
+      "radical_burst_attempt": 5000,
       "radical_burst_near": 3.5,
       "ion_mix": null
     }

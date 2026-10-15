@@ -22,12 +22,14 @@ ML factors (analytically derived, empirically verified):
   110: ml_factor = 4   (verified: 4×6 → 96)
   111: ml_factor = 2   (verified: 5×9 → 90)
   113: ml_factor = 4   (verified: 9×3 → 108)
+  hex0001 / hex1120 / hex1010 (hexagonal diamond): 2 / 4 / 2 (hexagonal.py)
 
 Surface keys:
   100: 1x1, 2x1, 2x1_O, O_ether
   110: (empty string), O
   111: 1x1, 2x1_single, 2x1_pandey, 1x1_O, 2x1_single_O, 2x1_pandey_O
   113: (empty string), O
+  hex0001, hex1120, hex1010: 1x1 (bulk-terminated, one dangling bond per surface C)
 """
 
 ORIENT = {
@@ -113,6 +115,31 @@ ORIENT = {
         },
     },
 }
+
+
+def _hex_entry(default_box, ml_factor):
+    """Hexagonal diamond (lonsdaleite) orientation; geometry in hexagonal.py.
+
+    config.lmp defines hex_lattice (custom-lattice arguments) and hex_zu (Å per
+    lattice z unit, the cell length along the surface normal).
+    """
+    return {
+        "lattice_cmd": "lattice    custom 1.0 ${hex_lattice}",
+        "bottom_expr": "$(-5/8-0.5*ceil(2*(-5/8-bound(carbon,zmin)/(v_hex_zu))-1e-9))",
+        "z_unit":      "v_hex_zu",
+        "default_box": default_box,
+        "ml_factor":   ml_factor,
+        "surfaces": {
+            "1x1": {"template": "package:lammps/templates/make_surf_hex.lmp",
+                    "reconstruct": False, "O_terminate": False, "O_ether": False},
+        },
+    }
+
+
+# (x, y, lat_top) ≈ 20 x 20 Å laterally, 16-18 Å deep; ML = atoms per atomic plane
+ORIENT["hex0001"] = _hex_entry((8, 5, 4), 2)   # cell 2.52 x 4.37, z unit c = 4.12 Å
+ORIENT["hex1120"] = _hex_entry((5, 5, 7), 4)   # cell 4.37 x 4.12, z unit a = 2.52 Å
+ORIENT["hex1010"] = _hex_entry((5, 8, 4), 2)   # cell 4.12 x 2.52, z unit sqrt3 a = 4.37 Å
 
 
 def restart_bottom_lines(orientation: str) -> str:

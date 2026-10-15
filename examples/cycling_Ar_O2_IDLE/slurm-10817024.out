@@ -1,0 +1,19 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+Found 2528 data files → all_impacts.dump
+  200/2528 frames written
+  400/2528 frames written
+  600/2528 frames written
+  800/2528 frames written
+  1000/2528 frames written
+  1200/2528 frames written
+  1400/2528 frames written
+  1600/2528 frames written
+  1800/2528 frames written
+  2000/2528 frames written
+  2200/2528 frames written
+  2400/2528 frames written
+Done.
+[2026-07-09T14:52:43.746] error: *** STEP 10817024.0 ON della-l01g10 CANCELLED AT 2026-07-09T14:52:43 DUE to SIGNAL Terminated ***
+[2026-07-09T14:52:43.746] error: *** JOB 10817024 ON della-l01g10 CANCELLED AT 2026-07-09T14:52:43 DUE to SIGNAL Terminated ***

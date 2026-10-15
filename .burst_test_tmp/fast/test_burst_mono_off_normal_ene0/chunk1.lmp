@@ -1,6 +1,7 @@
 # --- Burst chunk 2/2: 3 atoms (deposit phase) ---
-if "$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)" then "change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box" "region bbox delete" "region bbox block EDGE EDGE EDGE EDGE EDGE EDGE" 
-variable    z_ins1 equal bound(all,zmax)+${radical_i_above}
+variable    z_surf_top equal $(bound(all,zmax))
+if "$(v_z_surf_top+v_radical_i_above+2.0) > $(zhi)" then "change_box all z delta 0 $(v_z_surf_top+v_radical_i_above+2.0-zhi) units box" "region bbox delete" "region bbox block EDGE EDGE EDGE EDGE EDGE EDGE" 
+variable    z_ins1 equal ${z_surf_top}+${radical_i_above}
 region      bzone1 block EDGE EDGE EDGE EDGE $(v_z_ins1 - 0.1) $(v_z_ins1 + 0.1) units box
 variable    n_sim_pre1 equal ${n_burst_sim}
 variable    burst_k1 loop 3

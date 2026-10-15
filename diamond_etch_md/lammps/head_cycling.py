@@ -505,7 +505,7 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
         return ""
 
     from ..spec import burst_chunks
-    from .head import _burst_atom_draw, _burst_chunk_deposit
+    from .head import _burst_atom_draw, _burst_chunk_deposit, BURST_CLEANUP
 
     dm = spec.dump_mode
     dump_cols = "id type x y z vx vy vz fx fy fz q"
@@ -581,11 +581,13 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
             )
             lines.append(
                 f"# --- Burst chunk {ci+1}/{len(chunks)}: {csize} atoms (deposit) ---\n"
-                f"if \"$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)\" then "
-                f"\"change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box\" "
+                f"include     surface_top.lmp\n"
+                f"timestep    1e-10\n"
+                f"if \"$(v_z_surf_top+v_radical_i_above+2.0) > $(zhi)\" then "
+                f"\"change_box all z delta 0 $(v_z_surf_top+v_radical_i_above+2.0-zhi) units box\" "
                 f"\"region bbox delete\" "
                 f"\"region bbox block EDGE EDGE EDGE EDGE EDGE EDGE\"\n"
-                f"variable    z_ins{tag} equal bound(all,zmax)+${{radical_i_above}}\n"
+                f"variable    z_ins{tag} equal ${{z_surf_top}}+${{radical_i_above}}\n"
                 f"region      bzone{tag} block EDGE EDGE EDGE EDGE "
                 f"$(v_z_ins{tag} - 0.1) $(v_z_ins{tag} + 0.1) units box\n"
                 f"variable    n_sim_pre{tag} equal ${{n_burst_sim}}\n"
@@ -596,15 +598,35 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
                    f'"region bzone{tag} delete" "jump SELF burst_chunk_done_{tag}"\n'
                    if use_thresh else "")
             )
-            # Dynamics phase: c_nclusts is current after the last run 0 above
+            # Dynamics phase: like RIE bursts, run the chunk for the phase's
+            # inter_neutral_time (sweeping ejected clusters) so every radical lands or
+            # leaves before the next chunk, then thermalize.  c_nclusts is current
+            # after the last run 0 above.
             lines.append(
                 f"region      bzone{phase_i}_{ci} delete\n"
-                f"# --- Burst chunk {ci+1}/{len(chunks)}: thermalize ---\n"
+                f"# --- Burst chunk {ci+1}/{len(chunks)}: dynamics ---\n"
                 f"{chunk_dump_open}"
                 f"variable    burst_nclusts0 equal $(c_nclusts)\n"
+                f"group       insert clear\n"
+                f"group       mobile subtract all anchor\n"
                 f"fix         2 mobile nve\n"
-                f"include     thermalize.lmp\n"
-                + _CO2_DESORB
+                f"fix         ats_burst all dt/reset 1 NULL 1.00 0.01 units box\n"
+                f"variable    t0_burst equal $(time)\n"
+                f"variable    burst_elapsed equal time-${{t0_burst}}\n"
+                f"fix         burst_thalt all halt 1 v_burst_elapsed > ${{phase_{phase_i}_inter_neutral_time}} "
+                f"error continue message yes\n"
+                f"run         0\n"
+                f"label       burst_inner_{tag}\n"
+                f"run         500 pre no post no\n"
+                f"run         0\n"
+                f'if "${{one_clust}} == 0" then "include sweep.lmp"\n'
+                f'if "$(time-v_t0_burst) < ${{phase_{phase_i}_inter_neutral_time}}" then "jump SELF burst_inner_{tag}"\n'
+                f"unfix       burst_thalt\n"
+                f"unfix       ats_burst\n"
+                # like one-by-one radicals and RIE bursts: per-chunk thermalization
+                # unless skip_radical_thermalization (the ion is always preceded by one)
+                + ("" if spec.skip_radical_thermalization
+                   else f"include     thermalize.lmp\n" + _CO2_DESORB)
                 + f"unfix       2\n"
                 f"{chunk_etch_event}"
                 f"{chunk_dump_close}"
@@ -613,7 +635,8 @@ def _cycle_burst_blocks(phases: list, spec: SimSpec, nonargon_refresh: str) -> s
             )
 
         lines.append(
-            f"group       carbon type 1\n"
+            BURST_CLEANUP
+            + f"group       carbon type 1\n"
             f"group       hydrogen type 2\n"
             f"group       oxygen type 3\n"
             f"variable    ncarbon_b equal count(carbon)\n"

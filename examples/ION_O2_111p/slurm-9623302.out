@@ -1,0 +1,12 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+Found 1011 data files → all_impacts.dump
+  200/1011 frames written
+  400/1011 frames written
+  600/1011 frames written
+  800/1011 frames written
+  1000/1011 frames written
+Done.
+Wall-time signal: 1215 / 1800 impacts done — re-submitting.
+Submitted batch job 9672071

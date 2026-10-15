@@ -1,0 +1,108 @@
+package kokkos neigh/qeq full neigh half newton on
+units		real
+include     config.lmp
+atom_style charge
+
+boundary	p p m
+
+variable    bottom equal -5/8 # edge is in the gap between layers to avoid flop issues
+print       'BOTTOM ${bottom}'
+
+# Create the entire simulation space "big box" with 3 types of atoms (C, H, O)
+# Hexagonal diamond (lonsdaleite): orthohexagonal custom lattice, surface normal
+# along z; hex_lattice (config.lmp) shifts the basis so the top (lat_top) and the
+# addfix grid (bottom - k/2) cut a single bond per surface atom (hexagonal.py)
+lattice    custom 1.0 ${hex_lattice}
+region     bbox block 0 $(v_x*2) 0 $(v_y*2) ${bottom} $(v_z) units lattice
+create_box 3 bbox
+
+# Create the lonsdaleite slab in a subregion of bbox
+region	        lbox block  -1e-6 ${x} -1e-6 ${y} ${bottom} ${lat_top} units lattice
+variable        sublat equal ${bottom}+1/2 # 2 layers == half a unit cell
+region          anchor block INF INF INF INF ${bottom} ${sublat} units lattice # anchor bottom 2 layers
+
+if "${use_starting_data_file}" then &
+    "read_data       ${starting_data_file} add merge" &
+    "group carbon type 1" &
+else &
+    "create_atoms    1 region lbox" &
+
+set group all charge 0.0
+
+# Groups
+group 	anchor region anchor
+group	insert empty
+group 	mobile subtract all anchor
+group   carbon type 1
+
+# Particle masses
+mass        1 ${M_C}
+mass        2 ${M_H}
+mass        3 ${M_O}
+
+# Potential
+pair_style reaxff NULL
+pair_coeff * * ffield.reax C H O
+fix reax_qeq all qeq/reaxff 1 0.0 6.0 1e-6 reaxff
+
+change_box all x final 0 $(v_x) y final 0 $(v_y) z final ${bottom} $(v_z)
+delete_atoms overlap $(sqrt(3)/8) all all
+
+# no reconstruction — bulk-terminated 1x1 surface
+
+# ── Step edge ─────────────────────────────────────────────────────────────
+variable    stp_px1  equal lx*v_step_position
+variable    stp_py1  equal ly*v_step_position
+variable    stp_px2  equal lx*v_step_position_2
+variable    stp_py2  equal ly*v_step_position_2
+variable    stp_nx   equal cos(v_step_angle*PI/180)
+variable    stp_ny   equal sin(v_step_angle*PI/180)
+variable    stp_zcut equal bound(all,zmax)-v_step_depth_ang
+if "${step_edge} == 1" then &
+    "variable stp_in  atom (((x-v_stp_px1)*v_stp_nx+(y-v_stp_py1)*v_stp_ny)>0)*(((x-v_stp_px2)*v_stp_nx+(y-v_stp_py2)*v_stp_ny)<0)" &
+    "variable stp_sel atom abs(v_stp_in-v_step_invert)*(z>v_stp_zcut)" &
+    "group    step_rm  variable stp_sel" &
+    "delete_atoms group step_rm compress yes" &
+    "group    step_rm  delete" &
+    "variable stp_in  delete" &
+    "variable stp_sel delete"
+variable    stp_px1  delete
+variable    stp_py1  delete
+variable    stp_px2  delete
+variable    stp_py2  delete
+variable    stp_nx   delete
+variable    stp_ny   delete
+variable    stp_zcut delete
+# ──────────────────────────────────────────────────────────────────────────
+minimize 1.0e-5 1.0e-6 1000 10000
+reset_timestep  0 time 0.0
+write_data      hex_1x1_0K.dat nofix nocoeff
+
+# initial thermalization w/ nose-hoover since it's easy
+if "!${use_starting_data_file}" then &
+"thermo          1000" &
+"thermo_style    custom step time temp" &
+"compute     	 mtemp mobile temp" &
+"compute_modify  mtemp dynamic/dof yes" &
+"thermo_modify   temp mtemp" &
+"thermo_modify   lost warn flush yes" &
+"velocity        mobile create ${T} 459087" &
+"fix             1 mobile nvt temp $T $T $(100*dt)" &
+"timestep        1" &
+"run             10000" &
+"unfix           1" &
+"reset_timestep  0 time 0.0 # pretend this never happened"
+
+# write initial values
+group       hydrogen type 2
+group       oxygen   type 3
+variable n_lat_0 equal $(count(carbon))
+variable n_lat_H equal $(count(hydrogen))
+variable n_lat_O equal $(count(oxygen))
+print 'N_LAT_0 ${n_lat_0}'
+write_data      hex_1x1_${T}K.dat nofix nocoeff
+write_data      impact_snaps/0.data nofix nocoeff
+write_dump      all custom ML_impacts.dump id type q x y z vx vy vz modify sort id
+
+print "0 0 ${n_lat_0} ${n_lat_H} ${n_lat_O}" append ncarbon.txt
+print "0 ${bottom} ${n_lat_0}" append bottom_tracker.txt

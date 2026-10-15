@@ -193,13 +193,17 @@ jump        SELF burst_dispatch_done
 
 label       burst_phase_1
 # burst: 2 chunk(s) × ≤4 atoms = 6 O• total
+# cn = 1 while the burst runs: its etch products log as (c, 1), like its ncarbon row
+variable    cn equal 1
 timestep    1e-10
 variable    n_burst_sim equal 0
 variable    n_burst_fail equal 0
 
 # --- Burst chunk 1/2: 4 atoms (deposit) ---
-if "$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)" then "change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box" "region bbox delete" "region bbox block EDGE EDGE EDGE EDGE EDGE EDGE"
-variable    z_ins1_0 equal bound(all,zmax)+${radical_i_above}
+include     surface_top.lmp
+timestep    1e-10
+if "$(v_z_surf_top+v_radical_i_above+2.0) > $(zhi)" then "change_box all z delta 0 $(v_z_surf_top+v_radical_i_above+2.0-zhi) units box" "region bbox delete" "region bbox block EDGE EDGE EDGE EDGE EDGE EDGE"
+variable    z_ins1_0 equal ${z_surf_top}+${radical_i_above}
 region      bzone1_0 block EDGE EDGE EDGE EDGE $(v_z_ins1_0 - 0.1) $(v_z_ins1_0 + 0.1) units box
 variable    n_sim_pre1_0 equal ${n_burst_sim}
 variable    burst_k1_0 loop 4
@@ -225,7 +229,7 @@ if "${rad_sim} == 0" then "jump SELF burst_next_1_0"
 group       insert clear
 group       mobile subtract all anchor
 variable    burst_seed equal floor(random(1,72099+${seed_adjust},${c}*100000+${burst_ia}))
-fix         burst_depo insert deposit 1 3 1 ${burst_seed} attempt 200 vx ${vx_burst} ${vx_burst} vy ${vy_burst} ${vy_burst} vz ${vz_burst} ${vz_burst} region bzone1_0 near 3.5 units box
+fix         burst_depo insert deposit 1 3 1 ${burst_seed} attempt 5000 vx ${vx_burst} ${vx_burst} vy ${vy_burst} ${vy_burst} vz ${vz_burst} ${vz_burst} region bzone1_0 near 3.5 units box
 fix         2 mobile nve
 fix         3 insert nve
 run         1 post no
@@ -241,17 +245,33 @@ next        burst_k1_0
 jump        SELF burst_dep_1_0
 if "${n_burst_sim} == ${n_sim_pre1_0}" then "region bzone1_0 delete" "jump SELF burst_chunk_done_1_0"
 region      bzone1_0 delete
-# --- Burst chunk 1/2: thermalize ---
+# --- Burst chunk 1/2: dynamics, then thermalize ---
 variable    burst_nclusts0 equal $(c_nclusts)
+group       insert clear
+group       mobile subtract all anchor
 fix         2 mobile nve
+fix         ats_burst all dt/reset 1 NULL 1.00 0.01 units box
+variable    t0_burst equal $(time)
+variable    burst_elapsed equal time-${t0_burst}
+fix         burst_thalt all halt 1 v_burst_elapsed > ${phase_1_inter_neutral_time} error continue message yes
+run         0
+label       burst_inner_1_0
+run         500 pre no post no
+run         0
+if "${one_clust} == 0" then "include sweep.lmp"
+if "$(time-v_t0_burst) < ${phase_1_inter_neutral_time}" then "jump SELF burst_inner_1_0"
+unfix       burst_thalt
+unfix       ats_burst
 include     thermalize.lmp
 if "${co2_desorb_fraction} > 0" then "include co2_desorption.lmp"
 unfix       2
 label       burst_chunk_done_1_0
 
 # --- Burst chunk 2/2: 2 atoms (deposit) ---
-if "$(bound(all,zmax)+v_radical_i_above+2.0) > $(zhi)" then "change_box all z delta 0 $(bound(all,zmax)+v_radical_i_above+2.0-zhi) units box" "region bbox delete" "region bbox block EDGE EDGE EDGE EDGE EDGE EDGE"
-variable    z_ins1_1 equal bound(all,zmax)+${radical_i_above}
+include     surface_top.lmp
+timestep    1e-10
+if "$(v_z_surf_top+v_radical_i_above+2.0) > $(zhi)" then "change_box all z delta 0 $(v_z_surf_top+v_radical_i_above+2.0-zhi) units box" "region bbox delete" "region bbox block EDGE EDGE EDGE EDGE EDGE EDGE"
+variable    z_ins1_1 equal ${z_surf_top}+${radical_i_above}
 region      bzone1_1 block EDGE EDGE EDGE EDGE $(v_z_ins1_1 - 0.1) $(v_z_ins1_1 + 0.1) units box
 variable    n_sim_pre1_1 equal ${n_burst_sim}
 variable    burst_k1_1 loop 2
@@ -277,7 +297,7 @@ if "${rad_sim} == 0" then "jump SELF burst_next_1_1"
 group       insert clear
 group       mobile subtract all anchor
 variable    burst_seed equal floor(random(1,72099+${seed_adjust},${c}*100000+${burst_ia}))
-fix         burst_depo insert deposit 1 3 1 ${burst_seed} attempt 200 vx ${vx_burst} ${vx_burst} vy ${vy_burst} ${vy_burst} vz ${vz_burst} ${vz_burst} region bzone1_1 near 3.5 units box
+fix         burst_depo insert deposit 1 3 1 ${burst_seed} attempt 5000 vx ${vx_burst} ${vx_burst} vy ${vy_burst} ${vy_burst} vz ${vz_burst} ${vz_burst} region bzone1_1 near 3.5 units box
 fix         2 mobile nve
 fix         3 insert nve
 run         1 post no
@@ -293,14 +313,34 @@ next        burst_k1_1
 jump        SELF burst_dep_1_1
 if "${n_burst_sim} == ${n_sim_pre1_1}" then "region bzone1_1 delete" "jump SELF burst_chunk_done_1_1"
 region      bzone1_1 delete
-# --- Burst chunk 2/2: thermalize ---
+# --- Burst chunk 2/2: dynamics, then thermalize ---
 variable    burst_nclusts0 equal $(c_nclusts)
+group       insert clear
+group       mobile subtract all anchor
 fix         2 mobile nve
+fix         ats_burst all dt/reset 1 NULL 1.00 0.01 units box
+variable    t0_burst equal $(time)
+variable    burst_elapsed equal time-${t0_burst}
+fix         burst_thalt all halt 1 v_burst_elapsed > ${phase_1_inter_neutral_time} error continue message yes
+run         0
+label       burst_inner_1_1
+run         500 pre no post no
+run         0
+if "${one_clust} == 0" then "include sweep.lmp"
+if "$(time-v_t0_burst) < ${phase_1_inter_neutral_time}" then "jump SELF burst_inner_1_1"
+unfix       burst_thalt
+unfix       ats_burst
 include     thermalize.lmp
 if "${co2_desorb_fraction} > 0" then "include co2_desorption.lmp"
 unfix       2
 label       burst_chunk_done_1_1
 
+# Remove detached atoms/clusters left above the surface after the burst
+variable    sweep_any_vz delete
+variable    sweep_any_vz index 1
+include     sweep.lmp
+variable    sweep_any_vz delete
+variable    sweep_any_vz index 0
 group       carbon type 1
 group       hydrogen type 2
 group       oxygen type 3

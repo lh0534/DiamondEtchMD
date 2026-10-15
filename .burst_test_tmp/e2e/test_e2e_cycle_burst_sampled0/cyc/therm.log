@@ -6,8 +6,8 @@ label setuploop
 # escaping downward drags the shrink-wrapped boundary with it), and the old
 # bottom*lat_a/sqrt(2) start drifted above the true bottom as the box grew.
 variable dz equal ceil(($(bound(carbon,zmax))-$(bound(carbon,zmin)))/16) #16 groups max to prevent going over 36 total
-variable dz equal ceil((7.7214249791902709319-$(bound(carbon,zmin)))/16) 
-variable dz equal ceil((7.7214249791902709319--1.6669866956322634266)/16) 
+variable dz equal ceil((8.8137365292984632958-$(bound(carbon,zmin)))/16) 
+variable dz equal ceil((8.8137365292984632958--1.6669866956322634266)/16) 
 if "${dz}<5" then "variable dz equal 5" # minimum lat_a
 variable dz equal 5
 variable zbottom equal $(floor(bound(carbon,zmin)))
@@ -65,12 +65,12 @@ region r3 block INF INF INF INF 3 ${ztop} units box
 region r3 block INF INF INF INF 3 8 units box
 group temp_rgn region r${zname}
 group temp_rgn region r3
-81 atoms in group temp_rgn
+76 atoms in group temp_rgn
 group temp_c intersect temp_rgn carbon
-80 atoms in group temp_c
+76 atoms in group temp_c
 group g${zname} subtract temp_c anchor
 group g3 subtract temp_c anchor
-80 atoms in group g3
+76 atoms in group g3
 group temp_c delete
 group temp_rgn delete
 region r${zname} delete
@@ -101,12 +101,12 @@ region r8 block INF INF INF INF 8 ${ztop} units box
 region r8 block INF INF INF INF 8 13 units box
 group temp_rgn region r${zname}
 group temp_rgn region r8
-4 atoms in group temp_rgn
+8 atoms in group temp_rgn
 group temp_c intersect temp_rgn carbon
-0 atoms in group temp_c
+4 atoms in group temp_c
 group g${zname} subtract temp_c anchor
 group g8 subtract temp_c anchor
-0 atoms in group g8
+4 atoms in group g8
 group temp_c delete
 group temp_rgn delete
 region r${zname} delete
@@ -115,14 +115,50 @@ variable nregion equal count(g${zname})
 variable nregion equal count(g8)
 # while there are atoms in the group set thermostat and loop again
 if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
+fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t8 g${zname} temp/berendsen $T $T $(250*dt)
+fix		    t8 g8 temp/berendsen $T $T $(250*dt)
+fix		    t8 g8 temp/berendsen 300 $T $(250*dt)
+fix		    t8 g8 temp/berendsen 300 300 $(250*dt)
+fix		    t8 g8 temp/berendsen 300 300 62.5
+variable zbottom equal ${ztop}
+variable zbottom equal 13
+jump SELF set_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 13
+# set thermostats
+variable ztop equal ${zbottom}+${dz}
+variable ztop equal 13+${dz}
+variable ztop equal 13+5
+region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
+region r13 block INF INF INF INF ${zbottom} ${ztop} units box
+region r13 block INF INF INF INF 13 ${ztop} units box
+region r13 block INF INF INF INF 13 18 units box
+group temp_rgn region r${zname}
+group temp_rgn region r13
+0 atoms in group temp_rgn
+group temp_c intersect temp_rgn carbon
+0 atoms in group temp_c
+group g${zname} subtract temp_c anchor
+group g13 subtract temp_c anchor
+0 atoms in group g13
+group temp_c delete
+group temp_rgn delete
+region r${zname} delete
+region r13 delete
+variable nregion equal count(g${zname})
+variable nregion equal count(g13)
+# while there are atoms in the group set thermostat and loop again
+if "${nregion}!=0" then "fix		    t${zname} g${zname} temp/berendsen $T $T $(250*dt)" "variable zbottom equal ${ztop}" "jump SELF set_loop_start"
 # note thermostat damping is 250x the timestep, 10% of the thermostat time
 # ================================= end thermostat setting loop ==========
 
 # unset empty group and region
 variable zbottom_final equal ${zbottom}
-variable zbottom_final equal 8
+variable zbottom_final equal 13
 group g${zname} delete
-group g8 delete
+group g13 delete
 
 # run thermostats
 log ${log_file} append # ok log this part
@@ -156,6 +192,18 @@ group g3 delete
 variable zbottom equal ${zbottom}+${dz}
 variable zbottom equal 3+${dz}
 variable zbottom equal 3+5
+if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
+jump SELF unset_loop_start
+if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variable zname string $(abs(v_zbottom))"
+variable zname string $(abs(v_zbottom))
+variable zname string 8
+unfix t${zname}
+unfix t8
+group g${zname} delete
+group g8 delete
+variable zbottom equal ${zbottom}+${dz}
+variable zbottom equal 8+${dz}
+variable zbottom equal 8+5
 if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
 label unset_loop_done
 # ================================= end UNthermostat setting loop ========

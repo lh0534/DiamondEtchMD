@@ -3,7 +3,8 @@ builder.py — assemble a complete simulation directory from a SimSpec.
 
 `make_sim` writes config.lmp, head.lmp, make_surf.lmp, and the SLURM submit
 script into `outdir`, then creates symlinks to shared LAMMPS scripts bundled
-with the package (ffield.reax, lat_a.txt, sweep.lmp, thermalize.lmp, addfix.lmp).
+with the package (ffield.reax, lat_a.txt, sweep.lmp, thermalize.lmp, addfix.lmp,
+surface_top.lmp).
 All surface templates are package-bundled; no external dfiles directory is needed.
 
 Routing by etch mode (from spec.py etch_mode()):
@@ -219,7 +220,7 @@ def _make_sim_carbon_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
         (outdir / "init_thermalization.lmp").write_text(get_init_thermalization_lmp(spec.initial_thermalization_steps))
 
     # Copy simulation-control scripts (not symlinked so template edits don't affect running jobs)
-    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp"):
+    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp", "surface_top.lmp"):
         dst = outdir / fname
         if not dst.exists():
             shutil.copy(_TEMPLATES / fname, dst)
@@ -339,7 +340,7 @@ def _make_sim_diamond_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
     shutil.copy(get_make_surf_source(spec), outdir / "make_surf.lmp")
 
     # Copy simulation-control scripts (not symlinked so template edits don't affect running jobs)
-    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp"):
+    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp", "surface_top.lmp"):
         dst = outdir / fname
         if not dst.exists():
             shutil.copy(_TEMPLATES / fname, dst)

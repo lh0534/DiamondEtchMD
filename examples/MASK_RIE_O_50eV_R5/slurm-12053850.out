@@ -1,0 +1,5 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+Wall-time signal: 64 / 3200 impacts done — re-submitting.
+Submitted batch job 12055409

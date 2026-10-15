@@ -8,7 +8,7 @@ Reads LAMMPS data files written by `write_data` after each impact and computes:
 
 CNA categories (per atom):
   0 = OTHER          — amorphous / sp2 carbon
-  1 = DIAMOND        — cubic diamond bulk
+  1 = DIAMOND        — cubic or hexagonal (lonsdaleite) diamond bulk
   2 = DIAMOND_NEIGH1 — 1st neighbor of a diamond atom (surface/interface)
   3 = DIAMOND_NEIGH2 — 2nd neighbor of a diamond atom
 
@@ -155,9 +155,13 @@ if _HAS_JAX:
         deg = jnp.matmul(bi, bi)
         num_bonds = jnp.sum(deg * bi, axis=-1) // 2
         cna_2 = jnp.all(num_bonds == 2, axis=1)
-        cna_1 = jnp.all(jnp.where(bond, deg, 1) == 1, axis=(1, 2))
+        # longest bond chain among each neighbour's 4 common neighbours: 1 = 421, 2 = 422
+        chain = jnp.max(jnp.where(bond, deg, 0), axis=2)
+        n421 = jnp.sum(chain == 1, axis=1)
+        n422 = jnp.sum(chain == 2, axis=1)
+        crystal = (n421 == 12) | ((n421 == 6) & (n422 == 6))   # cubic | hexagonal diamond
 
-        is_diamond = valid & cna_4 & cna_2 & cna_1
+        is_diamond = valid & cna_4 & cna_2 & crystal
         return jnp.where(is_diamond, DIAMOND, OTHER)
 
 
@@ -202,9 +206,15 @@ def _np_cna_classify(pos, nn12, valid, Lx, Ly):
     deg = np.matmul(bi, bi)
     num_bonds = (deg * bi).sum(axis=2) // 2
     cna_2 = (num_bonds == 2).all(axis=1)
-    cna_1 = (np.where(bond, deg, 1) == 1).all(axis=(1, 2))
+    # Second-neighbour shell: cubic diamond is FCC (12 x 421), hexagonal diamond is
+    # HCP (6 x 421 + 6 x 422).  The longest bond chain among a neighbour's 4 common
+    # neighbours is 1 for 421 (two disjoint bonds) and 2 for 422 (a chain of two).
+    chain = np.where(bond, deg, 0).max(axis=2)
+    n421 = (chain == 1).sum(axis=1)
+    n422 = (chain == 2).sum(axis=1)
+    crystal = (n421 == 12) | ((n421 == 6) & (n422 == 6))
 
-    return np.where(valid & cna_4 & cna_2 & cna_1, DIAMOND, OTHER).astype(np.int32)
+    return np.where(valid & cna_4 & cna_2 & crystal, DIAMOND, OTHER).astype(np.int32)
 
 
 def _label_neighbors(pat, nn4, nn12):
@@ -322,7 +332,7 @@ def analyze_impact(path, c_type: int = 1, orientation=None) -> Dict:
     Returns
     -------
     dict with keys:
-        n_diamond            — carbon atoms classified as cubic diamond (label 1)
+        n_diamond            — carbon atoms classified as cubic or hexagonal diamond (label 1)
         n_crystalline        — diamond + 1st/2nd neighbours (labels 1-3)
         n_amorphous          — OTHER carbon atoms (label 0)
         n_amorphous_zone     — C atoms in the amorphous zone (z-density method)

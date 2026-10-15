@@ -1,0 +1,5 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+Slab depleted after 217 impacts — not re-submitting.
+Running final analysis plots ...

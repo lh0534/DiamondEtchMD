@@ -69,7 +69,14 @@ def _deposit_sections(spec):
     for ci, a in enumerate(starts):
         b = head.index("dynamics phase ---", a)
         b = head.rindex("\n", 0, b) + 1
-        out.append(head[a:b] + f"label       burst_chunk_done_{ci}\n")
+        sec = head[a:b] + f"label       burst_chunk_done_{ci}\n"
+        # surface_top.lmp needs the full sim's cluster computes.  The harness runs no
+        # dynamics between chunks (earlier chunks never land), so use the top of all
+        # atoms to keep each chunk in its own layer
+        assert "include     surface_top.lmp\n" in sec
+        sec = sec.replace("include     surface_top.lmp\n",
+                          "variable    z_surf_top equal $(bound(all,zmax))\n")
+        out.append(sec)
     return out
 
 
@@ -330,3 +337,43 @@ def test_e2e_cycle_burst_sampled(tmp_path):
     _set_var(cfg, "end_fluence", 0.1875)
     nc, rows = _run_sim(d)
     _check_e2e(d, nc, rows, n_bursts=2, R=6)
+
+
+def test_e2e_cycle_burst_slow_radicals_no_gas_buildup(tmp_path):
+    """Regression: slow radicals in large chunks used to stack up the cell.
+
+    Chunks were inserted 6 Å above the highest atom and given only a short
+    thermalization, so radicals still in flight set the next chunk's height and
+    leftover gas accumulated (a 1200 Å O column over 160 bursts).  Now chunks go
+    6 Å above the slab cluster, run inter_neutral_time, and the burst ends by
+    removing detached gas above the surface.  After every burst: no O more than
+    3 Å above the slab, and the box stays near the slab height.
+    """
+    _needs_2022_build()
+    from diamond_etch_md import make_ale
+    spec = SimSpec(orientation="100", surface="2x1", box_x=4, box_y=4, box_depth=2, ml=16,
+                   impact_time=200, thermalization_time=100, skip_radical_thermalization=True,
+                   phases=[CyclePhase(species="Ar", energy=50, fluence_ml=1),
+                           CyclePhase(species="O", energy=15, fluence_ml=1, flux_ratio=12,
+                                      radical_burst=True, radical_burst_chunk=3,
+                                      radical_energy=0.05)],
+                   cycles=1, dump_mode="none", name="t_burst_gas")
+    validate(spec)
+    d = tmp_path / "cyc"
+    make_ale(spec, d)
+    cfg = d / "config.lmp"
+    _set_var(cfg, "phase_0_ml", 0.0625)                       # 1 Ar impact
+    _set_var(cfg, "phase_1_ml", 0.1875)                       # 3 O slots with bursts
+    _set_var(cfg, "end_fluence", 0.25)
+    nc, rows = _run_sim(d)
+    assert not (d / "BURST_INCOMPLETE").exists()
+    assert "ERROR" not in (d / "log1.lammps").read_text()
+    from diamond_etch_md.analysis.cna import read_lammps_data
+    bursts = sorted(set(rows[:, 0].astype(int)))
+    assert len(bursts) == 3
+    for c in bursts:
+        snap = read_lammps_data(d / "impact_snaps" / f"{c}_1.data")     # right after the burst
+        z, t = snap["z"], snap["types"]
+        top = np.sort(z[t == 1])[-4:].mean()                 # top of the carbon slab
+        assert (z[t == 3] > top + 3.0).sum() == 0, f"detached O above the surface after burst {c}"
+        assert snap["box"][2, 1] - snap["box"][2, 0] < 60.0

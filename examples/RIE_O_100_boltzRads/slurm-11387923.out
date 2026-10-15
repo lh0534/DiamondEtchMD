@@ -1,0 +1,11 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+Found 600 data files → all_impacts.dump
+  200/600 frames written
+  400/600 frames written
+  600/600 frames written
+Done.
+srun: error: della-l05g7: task 0: Exited with exit code 1
+srun: Terminating StepId=11387923.0
+LAMMPS exited with code 1 — not re-submitting.

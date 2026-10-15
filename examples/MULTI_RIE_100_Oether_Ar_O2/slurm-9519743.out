@@ -1,0 +1,279 @@
+Loading lammps/kokkos/gpu_della9_2022
+  Loading requirement: gcc-toolset/14 openmpi/gcc/4.1.6
+    fftw/gcc/openmpi-4.1.6/3.3.10 cudatoolkit/12.8
+LAMMPS (23 Jun 2022)
+KOKKOS mode is enabled (src/KOKKOS/kokkos.cpp:105)
+  will use up to 1 GPU(s) per node
+WARNING: When using a single thread, the Kokkos Serial backend (i.e. Makefile.kokkos_mpi_only) gives better performance than the OpenMP backend (src/KOKKOS/kokkos.cpp:217)
+  using 1 OpenMP thread(s) per MPI task
+BOTTOM -0.625
+Lattice spacing in x,y,z = 2.5211094 2.5211094 3.5653872
+Created orthogonal box = (0 0 -2.228367) to (15.126657 15.126657 35.653872)
+  1 by 1 by 1 MPI processor grid
+Created 828 atoms
+  using lattice units in orthogonal box = (0 0 -2.228367) to (15.126657 15.126657 35.653872)
+  create_atoms CPU = 0.005 seconds
+Setting atom values ...
+  828 settings made for charge
+72 atoms in group anchor
+0 atoms in group insert
+756 atoms in group mobile
+828 atoms in group carbon
+Reading potential file ffield.reax with DATE: 2011-02-18
+WARNING: Changed valency_val to valency_boc for X (src/REAXFF/reaxff_ffield.cpp:296)
+Changing box ...
+  orthogonal box = (0 0 -2.228367) to (15.126657 15.126657 35.653872)
+  orthogonal box = (0 0 -2.228367) to (15.126657 15.126657 35.653872)
+  orthogonal box = (0 0 -2.228367) to (15.126657 15.126657 35.653872)
+System init for delete_atoms ...
+Neighbor list info ...
+  update every 1 steps, delay 10 steps, check yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 12, bins = 2 2 4
+  3 neighbor lists, perpetual/occasional/extra = 2 1 0
+  (1) command delete_atoms, occasional
+      attributes: full, newton on
+      pair build: full/bin/atomonly
+      stencil: full/bin/3d
+      bin: standard
+  (2) pair reaxff/kk, perpetual
+      attributes: half, newton off, ghost, kokkos_device
+      pair build: half/bin/ghost/kk/device
+      stencil: full/ghost/bin/3d
+      bin: kk/device
+  (3) fix qeq/reaxff/kk, perpetual
+      attributes: full, newton off, kokkos_device
+      pair build: full/bin/kk/device
+      stencil: full/bin/3d
+      bin: kk/device
+WARNING: Fixes cannot yet send exchange data in Kokkos communication, switching to classic exchange/border communication (src/KOKKOS/comm_kokkos.cpp:581)
+Deleted 0 atoms, new total = 828
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+- pair reaxff command:
+- fix qeq/reaxff command:
+The log file lists these citations in BibTeX format.
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+WARNING: Using 'neigh_modify every 1 delay 0 check yes' setting during minimization (src/min.cpp:187)
+Neighbor list info ...
+  update every 1 steps, delay 0 steps, check yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 12, bins = 2 2 4
+  2 neighbor lists, perpetual/occasional/extra = 2 0 0
+  (1) pair reaxff/kk, perpetual
+      attributes: half, newton off, ghost, kokkos_device
+      pair build: half/bin/ghost/kk/device
+      stencil: full/ghost/bin/3d
+      bin: kk/device
+  (2) fix qeq/reaxff/kk, perpetual
+      attributes: full, newton off, kokkos_device
+      pair build: full/bin/kk/device
+      stencil: full/bin/3d
+      bin: kk/device
+Setting up cg/kk style minimization ...
+  Unit style    : real
+  Current step  : 0
+Per MPI rank memory allocation (min/avg/max) = 37.92 | 37.92 | 37.92 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press          Volume    
+         0   0             -146309.92      0             -146309.92      70341.075      8668.0525    
+         1   0             -146309.92      0             -146309.92      70341.075      8668.0525    
+Loop time of 0.545555 on 1 procs for 1 steps with 828 atoms
+
+99.7% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+Minimization stats:
+  Stopping criterion = energy tolerance
+  Energy initial, next-to-last, final = 
+     -146309.917641843  -146309.917641843  -146309.917645842
+  Force two-norm initial, final = 665.81497 665.81497
+  Force max component initial, final = 63.863581 63.863581
+  Final line search alpha, max atom move = 2.9165999e-12 1.8626451e-10
+  Iterations, force evaluations = 1 36
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.40036    | 0.40036    | 0.40036    |   0.0 | 73.39
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0.00068713 | 0.00068713 | 0.00068713 |   0.0 |  0.13
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0.13171    | 0.13171    | 0.13171    |   0.0 | 24.14
+Other   |            | 0.0128     |            |       |  2.35
+
+Nlocal:            828 ave         828 max         828 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           4698 ave        4698 max        4698 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:         636566 ave      636566 max      636566 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:       833400 ave      833400 max      833400 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 833400
+Ave neighs/atom = 1006.5217
+Neighbor list builds = 0
+Dangerous builds = 0
+WARNING: Using 'neigh_modify every 1 delay 0 check yes' setting during minimization (src/min.cpp:187)
+Setting up cg/kk style minimization ...
+  Unit style    : real
+  Current step  : 0
+Per MPI rank memory allocation (min/avg/max) = 37.92 | 37.92 | 37.92 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press          Volume    
+         0   0             -146309.92      0             -146309.92      70341.075      8668.0525    
+         1   0             -146309.92      0             -146309.92      70341.075      8668.0525    
+Loop time of 0.526668 on 1 procs for 1 steps with 828 atoms
+
+99.8% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+Minimization stats:
+  Stopping criterion = energy tolerance
+  Energy initial, next-to-last, final = 
+     -146309.917643138  -146309.917643138   -146309.91764726
+  Force two-norm initial, final = 665.81497 665.81497
+  Force max component initial, final = 63.863581 63.863581
+  Final line search alpha, max atom move = 2.9165999e-12 1.8626451e-10
+  Iterations, force evaluations = 1 35
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.38717    | 0.38717    | 0.38717    |   0.0 | 73.51
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0.0005864  | 0.0005864  | 0.0005864  |   0.0 |  0.11
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0.12785    | 0.12785    | 0.12785    |   0.0 | 24.28
+Other   |            | 0.01106    |            |       |  2.10
+
+Nlocal:            828 ave         828 max         828 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           4698 ave        4698 max        4698 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:         636566 ave      636566 max      636566 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:       833400 ave      833400 max      833400 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 833400
+Ave neighs/atom = 1006.5217
+Neighbor list builds = 0
+Dangerous builds = 0
+Created 36 atoms
+  using lattice units in orthogonal box = (0 0 -2.228367) to (15.126657 15.126657 35.653872)
+  create_atoms CPU = 0.001 seconds
+36 atoms in group O
+Displacing atoms ...
+WARNING: Using 'neigh_modify every 1 delay 0 check yes' setting during minimization (src/min.cpp:187)
+Setting up cg/kk style minimization ...
+  Unit style    : real
+  Current step  : 0
+Per MPI rank memory allocation (min/avg/max) = 43.01 | 43.01 | 43.01 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press          Volume    
+         0   0             -151196.32      0             -151196.32      68199.009      8668.0525    
+         1   0             -151196.32      0             -151196.32      68199.001      8668.0525    
+Loop time of 1.07845 on 1 procs for 1 steps with 864 atoms
+
+99.8% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+Minimization stats:
+  Stopping criterion = energy tolerance
+  Energy initial, next-to-last, final = 
+     -151196.319225094  -151196.319225094  -151196.318462977
+  Force two-norm initial, final = 825.84892 825.84947
+  Force max component initial, final = 78.891658 78.891776
+  Final line search alpha, max atom move = 1.1805083e-12 9.3132397e-11
+  Iterations, force evaluations = 1 57
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.6659     | 0.6659     | 0.6659     |   0.0 | 61.75
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0.00094077 | 0.00094077 | 0.00094077 |   0.0 |  0.09
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0.39185    | 0.39185    | 0.39185    |   0.0 | 36.33
+Other   |            | 0.01976    |            |       |  1.83
+
+Nlocal:            864 ave         864 max         864 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           4902 ave        4902 max        4902 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:         671742 ave      671742 max      671742 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:       879840 ave      879840 max      879840 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 879840
+Ave neighs/atom = 1018.3333
+Neighbor list builds = 0
+Dangerous builds = 0
+System init for write_data ...
+WARNING: Temperature for thermo pressure is not for group all (src/thermo.cpp:520)
+Setting up Verlet run ...
+  Unit style    : real
+  Current step  : 0
+  Time step     : 1
+Per MPI rank memory allocation (min/avg/max) = 42.61 | 42.61 | 42.61 Mbytes
+   Step          Time           Temp     
+         0   0              300          
+      1000   1000           322.98198    
+      2000   2000           351.77431    
+      3000   3000           338.54773    
+      4000   4000           352.96188    
+      5000   5000           342.36254    
+      6000   6000           347.52841    
+      7000   7000           352.72976    
+      8000   8000           366.16315    
+      9000   9000           347.33646    
+     10000   10000          347.09772    
+Loop time of 134.231 on 1 procs for 10000 steps with 864 atoms
+
+Performance: 6.437 ns/day, 3.729 hours/ns, 74.499 timesteps/s
+99.7% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 97.844     | 97.844     | 97.844     |   0.0 | 72.89
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 2.8363     | 2.8363     | 2.8363     |   0.0 |  2.11
+Output  | 0.0016606  | 0.0016606  | 0.0016606  |   0.0 |  0.00
+Modify  | 33.235     | 33.235     | 33.235     |   0.0 | 24.76
+Other   |            | 0.3138     |            |       |  0.23
+
+Nlocal:            864 ave         864 max         864 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           4902 ave        4902 max        4902 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:         671742 ave      671742 max      671742 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+FullNghs:       879840 ave      879840 max      879840 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 879840
+Ave neighs/atom = 1018.3333
+Neighbor list builds = 0
+Dangerous builds = 0
+N_LAT_0 828
+System init for write_data ...
+System init for write_data ...
+0 0 828 0 0
+0 -0.625 828
+Total wall time: 0:02:17
+Generating plots ...
+Computing summary statistics ...
+
+Outputs written to /scratch/gpfs/DGRAVES/lh0534/jack_reax/DiamondEtchMD/examples/MULTI_RIE_100_Oether_Ar_O2:
+  etch_trajectory.png
+  product_grid.png
+  product_trajectory.png
+  summary.txt
+Wall-time signal: 405 / 1800 impacts done — re-submitting.
+Submitted batch job 9564719

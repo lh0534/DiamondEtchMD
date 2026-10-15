@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
-#SBATCH --time=01:00:00
+#SBATCH --time=01:30:00
 #SBATCH --account=dgraves
 #SBATCH --output=burst_tests_%j.out
 
