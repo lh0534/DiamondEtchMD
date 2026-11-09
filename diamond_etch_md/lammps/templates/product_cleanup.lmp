@@ -1,0 +1,113 @@
+# End of an ion stage (runs with radicals): remove molecules that are not bonded
+# to the slab and lie exposed on its surface, logging each to etch_products.txt as
+# a product of the current stage (cn = 0, removal flag 2).  Slow ion products that
+# have not left by the end of the ion stage would otherwise drift off during the
+# next radical's window and be logged as radical etch.
+#   not bonded: no atom within ${cleanup_rc} Å of the slab (the anchor's cluster at
+#               that cutoff; stretched ReaxFF C-C bonds still count as bonded)
+#   exposed:    no slab atom higher than the molecule's top atom within
+#               ${cleanup_cap} Å laterally of any of its atoms, so molecules trapped
+#               in voids or under overhangs stay
+# Ar (type 4) is left to the head's own handling.  Group commands add atoms to an
+# existing group, so shrinking one goes through pc_tmp.
+compute     pc_cl all cluster/atom ${cleanup_rc}
+compute     pc_slabid anchor reduce min c_pc_cl
+thermo_style custom step c_pc_slabid
+run 0 post no
+variable    pc_in atom "c_pc_cl == c_pc_slabid"
+group       pc_slab variable pc_in
+group       pc_ar type 4
+group       pc_rest subtract all pc_slab pc_ar
+variable    pc_lx equal $(lx)
+variable    pc_ly equal $(ly)
+variable    pc_n_removed equal 0
+variable    pc_m atom 0
+variable    pc_a atom 0
+variable    pc_dx atom 0
+variable    pc_dy atom 0
+variable    pc_c atom 0
+compute     pc_mx pc_rest reduce max c_pc_cl
+
+label       pc_mol_loop
+if "$(count(pc_rest)) == 0" then "jump SELF pc_done"
+# next molecule: the unchecked cluster with the highest ID
+thermo_style custom step c_pc_mx
+run 0 post no
+variable    pc_m atom "c_pc_cl == c_pc_mx"
+group       pc_mol variable pc_m
+group       pc_tmp subtract pc_rest pc_mol
+group       pc_rest clear
+group       pc_rest union pc_tmp
+group       pc_tmp delete
+
+# slab atoms capping it: above its top atom, laterally near any of its atoms
+variable    pc_ztop equal $(bound(pc_mol,zmax))
+variable    pc_ncap equal 0
+group       pc_todo union pc_mol
+label       pc_atom_loop
+variable    pc_za equal $(bound(pc_todo,zmax))
+variable    pc_a atom "z > v_pc_za - 1.0e-6"
+group       pc_top variable pc_a
+group       pc_one intersect pc_top pc_todo
+variable    pc_x0 equal $(bound(pc_one,xmin))
+variable    pc_y0 equal $(bound(pc_one,ymin))
+variable    pc_dx atom "x - v_pc_x0 - v_pc_lx*round((x - v_pc_x0)/v_pc_lx)"
+variable    pc_dy atom "y - v_pc_y0 - v_pc_ly*round((y - v_pc_y0)/v_pc_ly)"
+variable    pc_c atom "(z > v_pc_ztop) * (v_pc_dx*v_pc_dx + v_pc_dy*v_pc_dy < v_cleanup_cap*v_cleanup_cap)"
+group       pc_capall variable pc_c
+group       pc_cap intersect pc_capall pc_slab
+variable    pc_ncap equal $(v_pc_ncap + count(pc_cap))
+group       pc_tmp subtract pc_todo pc_one
+group       pc_todo clear
+group       pc_todo union pc_tmp
+group       pc_tmp delete
+group       pc_capall delete
+group       pc_cap delete
+group       pc_top delete
+group       pc_one delete
+if "$(count(pc_todo)) > 0" then "jump SELF pc_atom_loop"
+group       pc_todo delete
+
+group       pc_t type 1
+group       pc_mC intersect pc_mol pc_t
+group       pc_t delete
+group       pc_t type 2
+group       pc_mH intersect pc_mol pc_t
+group       pc_t delete
+group       pc_t type 3
+group       pc_mO intersect pc_mol pc_t
+group       pc_t delete
+if "${pc_ncap} == 0" then &
+"print '${c} ${cn} $(count(pc_mC)) $(count(pc_mH)) $(count(pc_mO)) 0 $(vcm(pc_mol,z)) 2' append etch_products.txt" &
+"""if "$(count(pc_mC)) > 0" then "variable n_c_ejected_total equal 1" """ &
+"delete_atoms group pc_mol compress no" &
+"variable pc_n_removed equal $(v_pc_n_removed+1)"
+group       pc_mC delete
+group       pc_mH delete
+group       pc_mO delete
+group       pc_mol delete
+jump        SELF pc_mol_loop
+
+label       pc_done
+if "${pc_n_removed} > 0" then &
+"print 'PRODUCT_CLEANUP ${c} ${cn}: removed ${pc_n_removed} detached molecule(s)'" &
+"region          bbox delete" &
+"region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE"
+uncompute   pc_mx
+uncompute   pc_slabid
+uncompute   pc_cl
+group       pc_slab delete
+group       pc_ar delete
+group       pc_rest delete
+variable    pc_in delete
+variable    pc_m delete
+variable    pc_a delete
+variable    pc_dx delete
+variable    pc_dy delete
+variable    pc_c delete
+
+# reset thermo_style and run 0 to reinitialize everything (as in sweep.lmp)
+thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts
+thermo_modify   temp mtemp
+thermo_modify   lost warn flush yes
+run 0 post no

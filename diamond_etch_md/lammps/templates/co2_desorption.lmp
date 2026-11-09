@@ -65,12 +65,12 @@ group       co2d_no_c_o variable is_no_c_o
 group       co2d_orphan_o_grp intersect co2d_excl_o_snap co2d_no_c_o
 variable    n_desorbed_c equal $(v_n_co2d_c_pre-count(co2d_c_grp))
 variable    n_desorbed_o equal $(count(co2d_orphan_o_grp))
-if "$(count(co2d_orphan_o_grp)) > 0" then "delete_atoms group co2d_orphan_o_grp"
+if "$(count(co2d_orphan_o_grp)) > 0" then "delete_atoms group co2d_orphan_o_grp compress no"
 
-# Log to etch_products.txt (standard 7-col format; vcm_z=0 flags as forced desorption)
+# Log to etch_products.txt (8-col format; removal flag 3 = forced desorption, vcm_z = 0)
 # and to co2_desorption.txt (4-col: impact cn n_C n_O)
 if "${n_desorbed_c} > 0" then &
-"print '${c} ${cn} ${n_desorbed_c} 0 ${n_desorbed_o} 0 0.0' append etch_products.txt" &
+"print '${c} ${cn} ${n_desorbed_c} 0 ${n_desorbed_o} 0 0.0 3' append etch_products.txt" &
 "print '${c} ${cn} ${n_desorbed_c} ${n_desorbed_o}' append co2_desorption.txt"
 
 group       co2d_orphan_o_grp delete

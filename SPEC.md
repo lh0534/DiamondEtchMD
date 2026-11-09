@@ -157,6 +157,7 @@ All atoms in a chunk are inserted into one ±0.1 Å layer (`z_surf_top + radical
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | `plot_interval_hours` | `int` | `12` | Hours between auto-plot runs while LAMMPS is running; `0` = disabled |
+| `render_fixed_z` | `bool` | `False` | Final auto-plot renders with `--fixed-z`: the camera is placed once from the initial slab instead of following each snapshot's lattice bottom |
 | `cna_stride` | `int` | `0` | CNA stride for `--cna` mode; `0` = 1 analysis per ML |
 
 ### CO₂* forced desorption
@@ -167,9 +168,24 @@ Surface C atoms bonded to exactly 2 O atoms (with each O exclusively bonded to t
 |-------|------|---------|------------|-------|
 | `co2_desorb_fraction` | `float` | `0.0` | `[0, 1]` | Fraction of eligible CO₂-precursor C atoms to force-eject per step; `0` = disabled |
 
-When a C atom is ejected, its exclusively-bonded O atoms are removed with it. Each forced-desorption event is logged to `etch_products.txt` (standard 7-column format; `vcm_z = 0` flags it as a forced event rather than a dynamical ejection) and to a separate `co2_desorption.txt` (columns: `impact cn n_C n_O`).
+When a C atom is ejected, its exclusively-bonded O atoms are removed with it. Each forced-desorption event is logged to `etch_products.txt` (removal flag 3, `vcm_z = 0`) and to a separate `co2_desorption.txt` (columns: `impact cn n_C n_O`).
 
 `co2_desorb_fraction = 1.0` ejects all eligible sites deterministically every step; `0.5` ejects each independently at 50% probability.
+
+### Detached products and the thermostat
+
+| Field | Type | Default | Constraint | Notes |
+|-------|------|---------|------------|-------|
+| `ion_product_cleanup` | `bool` | `True` | | Runs with radicals: end each ion stage with `product_cleanup.lmp` |
+| `cleanup_bond_cutoff` | `float` | `2.0` | `(1, 3)` Å | Not bonded to the slab = no atom this close to the anchor's cluster |
+| `cleanup_cap_radius` | `float` | `2.0` | `> 0` Å | Exposed = no slab atom above the molecule's top atom within this lateral distance of any of its atoms |
+| `thermostat_slab_only` | `bool` | `True` | | `thermalize.lmp` thermostats only carbon bonded (`cleanup_bond_cutoff`) to the slab |
+
+The sweep only removes a cluster more than 3 Å from the slab and moving up. A slow ion product (mostly CO₂) can still sit on the surface when the ion stage ends; it then drifts off during the next radical's window and was logged as radical etch (0.05–0.07 C/ion at 200 eV Ar⁺, R-independent). With `ion_product_cleanup`, after the post-ion thermalize (and the implanted-Ar removal, before addfix) every molecule that is **not bonded** to the slab and **exposed** is deleted and logged as a product of that ion (`cn = 0`, removal flag 2). Exposure keeps molecules trapped in voids or under overhangs (in a 200 eV Ar⁺ run most unbonded CO₂ after an ion stays for many cycles); it is a geometric guard, so it misses some ion products in pits and can remove a few molecules that would have stayed. Ar is never touched. Runs in every ion stage of single-species, multi-ion, carbon-etch and cycling runs that have radicals (`flux_ratio > 0`, or any radical phase); ion-only runs are unchanged.
+
+`thermostat_slab_only` stops `thermalize.lmp` from rescaling (and so stranding) products on their way out, and keeps a molecule far above the slab from stretching the thermostat slabs. `False` restores thermostatting of all carbon.
+
+Atoms are deleted with `compress no` everywhere during runs (sweep, cleanup, channelled atoms, implanted ions, CO₂ desorption), so atom IDs persist across `impact_snaps` and atoms can be tracked between snapshots. IDs are therefore not contiguous.
 
 ### Miscellaneous
 
@@ -392,6 +408,7 @@ Written once per ejection event (each time a cluster leaves the box or a channel
 | `O` | 4 | Number of O atoms in the ejected cluster |
 | `Ar` | 5 | Number of Ar atoms in the ejected cluster |
 | `vcm_z` | 6 | Centre-of-mass z velocity (Å/fs); `0.0` marks forced CO₂ desorption |
+| `removal` | 7 | How it was removed: `0` = swept (left the surface moving up), `1` = burst-end cleanup (detached, any velocity), `2` = post-ion cleanup (`ion_product_cleanup`), `3` = forced CO₂ desorption. Absent in older files (`parse_etch_products` reads it as 0) |
 
 ### Dump files (`etch_event_trajs/`)
 

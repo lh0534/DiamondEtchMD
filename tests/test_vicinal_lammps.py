@@ -125,7 +125,7 @@ def test_addfix_under_python_slab(o, surf, tmp_path):
 @pytest.mark.parametrize("o,surf", [("119", "2x1_DA"), ("119", "2x1_DB"), ("557", "1x1"), ("775", "1x1")])
 def test_e2e_vicinal_ion_etch(o, surf, tmp_path):
     """make_surf_vicinal.lmp + head.lmp: four Ar+ 40 eV impacts (ReaxFF + ZBL)."""
-    from test_burst_sampling import _needs_2022_build, _set_var, _run_sim
+    from tests.test_burst_sampling import _needs_2022_build, _set_var, _run_sim
     _needs_2022_build()
     from diamond_etch_md import SimSpec, compute_ml, make_sim, validate
     spec = SimSpec(orientation=o, surface=surf, species="Ar", energy=40.0,
@@ -140,7 +140,7 @@ def test_e2e_vicinal_ion_etch(o, surf, tmp_path):
     nc, _ = _run_sim(d)
     log = (d / "log1.lammps").read_text()
     assert "ERROR" not in log and "BOTTOM -0.625" in log
-    assert sorted({int(r[0]) for r in nc if r[1] == 0}) == [0, 1, 2, 3, 4]
+    assert sorted({int(r[0]) for r in nc}) == [0, 1, 2, 3, 4]   # ion-only: one row per impact
     surf_log = (d / "log_make_surf.lammps").read_text()
     assert "ERROR" not in surf_log
     n_data = int(next(l.split()[0] for l in (d / "vicinal_surface.data").read_text().splitlines()

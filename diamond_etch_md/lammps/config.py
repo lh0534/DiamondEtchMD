@@ -150,6 +150,10 @@ def _step_config_block(spec: SimSpec) -> str:
         f"\n# Sweep options\n"
         f"variable    above_surf_eject   equal {'1' if spec.above_surf_eject else '0'}\n"
         f"variable    co2_desorb_fraction equal {spec.co2_desorb_fraction}\n"
+        f"\n# Detached products (product_cleanup.lmp) and thermostat (thermalize.lmp)\n"
+        f"variable    cleanup_rc   equal {spec.cleanup_bond_cutoff}   # Å; bonded to the slab\n"
+        f"variable    cleanup_cap  equal {spec.cleanup_cap_radius}   # Å; lateral radius of the exposure check\n"
+        f"variable    thermostat_slab_only equal {'1' if spec.thermostat_slab_only else '0'}\n"
     )
 
 

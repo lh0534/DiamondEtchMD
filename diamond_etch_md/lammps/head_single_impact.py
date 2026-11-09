@@ -166,7 +166,7 @@ def get_head_lmp_single_impact(spec: SimSpec) -> str:
     if has_ar and spec.remove_ar:
         remove_ar_block = (
             f"group       incident_ion type 4\n"
-            f"delete_atoms group incident_ion\n"
+            f"delete_atoms group incident_ion compress no\n"
             f"group       incident_ion delete\n"
             f"\n"
         )

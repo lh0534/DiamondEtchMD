@@ -19,3 +19,4 @@ tools/*.out
 tools/relax_*.log
 tools/*.json
 .vicinal_test_tmp/
+.cleanup_test_tmp/

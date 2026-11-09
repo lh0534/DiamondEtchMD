@@ -311,9 +311,17 @@ def plot_main():
         help="With --render: add a second render of each snapshot viewed from 90° "
              "next to the 0° view",
     )
+    pp.add_argument(
+        "--fixed-z", action="store_true", dest="fixed_z",
+        help="With --render: place the camera once, from the initial slab (impact_snaps/0.data), "
+             "instead of re-centring every frame on its own lattice bottom, so the surface "
+             "visibly recedes; heights are then measured from the initial lattice bottom",
+    )
     args = pp.parse_args()
     if args.two_sides and not args.render:
         print("Note: --two-sides only affects --render; ignoring.")
+    if args.fixed_z and not args.render:
+        print("Note: --fixed-z only affects --render; ignoring.")
     views = (0, 90) if args.two_sides else (0,)
 
     sim_dir = Path(args.sim_dir)
@@ -376,13 +384,23 @@ def plot_main():
             from .analysis.plot import _spec_summary_str
             import matplotlib.pyplot as plt
             lat_a = float((sim_dir / 'lat_a.txt').read_text().strip())
-            if render_ml_frames(sim_dir, ml, views=views):
+            if render_ml_frames(sim_dir, ml, views=views, fixed_z=args.fixed_z):
                 density.animate_render_density(sim_dir, spec, ml, lat_a,
                                                cna_records=cna_records)
+                # stills of the first and last frames: render | density profile
+                imps = density.movie_impacts(sim_dir, ml)
+                for imp, stem, title in ((imps[0], 'render_density_initial', 'Initial surface'),
+                                         (imps[-1], 'render_density_final', 'Final surface')):
+                    fig = density.plot_render_density_frame(
+                        sim_dir, spec, ml, lat_a, imp, title,
+                        spec_summary=_spec_summary_str(spec) if spec else None)
+                    if fig:
+                        fig.savefig(sim_dir / f'{stem}.png', dpi=300, bbox_inches='tight')
+                        plt.close(fig)
             else:
                 print("  no impact_snaps/ snapshots found — skipping movie")
             if spec is not None and spec.phases:
-                render_phase_ends(sim_dir, spec, ml, views=views)
+                render_phase_ends(sim_dir, spec, ml, views=views, fixed_z=args.fixed_z)
                 fig = density.plot_phase_end_render_density(
                     sim_dir, spec, ml, lat_a, spec_summary=_spec_summary_str(spec))
                 if fig:

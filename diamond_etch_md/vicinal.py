@@ -75,8 +75,12 @@ def geometry(o: str) -> Dict:
     bphase = (-(5 / 4) * q) % 1                             # phase of the -5/8 s grid line
     shift = ((bphase - centre) % 1) * d                     # move the lattice up along the normal (a):
     # the gap centre (phase centre) then lands on the grid lines (phase bphase)
-    origin = shift * ez                                     # all components of ez are >= 0
-    assert np.all(origin >= 0) and np.all(origin < 1)
+    origin = shift * ez                                     # the same shift in crystal coordinates (a)
+    # LAMMPS adds `origin` after the rotation, in units of the spacings (x a1 spacing,
+    # y a2 spacing, z a3 spacing of the rotated box), so the shift along the normal is
+    # origin 0 0 shift/s
+    lmp_origin_z = shift / s
+    assert 0 <= lmp_origin_z < 1
     Lx, Ly = _period(c["xdir"]), _period(c["ydir"])
     ter = np.array(c["terrace"], float) / np.linalg.norm(c["terrace"])
     miscut = float(np.degrees(np.arccos(ez @ ter)))
@@ -85,7 +89,7 @@ def geometry(o: str) -> Dict:
     density = 2.0 if dimers else 4 / np.sqrt(3)             # atoms per a^2 of one terrace plane
     args = (f"diamond ${{lat_a}} orient z {' '.join(map(str, c['normal']))} "
             f"orient x {' '.join(map(str, c['xdir']))} orient y {' '.join(map(str, c['ydir']))} "
-            f"spacing {Lx:.10f} {Ly:.10f} {s:.10f} origin {origin[0]:.10f} {origin[1]:.10f} {origin[2]:.10f}")
+            f"spacing {Lx:.10f} {Ly:.10f} {s:.10f} origin 0 0 {lmp_origin_z:.10f}")
     return dict(R=R, Lx=Lx * LAT_A, Ly=Ly * LAT_A, s=s * LAT_A, s_a=s, origin=origin,
                 terrace=ter, miscut=miscut, layer=spacing * LAT_A, dimers=dimers,
                 ml_per_cell=density * Lx * Ly, margin=gaps.max() * d * LAT_A / 2,

@@ -38,6 +38,16 @@ from ..spec import SimSpec, IonComponent
 # Fallback used in f-string expressions — must not contain backslashes (Python < 3.12 restriction)
 _CN_ZERO = 'variable    cn equal 0\n'
 
+
+def _product_cleanup(spec: SimSpec, has_radicals: bool) -> str:
+    """End of an ion stage in a run with radicals: remove exposed molecules not bonded
+    to the slab (product_cleanup.lmp), logged as ion products (cn = 0, flag 2), so they
+    are not swept during the next radical's window and counted as radical etch."""
+    if not (has_radicals and spec.ion_product_cleanup):
+        return ""
+    return ("# Remove exposed molecules not bonded to the slab: products of this ion\n"
+            "include     product_cleanup.lmp\n\n")
+
 # Injected after every thermalize.lmp call; CO2* sites form during thermalization, not before
 _CO2_DESORB = 'if "${co2_desorb_fraction} > 0" then "include co2_desorption.lmp"\n'
 
@@ -1070,7 +1080,7 @@ def _build_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
             f"\n"
             f'if "${{n_channelled}} > 0" then &\n'
             f'"variable event_count equal ${{event_count}}+1" &\n'
-            f'"delete_atoms group channelled_group" &\n'
+            f'"delete_atoms group channelled_group compress no" &\n'
             f'"run 0" &\n'
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0" &\n'
@@ -1095,7 +1105,7 @@ def _build_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
             f"\n"
             f'if "${{n_channelled}} > 0" then &\n'
             f'"variable event_count equal ${{event_count}}+1" &\n'
-            f'"delete_atoms group channelled_group" &\n'
+            f'"delete_atoms group channelled_group compress no" &\n'
             f'"run 0" &\n'
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0" &\n'
@@ -1132,7 +1142,7 @@ def _build_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
             f"\n"
             f'if "${{n_channelled}} > 0" then &\n'
             f'"variable event_count equal ${{event_count}}+1" &\n'
-            f'"delete_atoms group channelled_group" &\n'
+            f'"delete_atoms group channelled_group compress no" &\n'
             f'"run 0" &\n'
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0" &\n'
@@ -1361,11 +1371,12 @@ def get_head_lmp(spec: SimSpec) -> str:
         + (
         f"# Remove implanted {spec.species} (does not bond; would accumulate across impacts)\n"
         f"group       incident_ion type 4\n"
-        f"delete_atoms group incident_ion\n"
+        f"delete_atoms group incident_ion compress no\n"
         f"group       incident_ion delete\n"
         f"\n"
         if species["needs_zbl"] else ""
-        ) +
+        )
+        + _product_cleanup(spec, has_radicals) +
         f"# Replenish carbon if etched below baseline\n"
         f"group       carbon type 1\n"
         f"group       hydrogen type 2\n"
@@ -1678,11 +1689,12 @@ def get_head_lmp_multi_ion(spec: SimSpec) -> str:
         + (
         f"# Remove implanted ZBL ion (does not bond; would accumulate across impacts)\n"
         f"group       incident_ion type 4\n"
-        f"delete_atoms group incident_ion\n"
+        f"delete_atoms group incident_ion compress no\n"
         f"group       incident_ion delete\n"
         f"\n"
         if has_zbl else ""
-        ) +
+        )
+        + _product_cleanup(spec, has_radicals) +
         f"group       carbon type 1\n"
         f"group       hydrogen type 2\n"
         f"group       oxygen type 3\n"
@@ -1978,11 +1990,12 @@ def get_head_lmp_carbon_etch(spec: SimSpec) -> str:
         + (
         f"# Remove implanted {spec.species} ion\n"
         f"group       incident_ion type 4\n"
-        f"delete_atoms group incident_ion\n"
+        f"delete_atoms group incident_ion compress no\n"
         f"group       incident_ion delete\n"
         f"\n"
         if species["needs_zbl"] and spec.remove_ar else ""
-        ) +
+        )
+        + _product_cleanup(spec, has_radicals) +
         f"# Atom counts (no replenishment in carbon-etch)\n"
         f"group       carbon type 1\n"
         f"group       hydrogen type 2\n"
@@ -2184,11 +2197,12 @@ def get_head_lmp_carbon_etch_multi_ion(spec: SimSpec) -> str:
         + (
         f"# Remove implanted ZBL ion\n"
         f"group       incident_ion type 4\n"
-        f"delete_atoms group incident_ion\n"
+        f"delete_atoms group incident_ion compress no\n"
         f"group       incident_ion delete\n"
         f"\n"
         if has_zbl and spec.remove_ar else ""
-        ) +
+        )
+        + _product_cleanup(spec, has_radicals) +
         f"group       carbon type 1\n"
         f"group       hydrogen type 2\n"
         f"group       oxygen type 3\n"

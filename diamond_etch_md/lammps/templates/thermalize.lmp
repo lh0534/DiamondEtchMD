@@ -4,13 +4,36 @@ log therm.log # don't output all this thermostat setting to normal log. too much
 
 timestep 	0.25
 
+# Thermostatted carbon (th_c).  thermostat_slab_only = 1: only carbon bonded to the
+# slab (the anchor's cluster at cleanup_rc), so molecules not bonded to it (products
+# on their way out, physisorbed CO2) keep their velocities and cannot stretch the
+# slabs below.  0: all carbon.
+group       th_c union carbon
+if "${thermostat_slab_only} == 0" then "jump SELF th_group_done"
+compute     th_cl all cluster/atom ${cleanup_rc}
+compute     th_id anchor reduce min c_th_cl
+thermo_style custom step c_th_id
+run 0 post no
+variable    th_in atom "c_th_cl == c_th_id"
+group       th_slab variable th_in
+group       th_c clear
+group       th_c intersect carbon th_slab
+group       th_slab delete
+variable    th_in delete
+uncompute   th_id
+uncompute   th_cl
+thermo_style    custom step time v_ninject temp c_ike dt ecouple v_ate v_one_clust c_nclusts
+thermo_modify   temp mtemp
+thermo_modify   lost warn flush yes
+label       th_group_done
+
 label setuploop
-# Slabs span the carbon, not the box: zlo can run far below the atoms (an atom
+# Slabs span the thermostatted carbon, not the box: zlo can run far below the atoms (an atom
 # escaping downward drags the shrink-wrapped boundary with it), and the old
 # bottom*lat_a/sqrt(2) start drifted above the true bottom as the box grew.
-variable dz equal ceil(($(bound(carbon,zmax))-$(bound(carbon,zmin)))/16) #16 groups max to prevent going over 36 total
+variable dz equal ceil(($(bound(th_c,zmax))-$(bound(th_c,zmin)))/16) #16 groups max to prevent going over 36 total
 if "${dz}<5" then "variable dz equal 5" # minimum lat_a
-variable zbottom equal $(floor(bound(carbon,zmin)))
+variable zbottom equal $(floor(bound(th_c,zmin)))
 variable zbottom0 equal $(v_zbottom)
 # =============================== begin thermostat setting loop ==========
 label set_loop_start 
@@ -19,7 +42,7 @@ if "${zbottom} < 0" then "variable zname string _$(abs(v_zbottom))" else "variab
 variable ztop equal ${zbottom}+${dz}
 region r${zname} block INF INF INF INF ${zbottom} ${ztop} units box
 group temp_rgn region r${zname}
-group temp_c intersect temp_rgn carbon
+group temp_c intersect temp_rgn th_c
 group g${zname} subtract temp_c anchor
 group temp_c delete
 group temp_rgn delete
@@ -60,6 +83,7 @@ group g${zname} delete
 variable zbottom equal ${zbottom}+${dz}
 if "${zbottom}!=${zbottom_final}" then "jump SELF unset_loop_start"
 label unset_loop_done
+group th_c delete
 # ================================= end UNthermostat setting loop ========
 log ${log_file} append 
 

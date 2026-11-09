@@ -9,7 +9,7 @@ group       escaped region escaped
 variable    n_escaped equal count(escaped)
 if "${n_escaped} > 0" then &
 "print '${c} ${cn}: deleted ${n_escaped} atom(s) below the slab bottom' append ESCAPED_ATOMS" &
-"delete_atoms group escaped" &
+"delete_atoms group escaped compress no" &
 "change_box      all z final $(bound(all,zmin)-3.0) $(zhi) units box" &
 "region          bbox delete" &
 "region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE"
@@ -19,7 +19,8 @@ variable    n_escaped delete
 variable    z_escape delete
 
 # sweep_any_vz = 1 (set by burst cleanup) also removes detached clusters above the
-# surface that are not moving up; an index variable, so 0 unless already set.
+# surface that are not moving up; an index variable, so 0 unless already set.  It is
+# logged as the removal flag (last etch_products.txt column; product_cleanup.lmp logs 2).
 variable    sweep_any_vz index 0
 
 # Identify and remove ejected clusters.
@@ -71,8 +72,8 @@ group       clust_argon intersect argon small_clust
 # cluster at 300 K, preventing thermally-fluctuating surface fragments from being swept.
 if "$(xcm(small_clust,z) > v_top_thresh) && ($(vcm(small_clust,z) > 0) || ${sweep_any_vz}) && $(count(surf) > 0) && $(count(clust_carbon)+count(clust_hydrogen)+count(clust_oxygen)+count(clust_argon)) > 0" then &
 """if "$(count(clust_carbon)) > 0" then "variable n_c_ejected_total equal 1" """ &
-"print '${c} ${cn} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen)) $(count(clust_argon)) $(vcm(small_clust,z))' append etch_products.txt" &
-"delete_atoms group small_clust" &
+"print '${c} ${cn} $(count(clust_carbon)) $(count(clust_hydrogen)) $(count(clust_oxygen)) $(count(clust_argon)) $(vcm(small_clust,z)) ${sweep_any_vz}' append etch_products.txt" &
+"delete_atoms group small_clust compress no" &
 "change_box      all z final $(zlo) $(zhi) units box" &
 "region          bbox delete" &
 "region          bbox block EDGE EDGE EDGE EDGE EDGE EDGE" &

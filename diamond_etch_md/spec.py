@@ -124,6 +124,7 @@ class SimSpec:
     email:                  str   = ""    # empty = no mail directives
     lammps_module:          str   = "lammps/kokkos/gpu_della9_2022"
     plot_interval_hours:    int   = 12     # hours between auto-plot runs (0 = disabled)
+    render_fixed_z:         bool  = False  # final auto-plot --render: camera fixed at the initial slab (--fixed-z)
     cna_stride:             int   = 0      # CNA stride for --cna mode (0 = 1 per ML)
     nice:                   int   = 2      # SLURM --nice priority offset (≥ 1)
     remove_ar:              bool  = False  # delete Ar/ZBL ion after each impact; False keeps ion in impact_snaps
@@ -178,6 +179,12 @@ class SimSpec:
     step_depth:    Optional[float] = None  # bilayer thickness to remove, Å; None = orientation default
     # ── CO₂ auto-desorption ───────────────────────────────────────────────────
     co2_desorb_fraction: float = 0.0  # fraction of CO2-precursor C atoms force-desorbed before each thermalization
+    # ── Detached products / thermostat ───────────────────────────────────────
+    ion_product_cleanup:  bool  = True   # runs with radicals: after each ion stage, remove exposed molecules not
+                                         # bonded to the slab, logged as ion products (cn = 0, removal flag 2)
+    cleanup_bond_cutoff:  float = 2.0    # Å; a molecule with no atom this close to the slab is not bonded to it
+    cleanup_cap_radius:   float = 2.0    # Å; ...and is exposed if no slab atom above its top atom lies this close laterally
+    thermostat_slab_only: bool  = True   # thermalize.lmp thermostats only carbon bonded (cleanup_bond_cutoff) to the slab
 
     def __post_init__(self):
         # Normalize angle specs to (polar, azimuth) tuples.
@@ -365,6 +372,11 @@ def validate(spec: "SimSpec") -> None:
 
     if not (0.0 <= spec.co2_desorb_fraction <= 1.0):
         sys.exit(f"co2_desorb_fraction must be between 0 and 1; got {spec.co2_desorb_fraction}.")
+    if not (1.0 < spec.cleanup_bond_cutoff < 3.0):
+        sys.exit(f"cleanup_bond_cutoff must be between 1 and 3 Å (below the 3 Å sweep cutoff); "
+                 f"got {spec.cleanup_bond_cutoff}.")
+    if spec.cleanup_cap_radius <= 0:
+        sys.exit(f"cleanup_cap_radius must be > 0 Å; got {spec.cleanup_cap_radius}.")
 
     if spec.radical_burst:
         if spec.ml <= 0:

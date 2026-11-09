@@ -19,7 +19,7 @@ range of surface reconstructions. Produces SLURM-ready simulation directories
 
 ### 1. O₂⁺ ion etch — C(111) Pandey-Chain Reconstruction
 
-![ION_O2_111p](examples/ION_O2_111p/etch_trajectory.png)
+![ION_O2_111p](docs/readme/ION_O2_111p.gif)
 
 ```python
 # examples/ION_O2_111p.py
@@ -54,7 +54,7 @@ make_sim(spec, Path("ION_O2_111p"))
 
 ### 2. Multi-ion O⁺ etch — trimodal energy distribution
 
-![MULTI_ION_100_Oether_O_Edist](examples/MULTI_ION_100_Oether_O_Edist/etch_trajectory.png)
+![MULTI_ION_100_Oether_O_Edist](docs/readme/MULTI_ION_100_Oether_O_Edist.gif)
 
 ```python
 # examples/MULTI-ION_O_Edist.py
@@ -96,7 +96,7 @@ make_sim(spec, Path("MULTI_ION_100_Oether_O_Edist"))
 
 ### 3. RIE-etch — Ar⁺ with Maxwell-Boltzmann O• radicals
 
-![RIE_O_100_boltzRads](examples/RIE_O_100_boltzRads/etch_trajectory.png)
+![RIE_O_100_boltzRads](docs/readme/RIE_O_100_boltzRads.gif)
 
 ```python
 # examples/RIE_O_100_boltzRads.py
@@ -145,7 +145,7 @@ make_sim(spec, Path("RIE_O_100_boltzRads"))
 
 ### 4. Multi-RIE etch — Ar⁺ + O₂⁺ mixed beam
 
-![MULTI_RIE_100_Oether_Ar_O2](examples/MULTI_RIE_100_Oether_Ar_O2/etch_trajectory.png)
+![MULTI_RIE_100_Oether_Ar_O2](docs/readme/MULTI_RIE_100_Oether_Ar_O2.gif)
 
 ```python
 # examples/MULTI-RIE_Ar_O2.py
@@ -189,7 +189,7 @@ make_sim(spec, Path("MULTI_RIE_100_Oether_Ar_O2"))
 
 ### 5. Cycle etch — Ar⁺ / O₂⁺ ALE/IDLE
 
-![cycling_Ar_O2_IDLE](examples/cycling_Ar_O2_IDLE/etch_trajectory.png)
+![cycling_Ar_O2_IDLE](docs/readme/cycling_Ar_O2_IDLE.gif)
 
 ```python
 # examples/CYCLE_Ar_O2_100_IDLE.py
@@ -237,7 +237,7 @@ make_sim(spec, Path("cycling_Ar_O2_IDLE"))
 
 ### 6. 3-Phase cycle etch — Ar⁺ / O₂⁺ / O⁺
 
-![cycling_3phase_Ar_O2_O](examples/cycling_3phase_Ar_O2_O/etch_trajectory.png)
+![cycling_3phase_Ar_O2_O](docs/readme/cycling_3phase_Ar_O2_O.gif)
 
 ```python
 # examples/CYCLE_Ar_O2_O_100.py
@@ -290,6 +290,10 @@ These five modes compose with three orthogonal modifiers, documented below:
 adds a `carbon-` prefix to the mode string), **single-impact statistics mode**
 (overrides the fluence loop with repeated single-impact trials), and
 **deposition mask** (restricts where species can land).
+
+### Ion products still on the surface (RIE modes)
+
+A slow ion product — usually CO₂ — can still be lying on the surface, not bonded to it, when the ion stage ends; the sweep only removes clusters more than 3 Å from the slab and moving up. It then drifts off during the next radical's window and used to be logged as radical etch. In runs with radicals each ion stage now ends with `product_cleanup.lmp` (`ion_product_cleanup=True`, the default): every molecule with no atom within `cleanup_bond_cutoff` (2.0 Å) of the slab and no slab atom above it within `cleanup_cap_radius` (2.0 Å) laterally is deleted and logged as a product of that ion (`cn = 0`, removal flag 2 in the last `etch_products.txt` column). Molecules trapped in voids or under overhangs stay. `thermalize.lmp` now thermostats only carbon bonded to the slab (`thermostat_slab_only=True`), so leaving products are not slowed down. Atom IDs are kept on deletion (`compress no`), so atoms can be followed across `impact_snaps`.
 
 ### Radical velocity sampling (RIE modes)
 
@@ -448,7 +452,7 @@ NOTE: run directories can exceed **5 GB** for long runs at high ion energies.
 | File / directory | Content |
 |---|---|
 | `ncarbon.txt` | Atom counts after every event — used to compute etch depth vs dose |
-| `etch_products.txt` | Ejected cluster log: one row per ejected cluster (see format below) |
+| `etch_products.txt` | Ejected cluster log: one row per removed cluster, `impact cn n_C n_H n_O n_Ar vcm_z removal` (removal: 0 swept, 1 burst-end cleanup, 2 post-ion cleanup, 3 forced CO₂ desorption) |
 | `impact_snaps/` | Full atomic snapshots at every impact (positions, charges) |
 | `ML_impacts.dump` | LAMMPS dump appended once per monolayer — compact long-range trajectory |
 | `etch_event_trajs/` | Per-event atom trajectories: `event_dump_${impact}_${event_count}.dump` |
@@ -711,7 +715,18 @@ The submit script:
   target fluence is complete
 - Runs a background `diamond-etch-md-plot` loop every `plot_interval_hours`
   hours during the job (default 12 h; set to 0 to disable)
-- Runs a final CNA-strided analysis on normal completion
+- Runs a final CNA-strided analysis on normal completion, with OVITO renders
+  (`auto-plot.py --render`: `render_density_vs_fluence.gif/.mp4`, stills of the first
+  and last frames next to their density profiles in `render_density_initial.png` /
+  `render_density_final.png`, and for cycling `phase_ends_render_density.png`)
+
+Renders normally place each snapshot on its own lattice bottom, so the slab stays put
+in the frame while addfix grows it downward. `auto-plot.py --render --fixed-z` (or
+`render_fixed_z=True`, which adds the flag to the final auto-plot in `submit`) positions
+the slab once, from the initial snapshot (`impact_snaps/0.data`): the camera stays fixed,
+the surface visibly recedes, the height window grows to cover the slab's travel, and the
+density profiles beside the renders are plotted on the same axis (height above the
+initial lattice bottom). `--two-sides` adds a 90° view in either mode.
 
 ### Plain bash (no scheduler)
 
@@ -766,7 +781,7 @@ diamond_etch_md/
       make_surf_hex.lmp (hexagonal diamond, all three orientations)
       make_surf_vicinal.lmp (vicinal surfaces; reads vicinal_surface.data)
       O2.molecule, ffield.reax, lat_a.txt
-      sweep.lmp, thermalize.lmp, addfix.lmp, surface_top.lmp, lmp_env.sh
+      sweep.lmp, thermalize.lmp, addfix.lmp, surface_top.lmp, product_cleanup.lmp, lmp_env.sh
       auto-plot.py, make_impact_dump.py
   analysis/
     etch_products.py  parse_etch_products(), etch_yield()
@@ -901,10 +916,12 @@ The real-LAMMPS tests drive LAMMPS from Python on one CPU core: burst insertion 
 end-to-end RIE/cycling bursts, the gas-buildup regression) and hexagonal diamond
 (`tests/test_hex_lammps.py`: lattices, addfix replenishment, end-to-end ion impacts) and vicinal
 surfaces (`tests/test_vicinal_lammps.py`: LAMMPS lattice = the Python slab's lattice, addfix under
-the stepped slab, end-to-end ion impacts). The
+the stepped slab, end-to-end ion impacts) and the post-ion cleanup
+(`tests/test_product_cleanup_lammps.py`: which molecules are removed, the slab-only thermostat,
+an end-to-end CO₂ attribution run and an RIE smoke run). The
 end-to-end runs need the 23 Jun 2022 build that production uses (`sweep.lmp`'s atom-style
 formulas are rejected by newer builds). On Della, submit `tests/run_burst_tests.sbatch`,
-`tests/run_hex_tests.sbatch` or `tests/run_vicinal_tests.sbatch`; they clear the `SLURM_*`/`PMI*` variables for the Python process
+`tests/run_hex_tests.sbatch`, `tests/run_vicinal_tests.sbatch` or `tests/run_cleanup_tests.sbatch`; they clear the `SLURM_*`/`PMI*` variables for the Python process
 because the conda OpenMPI has no Slurm PMI support and aborts in `MPI_Init` otherwise.
 
 ---

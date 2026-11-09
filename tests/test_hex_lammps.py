@@ -110,7 +110,7 @@ def test_e2e_hex_ion_etch(o, depth, species, energy, tmp_path):
 
     Checks the run finishes cleanly, logs every impact, and starts from the
     snapped bottom grid (-5/8)."""
-    from test_burst_sampling import _needs_2022_build, _set_var, _run_sim
+    from tests.test_burst_sampling import _needs_2022_build, _set_var, _run_sim
     _needs_2022_build()
     from diamond_etch_md import SimSpec, compute_ml, make_sim, validate
     bx, by = {"hex0001": (4, 4), "hex1120": (2, 4), "hex1010": (4, 4)}[o]   # ML = 32
@@ -127,7 +127,7 @@ def test_e2e_hex_ion_etch(o, depth, species, energy, tmp_path):
     log = (d / "log1.lammps").read_text()
     assert "ERROR" not in log
     assert "BOTTOM -0.625" in log
-    assert sorted({int(r[0]) for r in nc if r[1] == 0}) == [0, 1, 2, 3, 4]
+    assert sorted({int(r[0]) for r in nc}) == [0, 1, 2, 3, 4]   # ion-only: one row per impact
 
 
 def _run_sim_ion(d, run_sim):

@@ -28,7 +28,7 @@ skips draws below a phase's radical_energy_threshold.
 from ..orientations import ORIENT, restart_bottom_lines
 from ..species import SPECIES
 from ..spec import SimSpec, CyclePhase
-from .head import RADICAL_SKIP_TAIL, _CO2_DESORB
+from .head import RADICAL_SKIP_TAIL, _CO2_DESORB, _product_cleanup
 
 
 def _phase_needs_zbl(p: CyclePhase) -> bool:
@@ -688,7 +688,7 @@ def _build_cycle_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
             f"\n"
             f'if "${{n_channelled}} > 0" then &\n'
             f'"variable event_count equal ${{event_count}}+1" &\n'
-            f'"delete_atoms group channelled_group" &\n'
+            f'"delete_atoms group channelled_group compress no" &\n'
             f'"run 0" &\n'
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0"\n'
@@ -712,7 +712,7 @@ def _build_cycle_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
             f"\n"
             f'if "${{n_channelled}} > 0" then &\n'
             f'"variable event_count equal ${{event_count}}+1" &\n'
-            f'"delete_atoms group channelled_group" &\n'
+            f'"delete_atoms group channelled_group compress no" &\n'
             f'"run 0" &\n'
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0"\n'
@@ -748,7 +748,7 @@ def _build_cycle_ion_dump_blocks(spec: SimSpec, is_carbon_etch: bool = False):
             f"\n"
             f'if "${{n_channelled}} > 0" then &\n'
             f'"variable event_count equal ${{event_count}}+1" &\n'
-            f'"delete_atoms group channelled_group" &\n'
+            f'"delete_atoms group channelled_group compress no" &\n'
             f'"run 0" &\n'
             f'"group channelled_group delete" &\n'
             f'"variable n_channelled equal 0" &\n'
@@ -805,7 +805,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
     ar_removal_block = (
         f'\nif "${{current_needs_removal}} == 1" then &\n'
         f'"group       ArRemove type 4" &\n'
-        f'"delete_atoms group ArRemove" &\n'
+        f'"delete_atoms group ArRemove compress no" &\n'
         f'"group       ArRemove delete"\n'
     ) if has_ar else ""
 
@@ -1127,6 +1127,7 @@ def get_head_lmp_cycle_etch(spec: SimSpec) -> str:
         f"unfix       2\n"
         f"unfix       3\n"
         f"\n"
+        + _product_cleanup(spec, has_any_radicals) +
         f"# Replenish carbon if etched below baseline\n"
         f"group       carbon type 1\n"
         f"group       hydrogen type 2\n"
@@ -1196,7 +1197,7 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
     ar_removal_block = (
         f'\nif "${{current_needs_removal}} == 1" then &\n'
         f'"group       ArRemove type 4" &\n'
-        f'"delete_atoms group ArRemove" &\n'
+        f'"delete_atoms group ArRemove compress no" &\n'
         f'"group       ArRemove delete"\n'
     ) if has_ar and spec.remove_ar else ""
 
@@ -1483,6 +1484,7 @@ def get_head_lmp_carbon_etch_cycle(spec: SimSpec) -> str:
         f"unfix       2\n"
         f"unfix       3\n"
         f"\n"
+        + _product_cleanup(spec, has_any_radicals) +
         f"# Atom counts (no replenishment in carbon-etch)\n"
         f"group       carbon type 1\n"
         f"group       hydrogen type 2\n"

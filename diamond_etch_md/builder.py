@@ -220,7 +220,7 @@ def _make_sim_carbon_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
         (outdir / "init_thermalization.lmp").write_text(get_init_thermalization_lmp(spec.initial_thermalization_steps))
 
     # Copy simulation-control scripts (not symlinked so template edits don't affect running jobs)
-    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp", "surface_top.lmp"):
+    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp", "surface_top.lmp", "product_cleanup.lmp"):
         dst = outdir / fname
         if not dst.exists():
             shutil.copy(_TEMPLATES / fname, dst)
@@ -349,7 +349,7 @@ def _make_sim_diamond_etch(spec: SimSpec, outdir: Path, mode: str) -> None:
     _copy_make_surf(spec, outdir)
 
     # Copy simulation-control scripts (not symlinked so template edits don't affect running jobs)
-    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp", "surface_top.lmp"):
+    for fname in ("sweep.lmp", "thermalize.lmp", "addfix.lmp", "surface_top.lmp", "product_cleanup.lmp"):
         dst = outdir / fname
         if not dst.exists():
             shutil.copy(_TEMPLATES / fname, dst)

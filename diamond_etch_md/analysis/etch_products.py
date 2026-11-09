@@ -5,7 +5,15 @@ etch_products.txt format
 ------------------------
 Each line corresponds to one ejected cluster detected during the simulation.
 
-Current 5-column format (written by sweep.lmp):
+Current 8-column format (written by sweep.lmp and product_cleanup.lmp):
+  impact  cn  n_C  n_H  n_O  n_Ar  vcm_z  removal
+    cn       0 = ion stage, k > 0 = k-th radical (burst: 1)
+    removal  0 = swept (left the surface moving up), 1 = burst-end cleanup,
+             2 = post-ion cleanup (not bonded to the slab, exposed, not yet left)
+             3 = forced CO2 desorption (co2_desorption.lmp)
+
+Older formats: 7 columns (no removal flag, = 0), 6 (no vcm_z), and
+5-column format:
   impact  n_C  n_H  n_O  n_Ar
 
 Legacy 4-column format (runs before Ar tracking):
@@ -32,7 +40,8 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
 
     Returns
     -------
-    list of dict with keys: impact (int), n_C (int), n_H (int), n_O (int), n_Ar (int)
+    list of dict with keys: impact (int), cn (int), n_C, n_H, n_O, n_Ar (int),
+    vcm_z (float or None), removal (int; 0 where the file has no flag column)
     """
     records = []
     for line in Path(path).read_text().splitlines():
@@ -49,11 +58,12 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                     "n_H":   int(m.group(2)),
                     "n_O":   int(m.group(3)),
                     "n_Ar":  0,
+                    "removal": 0,
                 })
             continue
         parts = line.split()
         if len(parts) >= 7:
-            # 7-column format: impact cn n_C n_H n_O n_Ar vcm_z
+            # 7/8-column format: impact cn n_C n_H n_O n_Ar vcm_z [removal]
             records.append({
                 "impact": int(parts[0]),
                 "cn":     int(parts[1]),
@@ -62,6 +72,7 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                 "n_O":    int(parts[4]),
                 "n_Ar":   int(parts[5]),
                 "vcm_z":  float(parts[6]),
+                "removal": int(float(parts[7])) if len(parts) >= 8 else 0,
             })
         elif len(parts) >= 6:
             # 6-column format: impact cn n_C n_H n_O n_Ar
@@ -73,6 +84,7 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                 "n_O":    int(parts[4]),
                 "n_Ar":   int(parts[5]),
                 "vcm_z":  None,
+                "removal": 0,
             })
         elif len(parts) >= 5:
             records.append({
@@ -83,6 +95,7 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                 "n_O":    int(parts[3]),
                 "n_Ar":   int(parts[4]),
                 "vcm_z":  None,
+                "removal": 0,
             })
         elif len(parts) >= 4:
             records.append({
@@ -93,6 +106,7 @@ def parse_etch_products(path) -> List[Dict[str, Any]]:
                 "n_O":    int(parts[3]),
                 "n_Ar":   0,
                 "vcm_z":  None,
+                "removal": 0,
             })
     return records
 

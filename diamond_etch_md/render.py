@@ -602,7 +602,7 @@ _OVITO_PYTHON = "/usr/licensed/anaconda3/2024.10/bin/python3"
 
 
 def _run_render_jobs(out_dir, jobs, preset="standard", size=None, views=(0,),
-                     verbose=True):
+                     verbose=True, z_ref=None):
     """Render snapshot jobs [{data, png, meta, group}] in one xvfb/OVITO subprocess.
 
     Each group shares one height window (Å above the lowest C atom, from just
@@ -610,6 +610,10 @@ def _run_render_jobs(out_dir, jobs, preset="standard", size=None, views=(0,),
     sidecars give each image's extent on that axis.  `views` are camera
     rotations (deg) about the vertical axis; view 0 goes to <png>, others to
     <png stem>_<angle>.png, all listed in the sidecar under "views".
+
+    z_ref (Å, fixed-z mode): heights are measured from this fixed z (the initial
+    lattice bottom) instead of each snapshot's own lowest C atom, so the camera
+    does not follow the slab; the window spans every snapshot of the group.
     """
     import json
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -618,7 +622,8 @@ def _run_render_jobs(out_dir, jobs, preset="standard", size=None, views=(0,),
     job_file = out_dir / "_jobs.json"
     job_file.write_text(json.dumps({"scene": str(scene), "jobs": jobs,
                                     "size": list(size) if size else None,
-                                    "views": [int(v) for v in views]}))
+                                    "views": [int(v) for v in views],
+                                    "z_ref": z_ref}))
     pkg_root = str(Path(__file__).resolve().parents[1])
     code = (f"import sys; sys.path.insert(0, {pkg_root!r}); "
             f"from diamond_etch_md.render import _render_worker; "
@@ -642,9 +647,26 @@ def _run_render_jobs(out_dir, jobs, preset="standard", size=None, views=(0,),
     return [Path(j["png"]) for j in jobs]
 
 
-def render_phase_ends(sim_dir, spec, ml, preset="standard", views=(0,), verbose=True):
+def _initial_z_ref(sim_dir, fixed_z, verbose=True):
+    """Fixed-z reference: the lowest C atom of the initial slab (impact_snaps/0.data),
+    or None (each snapshot on its own lattice bottom)."""
+    if not fixed_z:
+        return None
+    from .analysis.density import read_snapshot, _snap_path, C_TYPE
+    path = _snap_path(sim_dir, 0)
+    if not path.exists():
+        if verbose:
+            print(f"  --fixed-z: {path} not found; positioning each frame on its own bottom")
+        return None
+    _, z, t = read_snapshot(path)
+    return float(z[t == C_TYPE].min())
+
+
+def render_phase_ends(sim_dir, spec, ml, preset="standard", views=(0,), verbose=True,
+                      fixed_z=False):
     """Render every completed phase-end snapshot; one height window per cycle.
-    Writes renders/phase_ends/<stem>.png + .json.  Returns the PNG paths."""
+    Writes renders/phase_ends/<stem>.png + .json.  Returns the PNG paths.
+    fixed_z: camera fixed at the initial slab (see _run_render_jobs)."""
     from .analysis.density import phase_end_snapshots, render_stem, RENDER_DIR
     sim_dir = Path(sim_dir).resolve()
     out_dir = sim_dir / RENDER_DIR
@@ -652,14 +674,16 @@ def render_phase_ends(sim_dir, spec, ml, preset="standard", views=(0,), verbose=
              "png": str(out_dir / f"{render_stem(c, pi, d)}.png"),
              "meta": str(out_dir / f"{render_stem(c, pi, d)}.json")}
             for c, pi, d, path in phase_end_snapshots(sim_dir, spec, ml)]
-    return _run_render_jobs(out_dir, jobs, preset, views=views, verbose=verbose) if jobs else []
+    return (_run_render_jobs(out_dir, jobs, preset, views=views, verbose=verbose,
+                             z_ref=_initial_z_ref(sim_dir, fixed_z, verbose)) if jobs else [])
 
 
 def render_ml_frames(sim_dir, ml, preset="standard", size=(400, 800), views=(0,),
-                     verbose=True):
+                     verbose=True, fixed_z=False):
     """Render the movie frames (analysis.density.movie_impacts: one per ML, or
     finer for short runs), all on one height window.
-    Writes renders/ml_frames/<impact>.png + .json.  Returns the PNG paths."""
+    Writes renders/ml_frames/<impact>.png + .json.  Returns the PNG paths.
+    fixed_z: camera fixed at the initial slab (see _run_render_jobs)."""
     from .analysis.density import _snap_path, movie_impacts, _frame_stem, ML_FRAME_DIR
     sim_dir = Path(sim_dir).resolve()
     out_dir = sim_dir / ML_FRAME_DIR
@@ -670,7 +694,8 @@ def render_ml_frames(sim_dir, ml, preset="standard", size=(400, 800), views=(0,)
              "png": str(out_dir / f"{_frame_stem(imp)}.png"),
              "meta": str(out_dir / f"{_frame_stem(imp)}.json")}
             for imp in movie_impacts(sim_dir, ml)]
-    return (_run_render_jobs(out_dir, jobs, preset, size=size, views=views, verbose=verbose)
+    return (_run_render_jobs(out_dir, jobs, preset, size=size, views=views, verbose=verbose,
+                             z_ref=_initial_z_ref(sim_dir, fixed_z, verbose))
             if jobs else [])
 
 
@@ -706,6 +731,7 @@ def _render_worker(job_file):
         base_pos = list(orbit + rot @ (pos0 - orbit))
 
     views = cfg.get("views") or [0]
+    z_ref = cfg.get("z_ref")                    # None: each snapshot on its own bottom
 
     def view_png(job, angle):
         return job["png"] if angle == 0 else str(
@@ -723,9 +749,12 @@ def _render_worker(job_file):
         z_bot = float(z[types == 1].min())
         top_i = int(np.argmax(z))
         r = np.array([radius.get(int(t), 0.5) for t in types])
+        cell = np.asarray(p.source.data.cell)
         info.append(dict(z_bot=z_bot, h_top=float(z[top_i]) - z_bot,
                          r_top=radius.get(int(types[top_i]), 0.5),
-                         z_low=float((z - r).min())))
+                         z_low=float((z - r).min()),
+                         # widest lateral cell edge: either one faces the camera in some view
+                         width=float(max(np.linalg.norm(cell[:2, 0]), np.linalg.norm(cell[:2, 1])))))
 
     def render(cam_z, fn):
         pos = list(base_pos)
@@ -778,23 +807,41 @@ def _render_worker(job_file):
     summary = []
     for g in sorted({j["group"] for j in cfg["jobs"]}):
         group = [(j, i) for j, i in zip(cfg["jobs"], info) if j["group"] == g]
-        h_lo = -1.0
-        h_hi = max(i["h_top"] + i["r_top"] for _, i in group) + 3.0
+        # height origin of each snapshot: its own lattice bottom, or (fixed z) the
+        # initial one, so the slab is positioned once and the window covers its travel
+        base = {id(j): (i["z_bot"] if z_ref is None else z_ref) for j, i in group}
+        h_lo = min(i["z_bot"] - base[id(j)] for j, i in group) - 1.0
+        h_hi = max(i["z_bot"] - base[id(j)] + i["h_top"] + i["r_top"] for j, i in group) + 3.0
+        # The window is set by height and the image aspect is fixed, so a shallow slab
+        # in a wide box would be cropped at the sides: extend the window upward (empty
+        # space above the surface, as if the box were taller) until the box, plus bonds
+        # drawn past the cell edges, fits across.
+        need_w = 1.06 * max(i["width"] for _, i in group) + 1.0
+        h_hi = max(h_hi, h_lo + need_w * H / W)
         h_center = (h_lo + h_hi) / 2
         vp.fov = (h_hi - h_lo) * W / H
-        metas = {id(j): {"z_bottom": i["z_bot"], "snapshot": j["data"], "views": {}}
+        metas = {id(j): {"z_bottom": i["z_bot"], "snapshot": j["data"], "views": {},
+                         **({} if z_ref is None else {"z_ref": z_ref})}
                  for j, i in group}
         # The camera is horizontal, so spinning it about the vertical axis
         # leaves the height->row mapping unchanged: calibrate once and share
         # it so every view sits on the same height axis.
         set_view(views[0])
-        scale, offset = calibrate(*max(group, key=lambda ji: ji[1]["h_top"]))
+        cal_job = max(group, key=lambda ji: ji[1]["h_top"])
+        scale, offset = calibrate(*cal_job)
+        for _ in range(2):
+            # correct the zoom if the measured px/Å misses the target window
+            err = (H / scale) / (h_hi - h_lo)
+            if abs(err - 1) < 0.02:
+                break
+            vp.fov /= err
+            scale, offset = calibrate(*cal_job)
         vis_h = H / scale
         for angle in views:
             set_view(angle)
             for job, i in group:
                 p.source.load(job["data"], atom_style="charge")
-                render(i["z_bot"] + h_center - offset, view_png(job, angle))
+                render(base[id(job)] + h_center - offset, view_png(job, angle))
                 metas[id(job)]["views"][str(angle)] = {
                     "png": Path(view_png(job, angle)).name,
                     "h_lo": h_center - vis_h / 2, "h_hi": h_center + vis_h / 2,

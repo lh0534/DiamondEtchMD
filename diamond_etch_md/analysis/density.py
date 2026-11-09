@@ -60,7 +60,7 @@ _SNAP_RE = re.compile(r'^(\d+)(?:_0)?\.data$')
 
 def movie_impacts(sim_dir, ml, min_frames=100):
     """Impacts to use as movie frames: one per ML, or finer (down to every
-    impact) when that gives fewer than min_frames."""
+    impact) when that gives fewer than min_frames; always ends on the last snapshot."""
     snaps = Path(sim_dir) / 'impact_snaps'
     if not snaps.is_dir():
         return []
@@ -69,7 +69,8 @@ def movie_impacts(sim_dir, ml, min_frames=100):
         return []
     last = max(have)
     stride = max(1, min(ml, last // min_frames))
-    return [i for i in range(0, last + 1, stride) if i in have]
+    out = [i for i in range(0, last + 1, stride) if i in have]
+    return out if out[-1] == last else out + [last]
 
 
 def _banner(spec, ml, impact, colors):
@@ -108,17 +109,26 @@ def read_snapshot(path):
     return (xhi - xlo) * (yhi - ylo), rows[:, 5], rows[:, 1].astype(int)
 
 
-def density_profile(z, types, area_A2, lat_a, h_max=None, orientation=None):
+def density_profile(z, types, area_A2, lat_a, h_max=None, orientation=None, z_ref=None):
     """Return (h, rho_C, rho_O): Gaussian-KDE densities (orientation-dependent
     sigma, see _common.kde_density) normalized to bulk diamond, vs height in Å
-    above the lowest C atom."""
-    h = z - z[types == C_TYPE].min()
+    above the lowest C atom, or above z_ref (fixed-z renders: the initial lattice
+    bottom) — the same profile, shifted by (lowest C atom - z_ref)."""
+    z_bot = z[types == C_TYPE].min()
+    h = z - z_bot
     top = h_max if h_max is not None else h.max() + 1.0
     grid, rc = kde_density(h[types == C_TYPE], area_A2, lat_a, top,
                            orientation=orientation)
     _, ro = kde_density(h[types == O_TYPE], area_A2, lat_a, top,
                         orientation=orientation, continue_lattice=False)
+    if z_ref is not None:
+        grid = grid + (z_bot - z_ref)
     return grid, rc, ro
+
+
+def _height_label(z_ref):
+    return ('Height above initial lattice bottom (Å)' if z_ref is not None
+            else 'Height above lattice bottom (Å)')
 
 
 def _crop_cols(img, pad=3):
@@ -365,7 +375,7 @@ def _frame_stem(impact):
 
 def _trajectory_axes(ax, sim_dir, spec, ml, lat_a, cna_records):
     """Draw the etch_trajectory.png plot into ax (same inputs as make_plots);
-    return the Line2D artists to reveal progressively."""
+    return its Line2D artists (on ax and any twin axes)."""
     from .plot import plot_etch, _parse_nc, _parse_ep, _parse_ml_dump, _ml_areal_factor
     sim_dir = Path(sim_dir)
     nc, _ = _parse_nc(sim_dir / 'ncarbon.txt')
@@ -385,11 +395,10 @@ def _trajectory_axes(ax, sim_dir, spec, ml, lat_a, cna_records):
 def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
                            out_stem='render_density_vs_fluence'):
     """Movie: OVITO side view(s) | C/O profile (shared height axis) |
-    etch_trajectory plot revealed up to the current dose.  Needs
-    renders/ml_frames/ from render.render_ml_frames.  Returns written paths."""
+    the full etch_trajectory plot, with a marker on each data curve tracking the
+    current dose.  Needs renders/ml_frames/ from render.render_ml_frames.
+    Returns written paths."""
     from matplotlib.animation import FuncAnimation
-    from matplotlib.patches import Rectangle
-    from matplotlib.transforms import blended_transform_factory
     from PIL import Image
     sim_dir = Path(sim_dir)
     frames = []
@@ -397,13 +406,16 @@ def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
         meta = sim_dir / ML_FRAME_DIR / f'{_frame_stem(imp)}.json'
         if not meta.exists():
             continue
-        views = _views(json.loads(meta.read_text()), meta.parent)
+        m = json.loads(meta.read_text())
+        views = _views(m, meta.parent)
         if not all(v[1].exists() for v in views):
             continue
+        z_ref = m.get('z_ref')                  # set by render_ml_frames(fixed_z=True)
         area, z, t = read_snapshot(_snap_path(sim_dir, imp))
         frames.append((imp, [v[1] for v in views], views,
                        density_profile(z, t, area, lat_a,
-                                       orientation=getattr(spec, 'orientation', None))))
+                                       orientation=getattr(spec, 'orientation', None),
+                                       z_ref=z_ref)))
     if len(frames) < 2:
         return []
     views0 = frames[0][2]
@@ -435,7 +447,7 @@ def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
     for ax, a, w, (angle, *_rest) in zip(ax_imgs, first, widths, views0):
         ims.append(ax.imshow(a, extent=[0, w, h_lo, h_hi], aspect='auto'))
         _style_img_axes(ax, angle if n_img > 1 else None)
-    ax_imgs[0].set_ylabel('Height above lattice bottom (Å)')
+    ax_imgs[0].set_ylabel(_height_label(z_ref))
     ax_imgs[0].set_ylim(h_lo, h_hi)
     h, rc, ro = frames[0][3]
     line_c, = ax_p.plot(rc, h, color=C_COLOR, lw=2, label='C')
@@ -445,19 +457,31 @@ def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
     ax_p.set_xlabel(r'$\rho/\rho_{\mathrm{dia}}$')
     ax_p.legend(frameon=False, loc='upper right')
 
-    reveal = _trajectory_axes(ax_t, sim_dir, spec, ml, lat_a, cna_records)
+    lines = _trajectory_axes(ax_t, sim_dir, spec, ml, lat_a, cna_records)
     from .plot import _ml_areal_factor
     u = _ml_areal_factor(sim_dir, ml) or 1.0     # trajectory x-axis units per ML
-    x0 = ax_t.get_xlim()[0]
-    clip_tf = blended_transform_factory(ax_t.transData, ax_t.transAxes)
+    # one marker per data curve (not the yield fit), on the curve's own (twin) axes
+    trackers = []
+    for ln in lines:
+        lab = ln.get_label()
+        x = np.asarray(ln.get_xdata(), dtype=float)
+        if lab.startswith('_') or lab.startswith('Yield') or len(x) < 2:
+            continue
+        y = np.asarray(ln.get_ydata(), dtype=float)
+        mk, = ln.axes.plot([], [], 'o', ms=9, color=ln.get_color(), mec='white', mew=1.2,
+                           zorder=6, clip_on=False)
+        trackers.append((mk, x, y, ln.get_drawstyle().startswith('steps-post')))
 
-    def reveal_to(dose):
-        # matplotlib caches clip paths, so a fresh rectangle is set every frame
-        clip = Rectangle((x0, 0), dose - x0, 1, transform=clip_tf)
-        for ln in reveal:
-            ln.set_clip_path(clip)
+    def track(dose):
+        for mk, x, y, steps in trackers:
+            if dose < x[0] or dose > x[-1]:
+                mk.set_data([], [])
+            elif steps:                          # value of the step at this dose
+                mk.set_data([dose], [y[max(np.searchsorted(x, dose, side='right') - 1, 0)]])
+            else:
+                mk.set_data([dose], [np.interp(dose, x, y)])
 
-    reveal_to(frames[0][0] / ml * u)
+    track(frames[0][0] / ml * u)
     cursor = ax_t.axvline(0, color='0.3', lw=1.0, zorder=5)
 
     banner = fig.text(0.07, 0.86, '', ha='left', va='bottom', fontsize=12,
@@ -470,17 +494,67 @@ def animate_render_density(sim_dir, spec, ml, lat_a, cna_records=None, fps=10,
         line_c.set_data(rc, h)
         line_o.set_data(ro, h)
         dose = imp / ml * u
-        reveal_to(dose)
+        track(dose)
         cursor.set_xdata([dose, dose])
         text, color = _banner(spec, ml, imp, colors)
         banner.set_text(text)
         banner.set_color(color)
-        return (*ims, line_c, line_o, cursor, banner)
+        return (*ims, line_c, line_o, cursor, banner, *(t[0] for t in trackers))
 
     anim = FuncAnimation(fig, update, frames=len(frames), blit=False)
     written = _save_movie(anim, sim_dir, out_stem, fps, gif_width=1100, mp4_dpi=120)
     plt.close(fig)
     return written
+
+
+def plot_render_density_frame(sim_dir, spec, ml, lat_a, impact, title, spec_summary=None):
+    """One movie frame as a still: OVITO side view(s) | C/O density profile on a
+    shared height axis, cropped to this snapshot (just below its lattice bottom to
+    3 Å above its highest atom).  Reads the renders/ml_frames/ render of `impact`
+    (render.render_ml_frames); returns the figure, or None if it is missing."""
+    from PIL import Image
+    sim_dir = Path(sim_dir)
+    meta_p = sim_dir / ML_FRAME_DIR / f'{_frame_stem(impact)}.json'
+    if not meta_p.exists():
+        return None
+    meta = json.loads(meta_p.read_text())
+    views = _views(meta, meta_p.parent)
+    if not all(v[1].exists() for v in views):
+        return None
+    z_ref = meta.get('z_ref')
+    area, z, t = read_snapshot(_snap_path(sim_dir, impact))
+    h, rc, ro = density_profile(z, t, area, lat_a,
+                                orientation=getattr(spec, 'orientation', None), z_ref=z_ref)
+    base = z[t == C_TYPE].min() if z_ref is None else z_ref
+    lo, hi = z[t == C_TYPE].min() - base - 1.0, z.max() - base + 3.0
+
+    imgs = []
+    for angle, png, h_lo, h_hi, width in views:
+        a = np.asarray(Image.open(png))
+        c0, c1 = _crop_cols(a)
+        imgs.append((angle, a[:, c0:c1], (c1 - c0) / a.shape[1] * width, h_lo, h_hi))
+        # a shallow slab would come out squat: keep at least the render's own aspect
+        # (as tall as the full-width image), with empty space above the surface
+        hi = min(max(hi, lo + width * a.shape[0] / a.shape[1]), h_hi)
+    height = 6.0
+    ratios = [w / (hi - lo) * 0.8 * height for _, _, w, _, _ in imgs] + [2.6]
+    fig, axs = plt.subplots(1, len(imgs) + 1, figsize=(sum(ratios) + 1.2, height),
+                            sharey=True, gridspec_kw={'width_ratios': ratios, 'wspace': 0.03})
+    for ax, (angle, a, w, h_lo, h_hi) in zip(axs, imgs):
+        ax.imshow(a, extent=[0, w, h_lo, h_hi], aspect='auto')
+        _style_img_axes(ax, angle if len(imgs) > 1 else None)
+    ax_p = axs[-1]
+    _draw_profile(ax_p, h, rc, ro)
+    ax_p.set_xlabel(r'$\rho/\rho_{\mathrm{dia}}$')
+    # above the panel: the C profile can fill the top right (surface peak)
+    ax_p.legend(frameon=False, loc='lower center', bbox_to_anchor=(0.5, 1.0), ncol=2)
+    axs[0].set_ylim(lo, hi)
+    axs[0].set_ylabel(_height_label(z_ref))
+    dose = impact / ml
+    fig.subplots_adjust(top=0.86)
+    _suptitle(fig, spec_summary, f"{title} — {dose:g} ML" if float(dose).is_integer()
+              else f"{title} — {dose:.2f} ML")
+    return fig
 
 
 def plot_phase_end_render_density(sim_dir, spec, ml, lat_a, spec_summary=None):
@@ -498,17 +572,19 @@ def plot_phase_end_render_density(sim_dir, spec, ml, lat_a, spec_summary=None):
     for cyc, pi, dose, path in snaps:
         meta = sim_dir / RENDER_DIR / f'{render_stem(cyc, pi, dose)}.json'
         if meta.exists():
-            views = _views(json.loads(meta.read_text()), meta.parent)
+            m = json.loads(meta.read_text())
+            views = _views(m, meta.parent)
             if all(v[1].exists() for v in views):
-                cells.append((cyc, pi, dose, path, views))
+                cells.append((cyc, pi, dose, path, views, m.get('z_ref')))
     if not cells:
         return None
     n_rows = max(c[0] for c in cells) + 1
     n_ph = len(spec.phases)
-    n_img = max(len(c[-1]) for c in cells)
+    n_img = max(len(c[4]) for c in cells)
     per = n_img + 2
+    z_ref = cells[0][5]
     imgs = {}
-    for cyc, pi, dose, path, views in cells:
+    for cyc, pi, dose, path, views, _ in cells:
         for vi, (angle, png, lo, hi, width) in enumerate(views):
             a = np.asarray(Image.open(png))
             c0, c1 = _crop_cols(a)
@@ -516,7 +592,7 @@ def plot_phase_end_render_density(sim_dir, spec, ml, lat_a, spec_summary=None):
     img_aspect = max(w / (hi - lo) for _, w, lo, hi in imgs.values())
     fig, axes = _grid_axes(n_rows, n_ph, None, 4.6, pair=True, img_aspect=img_aspect,
                            n_img=n_img)
-    for cyc, pi, dose, path, views in cells:
+    for cyc, pi, dose, path, views, zr in cells:
         for vi, (angle, *_rest) in enumerate(views):
             a, w, lo, hi = imgs[(cyc, pi, vi)]
             ax_img = axes[cyc][per * pi + vi]
@@ -524,20 +600,20 @@ def plot_phase_end_render_density(sim_dir, spec, ml, lat_a, spec_summary=None):
             _style_img_axes(ax_img, angle if n_img > 1 else None)
         area, z, t = read_snapshot(path)
         h, rc, ro = density_profile(z, t, area, lat_a,
-                                    orientation=getattr(spec, 'orientation', None))
+                                    orientation=getattr(spec, 'orientation', None), z_ref=zr)
         ax_p = axes[cyc][per * pi + n_img]
         _draw_profile(ax_p, h, rc, ro)
         ax_p.text(0.97, 0.97, f"{dose:g} ML", transform=ax_p.transAxes,
                   ha='right', va='top', fontsize=10, color='0.35')
     done = {(c[0], c[1]) for c in cells}
     for cyc in range(n_rows):
-        row = [v for c, *_, views in cells if c == cyc for v in views]
+        row = [v for c, _, _, _, views, _ in cells if c == cyc for v in views]
         axes[cyc][0].set_ylim(min(v[2] for v in row), max(v[3] for v in row))
         for pi in range(n_ph):
             if (cyc, pi) not in done:
                 for k in range(n_img + 1):
                     axes[cyc][per * pi + k].axis('off')
-    _label_grid(fig, axes, spec, done, per, n_img, 'Height above lattice bottom (Å)')
+    _label_grid(fig, axes, spec, done, per, n_img, _height_label(z_ref))
     _suptitle(fig, spec_summary, "End-of-Phase Structure and Density")
     return fig
 

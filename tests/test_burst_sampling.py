@@ -280,7 +280,11 @@ def _run_sim_in_cwd(d):
         "-var", "n_events", "0", "-var", "n_lat_0", n_lat_0])
     L.file("head.lmp")
     L.close()
-    nc = np.loadtxt(d / "ncarbon.txt", ndmin=2)
+    try:
+        nc = np.loadtxt(d / "ncarbon.txt", ndmin=2)
+    except ValueError:
+        # ion-only runs: make_surf's 5-column first row, then 4-column rows
+        nc = [[float(v) for v in l.split()] for l in (d / "ncarbon.txt").read_text().splitlines() if l.strip()]
     rows = np.loadtxt(d / "radical_log.txt", ndmin=2)
     return nc, rows
 

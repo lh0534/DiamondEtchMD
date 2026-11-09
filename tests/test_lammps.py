@@ -1434,7 +1434,9 @@ def test_thermalize_and_sweep_templates_guard_against_escaped_atoms():
     from pathlib import Path
     tdir = Path(__file__).parents[1] / "diamond_etch_md" / "lammps" / "templates"
     therm = (tdir / "thermalize.lmp").read_text()
-    assert "variable zbottom equal $(floor(bound(carbon,zmin)))" in therm
+    # slabs start at the lowest thermostatted carbon (th_c: carbon, or its slab-bonded part)
+    assert "variable zbottom equal $(floor(bound(th_c,zmin)))" in therm
+    assert "group       th_c union carbon" in therm
     assert 'jump SELF unset_loop_done' in therm and "label unset_loop_done" in therm
     sweep = (tdir / "sweep.lmp").read_text()
     assert "bound(anchor,zmin)-2.0" in sweep and "delete_atoms group escaped" in sweep

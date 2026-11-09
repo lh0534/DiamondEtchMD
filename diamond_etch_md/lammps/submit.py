@@ -70,11 +70,11 @@ def _plot_kill_block() -> str:
     )
 
 
-def _final_plot_block(ml_var: str = "$ML") -> str:
+def _final_plot_block(ml_var: str = "$ML", fixed_z: bool = False) -> str:
     """Run a final plot with CNA strided to 1-per-ML after normal completion."""
     return (
         f"echo \"Running final analysis plots ...\"\n"
-        f"python3 auto-plot.py --cna-stride {ml_var} --render 2>>plot.log || true\n"
+        f"python3 auto-plot.py --cna-stride {ml_var} --render{' --fixed-z' if fixed_z else ''} 2>>plot.log || true\n"
     )
 
 
@@ -94,7 +94,7 @@ def get_submit_script(spec: SimSpec) -> str:
     cna_loop  = _cna_loop_block(spec.plot_interval_hours)
     dump_loop = _dump_loop_block(spec.plot_interval_hours)
     plot_kill = _plot_kill_block()
-    final_plot = _final_plot_block()
+    final_plot = _final_plot_block(fixed_z=spec.render_fixed_z)
 
     is_rie = spec.flux_ratio > 0
 
@@ -237,7 +237,7 @@ def get_submit_script_carbon_etch(spec: "SimSpec") -> str:
     cna_loop   = _cna_loop_block(spec.plot_interval_hours)
     dump_loop  = _dump_loop_block(spec.plot_interval_hours)
     plot_kill  = _plot_kill_block()
-    final_plot = _final_plot_block()
+    final_plot = _final_plot_block(fixed_z=spec.render_fixed_z)
 
     is_rie = spec.flux_ratio > 0 or (
         spec.phases is not None and any(p.flux_ratio > 0 for p in spec.phases)
@@ -527,7 +527,7 @@ def get_submit_script_cycle_etch(spec: SimSpec) -> str:
     cna_loop  = _cna_loop_block(spec.plot_interval_hours)
     dump_loop = _dump_loop_block(spec.plot_interval_hours)
     plot_kill = _plot_kill_block()
-    final_plot = _final_plot_block()
+    final_plot = _final_plot_block(fixed_z=spec.render_fixed_z)
 
     return (
         f"#!/bin/bash\n"
